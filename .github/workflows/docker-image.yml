@@ -35,5 +35,5 @@ jobs:
         file: ./Dockerfile
         push: ${{ github.event_name != 'pull_request' }} # Only pushes on main branch commits, not PRs
         tags: |
-          ${{ secrets.DOCKERHUB_USERNAME }}/my-image-name:${{ steps.date.outputs.ts }}
-          ${{ secrets.DOCKERHUB_USERNAME }}/my-image-name:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/streamzone:${{ steps.date.outputs.ts }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/streamzone:latest
