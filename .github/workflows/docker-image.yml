@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Grants the runner permissions to write to your GitHub Packages tab
+permissions:
+  packages: write
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,26 +19,37 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # Logs into Docker Hub using the secrets you created in your settings
+    # 1. Log in to Docker Hub (using your repository secrets)
     - name: Log in to Docker Hub
-      if: github.event_name != 'pull_request' # Skips login for PRs from forks
+      if: github.event_name != 'pull_request'
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    # Generates a clean timestamp or tag format automatically
+    # 2. Log in to GitHub Container Registry (uses built-in automatic token)
+    - name: Log in to GitHub Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # 3. Generate the timestamp tag
     - name: Get current timestamp
       id: date
       run: echo "ts=$(date +%s)" >> $GITHUB_OUTPUT
 
-    # Builds the image and pushes it directly to your Docker Hub repository
+    # 4. Build and push to BOTH destinations simultaneously
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./Dockerfile
-        push: ${{ github.event_name != 'pull_request' }} # Only pushes on main branch commits, not PRs
+        push: ${{ github.event_name != 'pull_request' }}
         tags: |
           ${{ secrets.DOCKERHUB_USERNAME }}/streamzone:${{ steps.date.outputs.ts }}
           ${{ secrets.DOCKERHUB_USERNAME }}/streamzone:latest
+          ghcr.io/${{ github.repository_owner }}/streamzone:${{ steps.date.outputs.ts }}
+          ghcr.io/${{ github.repository_owner }}/streamzone:latest
