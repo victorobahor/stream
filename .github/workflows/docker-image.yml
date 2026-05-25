@@ -7,12 +7,33 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Logs into Docker Hub using the secrets you created in your settings
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request' # Skips login for PRs from forks
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    # Generates a clean timestamp or tag format automatically
+    - name: Get current timestamp
+      id: date
+      run: echo "ts=$(date +%s)" >> $GITHUB_OUTPUT
+
+    # Builds the image and pushes it directly to your Docker Hub repository
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: ${{ github.event_name != 'pull_request' }} # Only pushes on main branch commits, not PRs
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/my-image-name:${{ steps.date.outputs.ts }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/my-image-name:latest
