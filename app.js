@@ -79,9 +79,16 @@ function isMatchLive(match) {
 }
 
 function isEPLMatch(match) {
-  if ((match.category || '').toLowerCase() !== 'football') return false;
+  if (match.isEPL !== undefined) return match.isEPL;
+  if ((match.category || '').toLowerCase() !== 'football') {
+    match.isEPL = false;
+    return false;
+  }
   const title = (match.title || '').toLowerCase();
-  if (title.includes('premier league') || title.includes('epl')) return true;
+  if (title.includes('premier league') || title.includes('epl')) {
+    match.isEPL = true;
+    return true;
+  }
   const eplTeams = [
     'arsenal', 'aston villa', 'brentford', 'brighton', 'bournemouth', 'chelsea', 
     'crystal palace', 'everton', 'fulham', 'ipswich', 'leicester', 'liverpool', 
@@ -91,7 +98,8 @@ function isEPLMatch(match) {
   ];
   const home = (match.teams?.home?.name || '').toLowerCase();
   const away = (match.teams?.away?.name || '').toLowerCase();
-  return eplTeams.some(t => home.includes(t) || away.includes(t));
+  match.isEPL = eplTeams.some(t => home.includes(t) || away.includes(t));
+  return match.isEPL;
 }
 
 
