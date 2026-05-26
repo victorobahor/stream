@@ -178,10 +178,10 @@ async function loadMatches() {
     }
   } else {
     switch (cat) {
-      case 'live':    endpoint = `/api/matches/live`; break;
-      case 'today':   endpoint = `/api/matches/all-today`; break;
+      case 'live': endpoint = `/api/matches/live`; break;
+      case 'today': endpoint = `/api/matches/all-today`; break;
       case 'popular': endpoint = `/api/matches/all/popular`; break;
-      default:        endpoint = `/api/matches/all`; break;
+      default: endpoint = `/api/matches/all`; break;
     }
   }
 
@@ -277,7 +277,7 @@ function renderSportsBar() {
     chip.className = 'sport-chip';
     chip.dataset.id = id;
     chip.textContent = `${getSportEmoji(name)} ${capitalize(name)}`;
-    chip.onclick = function() { filterSport(id, this); };
+    chip.onclick = function () { filterSport(id, this); };
     bar.appendChild(chip);
   });
 }
@@ -321,35 +321,35 @@ function buildMatchCard(match) {
   if (hasTeams) {
     const home = match.teams.home, away = match.teams.away;
     const hImg = home?.badge
-      ? `<img src="${getImgUrl('/badge/' + home.badge + '.webp')}" alt="${home.name||''}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+      ? `<img src="${getImgUrl('/badge/' + home.badge + '.webp')}" alt="${home.name || ''}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
       : '';
     const aImg = away?.badge
-      ? `<img src="${getImgUrl('/badge/' + away.badge + '.webp')}" alt="${away.name||''}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+      ? `<img src="${getImgUrl('/badge/' + away.badge + '.webp')}" alt="${away.name || ''}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
       : '';
     teamsHtml = `
       <div class="card-teams">
         <div class="team">
-          <div class="team-badge-wrap">${hImg}<span class="team-badge-placeholder" style="${home?.badge?'display:none':''}">${sportEmoji}</span></div>
-          <span class="team-name">${home?.name||'Home'}</span>
+          <div class="team-badge-wrap">${hImg}<span class="team-badge-placeholder" style="${home?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
+          <span class="team-name">${home?.name || 'Home'}</span>
         </div>
         <span class="vs-separator">VS</span>
         <div class="team">
-          <div class="team-badge-wrap">${aImg}<span class="team-badge-placeholder" style="${away?.badge?'display:none':''}">${sportEmoji}</span></div>
-          <span class="team-name">${away?.name||'Away'}</span>
+          <div class="team-badge-wrap">${aImg}<span class="team-badge-placeholder" style="${away?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
+          <span class="team-name">${away?.name || 'Away'}</span>
         </div>
       </div>`;
   } else {
-    teamsHtml = `<div class="card-title">${match.title||'Match'}</div>`;
+    teamsHtml = `<div class="card-title">${match.title || 'Match'}</div>`;
   }
 
-  const srcCount = (match.sources||[]).length;
-  const srcDots = Array.from({length: Math.min(srcCount,5)}, ()=>'<span class="source-dot"></span>').join('');
+  const srcCount = (match.sources || []).length;
+  const srcDots = Array.from({ length: Math.min(srcCount, 5) }, () => '<span class="source-dot"></span>').join('');
 
   return `
-    <div class="match-card${posterUrl?' has-poster':''}" data-id="${match.id}" role="button" tabindex="0" aria-label="Watch ${match.title||'match'}">
+    <div class="match-card${posterUrl ? ' has-poster' : ''}" data-id="${match.id}" role="button" tabindex="0" aria-label="Watch ${match.title || 'match'}">
       ${posterBg}
       <div class="card-sport-tag">
-        <span class="sport-label">${sportEmoji} ${capitalize(match.category||'Sport')}</span>
+        <span class="sport-label">${sportEmoji} ${capitalize(match.category || 'Sport')}</span>
         <div style="display:flex;gap:6px">${liveBadge}${popularBadge}${eplBadge}</div>
       </div>
       ${teamsHtml}
@@ -359,7 +359,7 @@ function buildMatchCard(match) {
           ${timestamp}
         </span>
         <div style="display:flex;align-items:center;gap:8px">
-          <div class="card-sources" title="${srcCount} source${srcCount!==1?'s':''}">${srcDots}</div>
+          <div class="card-sources" title="${srcCount} source${srcCount !== 1 ? 's' : ''}">${srcDots}</div>
           <span class="source-label">${srcCount} src</span>
         </div>
         <button class="watch-btn">
@@ -379,7 +379,7 @@ function renderStreamTabs(streams, source) {
 
     const sourceSpan = document.createElement('span');
     sourceSpan.className = 'tab-source';
-    sourceSpan.textContent = `${capitalize(stream.source||source)} #${stream.streamNo||i+1}`;
+    sourceSpan.textContent = `${capitalize(stream.source || source)} #${stream.streamNo || i + 1}`;
     tab.appendChild(sourceSpan);
 
     const langSpan = document.createElement('span');
@@ -442,7 +442,7 @@ function renderRelated(currentMatch) {
   }
   list.innerHTML = related.map(m => {
     const live = isMatchLive(m);
-    const title = m.title || (m.teams ? `${m.teams?.home?.name||''} vs ${m.teams?.away?.name||''}` : 'Match');
+    const title = m.title || (m.teams ? `${m.teams?.home?.name || ''} vs ${m.teams?.away?.name || ''}` : 'Match');
     return `
       <div class="related-card" onclick="openPlayer(state.allMatches.find(x=>x.id==='${m.id}'))">
         <div class="related-card-meta">
@@ -509,12 +509,12 @@ function renderPlayerInfo(match) {
     teamsDiv.innerHTML = `
       <div class="player-team">
         <div class="player-badge">${hBadge}</div>
-        <span class="player-team-name">${h?.name||'Home'}</span>
+        <span class="player-team-name">${h?.name || 'Home'}</span>
       </div>
       <span class="player-vs">VS</span>
       <div class="player-team">
         <div class="player-badge">${aBadge}</div>
-        <span class="player-team-name">${a?.name||'Away'}</span>
+        <span class="player-team-name">${a?.name || 'Away'}</span>
       </div>`;
   } else {
     teamsDiv.innerHTML = '';
@@ -524,7 +524,7 @@ function renderPlayerInfo(match) {
     teamsDiv.appendChild(titleSpan);
   }
 
-  el('player-sport-badge').textContent = `${getSportEmoji(match.category)} ${capitalize(match.category||'Sport')}`;
+  el('player-sport-badge').textContent = `${getSportEmoji(match.category)} ${capitalize(match.category || 'Sport')}`;
   const live = isMatchLive(match);
   el('player-live-badge').style.display = live ? '' : 'none';
 }
@@ -550,7 +550,7 @@ function selectStream(stream, tabEl) {
     iframe.classList.remove('hidden');
   };
   iframe.src = stream.embedUrl;
-  showToast(`Stream ${stream.streamNo||''} — ${stream.language||''} ${stream.hd?'(HD)':'(SD)'}`, 'success');
+  showToast(`Stream ${stream.streamNo || ''} — ${stream.language || ''} ${stream.hd ? '(HD)' : '(SD)'}`, 'success');
 }
 
 // ===================== Filtering =====================
@@ -585,12 +585,12 @@ function applyFilters() {
 
   if (state.searchQuery) {
     matches = matches.filter(m => {
-      const t = (m.title||'').toLowerCase();
-      const h = (m.teams?.home?.name||'').toLowerCase();
-      const a = (m.teams?.away?.name||'').toLowerCase();
-      const c = (m.category||'').toLowerCase();
+      const t = (m.title || '').toLowerCase();
+      const h = (m.teams?.home?.name || '').toLowerCase();
+      const a = (m.teams?.away?.name || '').toLowerCase();
+      const c = (m.category || '').toLowerCase();
       return t.includes(state.searchQuery) || h.includes(state.searchQuery) ||
-             a.includes(state.searchQuery) || c.includes(state.searchQuery);
+        a.includes(state.searchQuery) || c.includes(state.searchQuery);
     });
   }
 
@@ -745,10 +745,10 @@ function applyMultiviewSidebarFilters() {
   if (state.multiviewSearchQuery) {
     const q = state.multiviewSearchQuery;
     matches = matches.filter(m => {
-      const t = (m.title||'').toLowerCase();
-      const h = (m.teams?.home?.name||'').toLowerCase();
-      const a = (m.teams?.away?.name||'').toLowerCase();
-      const c = (m.category||'').toLowerCase();
+      const t = (m.title || '').toLowerCase();
+      const h = (m.teams?.home?.name || '').toLowerCase();
+      const a = (m.teams?.away?.name || '').toLowerCase();
+      const c = (m.category || '').toLowerCase();
       return t.includes(q) || h.includes(q) || a.includes(q) || c.includes(q);
     });
   }
@@ -1204,12 +1204,12 @@ function filterMvModalMatches(query) {
 
   if (state.mvModalSearchQuery) {
     matches = matches.filter(m => {
-      const t = (m.title||'').toLowerCase();
-      const h = (m.teams?.home?.name||'').toLowerCase();
-      const a = (m.teams?.away?.name||'').toLowerCase();
-      const c = (m.category||'').toLowerCase();
+      const t = (m.title || '').toLowerCase();
+      const h = (m.teams?.home?.name || '').toLowerCase();
+      const a = (m.teams?.away?.name || '').toLowerCase();
+      const c = (m.category || '').toLowerCase();
       return t.includes(state.mvModalSearchQuery) || h.includes(state.mvModalSearchQuery) ||
-             a.includes(state.mvModalSearchQuery) || c.includes(state.mvModalSearchQuery);
+        a.includes(state.mvModalSearchQuery) || c.includes(state.mvModalSearchQuery);
     });
   }
 
