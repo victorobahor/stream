@@ -78,6 +78,8 @@ function isMatchLive(match) {
   return false;
 }
 
+const EPL_TEAMS_REGEX = /arsenal|aston villa|brentford|brighton|bournemouth|chelsea|crystal palace|everton|fulham|ipswich|leicester|liverpool|manchester city|man city|manchester united|man united|man utd|newcastle|nottingham forest|southampton|tottenham|spurs|west ham|wolves|wolverhampton|luton|burnley|sheffield united/;
+
 function isEPLMatch(match) {
   if (match.isEPL !== undefined) return match.isEPL;
   if ((match.category || '').toLowerCase() !== 'football') {
@@ -89,16 +91,9 @@ function isEPLMatch(match) {
     match.isEPL = true;
     return true;
   }
-  const eplTeams = [
-    'arsenal', 'aston villa', 'brentford', 'brighton', 'bournemouth', 'chelsea', 
-    'crystal palace', 'everton', 'fulham', 'ipswich', 'leicester', 'liverpool', 
-    'manchester city', 'man city', 'manchester united', 'man united', 'man utd', 
-    'newcastle', 'nottingham forest', 'southampton', 'tottenham', 'spurs', 
-    'west ham', 'wolves', 'wolverhampton', 'luton', 'burnley', 'sheffield united'
-  ];
   const home = (match.teams?.home?.name || '').toLowerCase();
   const away = (match.teams?.away?.name || '').toLowerCase();
-  match.isEPL = eplTeams.some(t => home.includes(t) || away.includes(t));
+  match.isEPL = EPL_TEAMS_REGEX.test(home) || EPL_TEAMS_REGEX.test(away);
   return match.isEPL;
 }
 
