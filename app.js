@@ -42,6 +42,29 @@ let state = {
 // ===================== Helpers =====================
 function el(id) { return document.getElementById(id); }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  const s = String(str);
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+const LOG_LEVEL = 'warn';
+function log(level, ...args) {
+  const levels = { debug: 0, warn: 1, error: 2, none: 9 };
+  if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 0)) {
+    const method = level === 'debug' ? 'log' : level;
+    console[method](...args);
+  }
+}
+
+function matchTextIncludes(match, query) {
+  const t = (match.title || '').toLowerCase();
+  const h = (match.teams?.home?.name || '').toLowerCase();
+  const a = (match.teams?.away?.name || '').toLowerCase();
+  const c = (match.category || '').toLowerCase();
+  return t.includes(query) || h.includes(query) || a.includes(query) || c.includes(query);
+}
+
 function showToast(msg, type = 'info', duration = 3000) {
   const t = el('toast');
   t.textContent = msg;
@@ -142,7 +165,7 @@ async function fetchJSON(urlPath) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (e) {
-      console.warn(`Host ${host} failed for ${urlPath}:`, e);
+      log('warn', `Host ${host} failed for ${urlPath}:`, e);
       attempts++;
       activeHostIndex = (activeHostIndex + 1) % API_HOSTS.length;
     }
@@ -155,7 +178,7 @@ async function loadSports() {
     const data = await fetchJSON('/api/sports');
     state.sports = Array.isArray(data) ? data : [];
     renderSportsBar();
-  } catch (e) { console.warn('Sports load failed:', e); }
+  } catch (e) { log('warn', 'Sports load failed:', e); }
 }
 
 async function loadMatches() {
@@ -303,70 +326,81 @@ function renderMatches(matches) {
   });
 }
 
+function buildCardBadges(match, live) {
+  const parts = [];
+  if (live) parts.push('<span class="live-badge">LIVE</span>');
+  if (match.popular) parts.push('<span class="popular-badge">🔥 Hot</span>');
+  if (isEPLMatch(match)) parts.push('<span class="epl-badge">🏴\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F EPL</span>');
+  return parts.length ? `<div style="display:flex;gap:6px">${parts.join('')}</div>` : '';
+}
+
+function buildCardPoster(posterUrl) {
+  if (!posterUrl) return '';
+  const safe = String(posterUrl).replace(/'/g, '');
+  return `<div class="card-poster" style="background-image:url('${safe}')"></div>`;
+}
+
+function buildCardTeams(match, hasTeams, sportEmoji) {
+  if (!hasTeams) {
+    return `<div class="card-title">${escapeHtml(match.title || 'Match')}</div>`;
+  }
+  const home = match.teams.home, away = match.teams.away;
+  const hImg = home?.badge
+    ? `<img src="${escapeHtml(getImgUrl('/badge/' + home.badge + '.webp'))}" alt="${escapeHtml(home.name || '')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    : '';
+  const aImg = away?.badge
+    ? `<img src="${escapeHtml(getImgUrl('/badge/' + away.badge + '.webp'))}" alt="${escapeHtml(away.name || '')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    : '';
+  return `
+    <div class="card-teams">
+      <div class="team">
+        <div class="team-badge-wrap">${hImg}<span class="team-badge-placeholder" style="${home?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
+        <span class="team-name">${escapeHtml(home?.name || 'Home')}</span>
+      </div>
+      <span class="vs-separator">VS</span>
+      <div class="team">
+        <div class="team-badge-wrap">${aImg}<span class="team-badge-placeholder" style="${away?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
+        <span class="team-name">${escapeHtml(away?.name || 'Away')}</span>
+      </div>
+    </div>`;
+}
+
+function buildCardFooter(timestamp, srcCount) {
+  const srcDots = Array.from({ length: Math.min(srcCount, 5) }, () => '<span class="source-dot"></span>').join('');
+  return `
+    <div class="card-footer">
+      <span class="card-time">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        ${escapeHtml(timestamp)}
+      </span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="card-sources" title="${srcCount} source${srcCount !== 1 ? 's' : ''}">${srcDots}</div>
+        <span class="source-label">${srcCount} src</span>
+      </div>
+      <button class="watch-btn">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg>
+        Watch
+      </button>
+    </div>`;
+}
+
 function buildMatchCard(match) {
   const hasTeams = match.teams && (match.teams.home || match.teams.away);
   const live = isMatchLive(match);
   const timestamp = match.date ? formatDate(match.date) : '';
   const sportEmoji = getSportEmoji(match.category);
   const posterUrl = getPosterUrl(match);
-
-  const liveBadge = live ? '<span class="live-badge">LIVE</span>' : '';
-  const popularBadge = match.popular ? '<span class="popular-badge">🔥 Hot</span>' : '';
-  const eplBadge = isEPLMatch(match) ? '<span class="epl-badge">🏴󠁧󠁢󠁥󠁮󠁧󠁿 EPL</span>' : '';
-  const posterBg = posterUrl
-    ? `<div class="card-poster" style="background-image:url('${posterUrl}')"></div>`
-    : '';
-
-  let teamsHtml = '';
-  if (hasTeams) {
-    const home = match.teams.home, away = match.teams.away;
-    const hImg = home?.badge
-      ? `<img src="${getImgUrl('/badge/' + home.badge + '.webp')}" alt="${home.name || ''}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-      : '';
-    const aImg = away?.badge
-      ? `<img src="${getImgUrl('/badge/' + away.badge + '.webp')}" alt="${away.name || ''}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-      : '';
-    teamsHtml = `
-      <div class="card-teams">
-        <div class="team">
-          <div class="team-badge-wrap">${hImg}<span class="team-badge-placeholder" style="${home?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
-          <span class="team-name">${home?.name || 'Home'}</span>
-        </div>
-        <span class="vs-separator">VS</span>
-        <div class="team">
-          <div class="team-badge-wrap">${aImg}<span class="team-badge-placeholder" style="${away?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
-          <span class="team-name">${away?.name || 'Away'}</span>
-        </div>
-      </div>`;
-  } else {
-    teamsHtml = `<div class="card-title">${match.title || 'Match'}</div>`;
-  }
-
   const srcCount = (match.sources || []).length;
-  const srcDots = Array.from({ length: Math.min(srcCount, 5) }, () => '<span class="source-dot"></span>').join('');
 
   return `
-    <div class="match-card${posterUrl ? ' has-poster' : ''}" data-id="${match.id}" role="button" tabindex="0" aria-label="Watch ${match.title || 'match'}">
-      ${posterBg}
+    <div class="match-card${posterUrl ? ' has-poster' : ''}" data-id="${escapeHtml(match.id)}" role="button" tabindex="0" aria-label="Watch ${escapeHtml(match.title || 'match')}">
+      ${buildCardPoster(posterUrl)}
       <div class="card-sport-tag">
-        <span class="sport-label">${sportEmoji} ${capitalize(match.category || 'Sport')}</span>
-        <div style="display:flex;gap:6px">${liveBadge}${popularBadge}${eplBadge}</div>
+        <span class="sport-label">${sportEmoji} ${escapeHtml(capitalize(match.category || 'Sport'))}</span>
+        ${buildCardBadges(match, live)}
       </div>
-      ${teamsHtml}
-      <div class="card-footer">
-        <span class="card-time">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          ${timestamp}
-        </span>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="card-sources" title="${srcCount} source${srcCount !== 1 ? 's' : ''}">${srcDots}</div>
-          <span class="source-label">${srcCount} src</span>
-        </div>
-        <button class="watch-btn">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg>
-          Watch
-        </button>
-      </div>
+      ${buildCardTeams(match, hasTeams, sportEmoji)}
+      ${buildCardFooter(timestamp, srcCount)}
     </div>`;
 }
 
@@ -444,14 +478,21 @@ function renderRelated(currentMatch) {
     const live = isMatchLive(m);
     const title = m.title || (m.teams ? `${m.teams?.home?.name || ''} vs ${m.teams?.away?.name || ''}` : 'Match');
     return `
-      <div class="related-card" onclick="openPlayer(state.allMatches.find(x=>x.id==='${m.id}'))">
+      <div class="related-card" data-match-id="${escapeHtml(m.id)}">
         <div class="related-card-meta">
-          <span class="related-sport">${getSportEmoji(m.category)} ${capitalize(m.category)}</span>
+          <span class="related-sport">${getSportEmoji(m.category)} ${escapeHtml(capitalize(m.category))}</span>
           ${live ? '<span class="related-live"><span class="live-dot"></span> LIVE</span>' : ''}
         </div>
-        <div class="related-card-title">${title}</div>
+        <div class="related-card-title">${escapeHtml(title)}</div>
       </div>`;
   }).join('');
+
+  list.querySelectorAll('.related-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const match = state.allMatches.find(m => m.id === card.dataset.matchId);
+      if (match) openPlayer(match);
+    });
+  });
 }
 
 // ===================== Player =====================
@@ -498,23 +539,24 @@ function renderPlayerInfo(match) {
   // Set poster background on player container
   const posterEl = el('player-poster-bg');
   if (posterEl) {
-    posterEl.style.backgroundImage = posterUrl ? `url('${posterUrl}')` : 'none';
-    posterEl.style.display = posterUrl ? '' : 'none';
+    const safePoster = posterUrl ? String(posterUrl).replace(/'/g, '') : '';
+    posterEl.style.backgroundImage = safePoster ? `url('${safePoster}')` : 'none';
+    posterEl.style.display = safePoster ? '' : 'none';
   }
 
   if (hasTeams) {
     const h = match.teams.home, a = match.teams.away;
-    const hBadge = h?.badge ? `<img src="${getImgUrl('/badge/' + h.badge + '.webp')}" alt="${h?.name}" loading="lazy">` : '';
-    const aBadge = a?.badge ? `<img src="${getImgUrl('/badge/' + a.badge + '.webp')}" alt="${a?.name}" loading="lazy">` : '';
+    const hBadge = h?.badge ? `<img src="${escapeHtml(getImgUrl('/badge/' + h.badge + '.webp'))}" alt="${escapeHtml(h?.name || '')}" loading="lazy">` : '';
+    const aBadge = a?.badge ? `<img src="${escapeHtml(getImgUrl('/badge/' + a.badge + '.webp'))}" alt="${escapeHtml(a?.name || '')}" loading="lazy">` : '';
     teamsDiv.innerHTML = `
       <div class="player-team">
         <div class="player-badge">${hBadge}</div>
-        <span class="player-team-name">${h?.name || 'Home'}</span>
+        <span class="player-team-name">${escapeHtml(h?.name || 'Home')}</span>
       </div>
       <span class="player-vs">VS</span>
       <div class="player-team">
         <div class="player-badge">${aBadge}</div>
-        <span class="player-team-name">${a?.name || 'Away'}</span>
+        <span class="player-team-name">${escapeHtml(a?.name || 'Away')}</span>
       </div>`;
   } else {
     teamsDiv.innerHTML = '';
@@ -584,14 +626,7 @@ function applyFilters() {
   matches = matches.filter(m => m.sources && m.sources.length > 0);
 
   if (state.searchQuery) {
-    matches = matches.filter(m => {
-      const t = (m.title || '').toLowerCase();
-      const h = (m.teams?.home?.name || '').toLowerCase();
-      const a = (m.teams?.away?.name || '').toLowerCase();
-      const c = (m.category || '').toLowerCase();
-      return t.includes(state.searchQuery) || h.includes(state.searchQuery) ||
-        a.includes(state.searchQuery) || c.includes(state.searchQuery);
-    });
+    matches = matches.filter(m => matchTextIncludes(m, state.searchQuery));
   }
 
   // Sort EPL football matches to the top
@@ -743,14 +778,7 @@ function applyMultiviewSidebarFilters() {
   matches = matches.filter(m => m.sources && m.sources.length > 0);
 
   if (state.multiviewSearchQuery) {
-    const q = state.multiviewSearchQuery;
-    matches = matches.filter(m => {
-      const t = (m.title || '').toLowerCase();
-      const h = (m.teams?.home?.name || '').toLowerCase();
-      const a = (m.teams?.away?.name || '').toLowerCase();
-      const c = (m.category || '').toLowerCase();
-      return t.includes(q) || h.includes(q) || a.includes(q) || c.includes(q);
-    });
+    matches = matches.filter(m => matchTextIncludes(m, state.multiviewSearchQuery));
   }
 
   if (state.multiviewSportFilter !== 'all') {
@@ -820,14 +848,14 @@ function renderMultiviewSidebarList(matches) {
     const sportEmoji = getSportEmoji(match.category);
 
     return `
-      <div class="sidebar-match-card" draggable="true" data-id="${match.id}">
+      <div class="sidebar-match-card" draggable="true" data-id="${escapeHtml(match.id)}">
         <div class="mv-card-meta">
-          <span class="mv-card-sport">${sportEmoji} ${capitalize(match.category)}</span>
+          <span class="mv-card-sport">${sportEmoji} ${escapeHtml(capitalize(match.category))}</span>
           ${live ? '<span class="mv-card-live"><span class="live-dot"></span> LIVE</span>' : ''}
         </div>
-        <div class="mv-card-teams">${title}</div>
-        <div class="sidebar-match-streams" id="sidebar-streams-${match.id}">
-          <button class="mv-stream-mini-btn" onclick="loadMatchStreamsIntoActiveSlot('${match.id}'); event.stopPropagation();">
+        <div class="mv-card-teams">${escapeHtml(title)}</div>
+        <div class="sidebar-match-streams">
+          <button class="mv-stream-mini-btn" data-load-match-id="${escapeHtml(match.id)}">
             Load Stream
           </button>
         </div>
@@ -844,6 +872,13 @@ function renderMultiviewSidebarList(matches) {
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging');
       document.querySelectorAll('.mv-slot').forEach(s => s.classList.remove('active-target'));
+    });
+  });
+
+  container.querySelectorAll('.mv-stream-mini-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      loadMatchStreamsIntoActiveSlot(btn.dataset.loadMatchId);
     });
   });
 }
@@ -925,7 +960,7 @@ async function loadMultiviewSlotStream(slotIndex, match, sourceName, streamIndex
     renderMultiviewGrid();
     saveMultiviewState();
   } catch (err) {
-    console.error(`Failed loading streams for slot ${slotIndex}:`, err);
+    log('error', `Failed loading streams for slot ${slotIndex}:`, err);
     const nextSourceIdx = match.sources.findIndex(s => s.source === activeSource) + 1;
     if (nextSourceIdx < match.sources.length) {
       loadMultiviewSlotStream(slotIndex, match, match.sources[nextSourceIdx].source, 0);
@@ -933,6 +968,140 @@ async function loadMultiviewSlotStream(slotIndex, match, sourceName, streamIndex
       state.multiviewSlots[slotIndex] = null;
       renderMultiviewGrid();
       showToast(`Error loading stream: ${err.message}`, 'error');
+    }
+  }
+}
+
+function attachSlotEvents(slotEl, i) {
+  slotEl.addEventListener('dragover', (e) => { e.preventDefault(); });
+  slotEl.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    slotEl.classList.add('drag-over');
+  });
+  slotEl.addEventListener('dragleave', () => {
+    slotEl.classList.remove('drag-over');
+  });
+  slotEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    slotEl.classList.remove('drag-over');
+    const matchId = e.dataTransfer.getData('text/plain');
+    const match = state.allMatches.find(m => m.id === matchId);
+    if (match && match.sources && match.sources.length > 0) {
+      loadMultiviewSlotStream(i, match, match.sources[0].source, 0);
+    }
+  });
+
+  slotEl.addEventListener('click', () => {
+    state.multiviewActiveSlot = i;
+    document.querySelectorAll('.mv-slot').forEach((s, idx) => {
+      s.classList.toggle('active-target', idx === i);
+    });
+  });
+}
+
+function buildEmptySlotContent(i) {
+  return `
+    <div class="mv-slot-num">Slot ${i + 1}</div>
+    <div class="mv-slot-add-label">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Empty Slot
+    </div>
+    <button class="mv-slot-add-btn" data-action="open-mv-modal" data-slot="${i}">Add Stream</button>
+  `;
+}
+
+function buildFilledSlotContent(slot, i) {
+  const match = slot.match;
+  const title = match.teams
+    ? `${escapeHtml(match.teams.home.name)} vs ${escapeHtml(match.teams.away.name)}`
+    : escapeHtml(match.title);
+  const sourceName = slot.sourceName;
+  const streamIndex = slot.streamIndex;
+  const streams = slot.streams || [];
+  const stream = slot.stream;
+  const loading = slot.loading;
+
+  let iframeHtml = '';
+  if (stream && stream.embedUrl && !loading) {
+    const escUrl = escapeHtml(stream.embedUrl);
+    iframeHtml = `<iframe class="mv-iframe" src="${escUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>`;
+  }
+
+  let loadingHtml = '';
+  if (loading) {
+    loadingHtml = `
+      <div class="mv-loading">
+        <div class="spinner"></div>
+        <span>Loading stream...</span>
+      </div>
+    `;
+  }
+
+  const sourceOptions = match.sources.map(src =>
+    `<option value="${escapeHtml(src.source)}" ${src.source === sourceName ? 'selected' : ''}>${escapeHtml(src.source)}</option>`
+  ).join('');
+
+  const streamOptions = streams.map((str, sIdx) =>
+    `<option value="${sIdx}" ${sIdx === streamIndex ? 'selected' : ''}>Stream ${str.streamNo || sIdx + 1} (${escapeHtml(str.language || 'EN')}) ${str.hd ? 'HD' : 'SD'}</option>`
+  ).join('');
+
+  return `
+    ${iframeHtml}
+    ${loadingHtml}
+    <div class="mv-slot-header">
+      <div class="mv-slot-title" title="${title}">${title}</div>
+      <div class="mv-slot-controls">
+        <select class="mv-source-select" data-slot="${i}" data-action="change-source">
+          ${sourceOptions}
+        </select>
+        <select class="mv-source-select" data-slot="${i}" data-action="change-stream">
+          ${streamOptions}
+        </select>
+        <button class="mv-control-btn" aria-label="Fullscreen stream" data-slot="${i}" data-action="fullscreen" title="Fullscreen">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        </button>
+        <button class="mv-control-btn close-btn" aria-label="Close stream" data-slot="${i}" data-action="clear-slot" title="Close Stream">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function bindSlotChildEvents(slotEl, i, isFilled) {
+  if (isFilled) {
+    slotEl.querySelector('.mv-slot-header').addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    slotEl.querySelectorAll('.mv-source-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const action = select.dataset.action;
+        if (action === 'change-source') {
+          changeSlotSource(i, select.value);
+        } else if (action === 'change-stream') {
+          changeSlotStreamIndex(i, parseInt(select.value));
+        }
+      });
+    });
+    slotEl.querySelectorAll('.mv-control-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        if (action === 'fullscreen') {
+          fullscreenMultiviewSlot(i);
+        } else if (action === 'clear-slot') {
+          clearMultiviewSlot(i);
+        }
+      });
+    });
+  } else {
+    const addBtn = slotEl.querySelector('.mv-slot-add-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openMvModal(i);
+      });
     }
   }
 }
@@ -956,90 +1125,16 @@ function renderMultiviewGrid() {
       slotEl.classList.add('active-target');
     }
 
-    // Drag & Drop
-    slotEl.addEventListener('dragover', (e) => {
-      e.preventDefault();
-    });
-    slotEl.addEventListener('dragenter', (e) => {
-      e.preventDefault();
-      slotEl.classList.add('drag-over');
-    });
-    slotEl.addEventListener('dragleave', () => {
-      slotEl.classList.remove('drag-over');
-    });
-    slotEl.addEventListener('drop', (e) => {
-      e.preventDefault();
-      slotEl.classList.remove('drag-over');
-      const matchId = e.dataTransfer.getData('text/plain');
-      const match = state.allMatches.find(m => m.id === matchId);
-      if (match && match.sources && match.sources.length > 0) {
-        loadMultiviewSlotStream(i, match, match.sources[0].source, 0);
-      }
-    });
-
-    slotEl.addEventListener('click', () => {
-      state.multiviewActiveSlot = i;
-      document.querySelectorAll('.mv-slot').forEach((s, idx) => {
-        s.classList.toggle('active-target', idx === i);
-      });
-    });
+    attachSlotEvents(slotEl, i);
 
     if (!slot) {
       slotEl.classList.add('empty');
-      slotEl.innerHTML = `
-        <div class="mv-slot-num">Slot ${i + 1}</div>
-        <div class="mv-slot-add-label">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Empty Slot
-        </div>
-        <button class="mv-slot-add-btn" onclick="openMvModal(${i}); event.stopPropagation();">Add Stream</button>
-      `;
+      slotEl.innerHTML = buildEmptySlotContent(i);
     } else {
-      const match = slot.match;
-      const title = match.teams ? `${match.teams.home.name} vs ${match.teams.away.name}` : match.title;
-      const sourceName = slot.sourceName;
-      const streamIndex = slot.streamIndex;
-      const streams = slot.streams || [];
-      const stream = slot.stream;
-      const loading = slot.loading;
-
-      let iframeHtml = '';
-      if (stream && stream.embedUrl && !loading) {
-        iframeHtml = `<iframe class="mv-iframe" src="${stream.embedUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>`;
-      }
-
-      let loadingHtml = '';
-      if (loading) {
-        loadingHtml = `
-          <div class="mv-loading">
-            <div class="spinner"></div>
-            <span>Loading stream...</span>
-          </div>
-        `;
-      }
-
-      slotEl.innerHTML = `
-        ${iframeHtml}
-        ${loadingHtml}
-        <div class="mv-slot-header" onclick="event.stopPropagation()">
-          <div class="mv-slot-title" title="${title}">${title}</div>
-          <div class="mv-slot-controls">
-            <select class="mv-source-select" onchange="changeSlotSource(${i}, this.value)">
-              ${match.sources.map(src => `<option value="${src.source}" ${src.source === sourceName ? 'selected' : ''}>${src.source}</option>`).join('')}
-            </select>
-            <select class="mv-source-select" onchange="changeSlotStreamIndex(${i}, parseInt(this.value))">
-              ${streams.map((str, sIdx) => `<option value="${sIdx}" ${sIdx === streamIndex ? 'selected' : ''}>Stream ${str.streamNo || sIdx + 1} (${str.language || 'EN'}) ${str.hd ? 'HD' : 'SD'}</option>`).join('')}
-            </select>
-            <button class="mv-control-btn" aria-label="Fullscreen stream" onclick="fullscreenMultiviewSlot(${i})" title="Fullscreen">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-            </button>
-            <button class="mv-control-btn close-btn" aria-label="Close stream" onclick="clearMultiviewSlot(${i})" title="Close Stream">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-        </div>
-      `;
+      slotEl.innerHTML = buildFilledSlotContent(slot, i);
     }
+
+    bindSlotChildEvents(slotEl, i, !!slot);
 
     container.appendChild(slotEl);
   }
@@ -1105,7 +1200,7 @@ function saveMultiviewState() {
 
     localStorage.setItem('streamzone_multiview', JSON.stringify(data));
   } catch (e) {
-    console.warn('Failed to save multiview state:', e);
+    log('warn', 'Failed to save multiview state:', e);
   }
 }
 
@@ -1131,7 +1226,7 @@ function loadMultiviewState() {
       });
     }
   } catch (e) {
-    console.warn('Failed to load multiview state:', e);
+    log('warn', 'Failed to load multiview state:', e);
   }
 }
 
@@ -1203,14 +1298,7 @@ function filterMvModalMatches(query) {
   let matches = state.allMatches.filter(m => m.sources && m.sources.length > 0);
 
   if (state.mvModalSearchQuery) {
-    matches = matches.filter(m => {
-      const t = (m.title || '').toLowerCase();
-      const h = (m.teams?.home?.name || '').toLowerCase();
-      const a = (m.teams?.away?.name || '').toLowerCase();
-      const c = (m.category || '').toLowerCase();
-      return t.includes(state.mvModalSearchQuery) || h.includes(state.mvModalSearchQuery) ||
-        a.includes(state.mvModalSearchQuery) || c.includes(state.mvModalSearchQuery);
-    });
+    matches = matches.filter(m => matchTextIncludes(m, state.mvModalSearchQuery));
   }
 
   if (state.mvModalSportFilter !== 'all') {
@@ -1234,15 +1322,21 @@ function filterMvModalMatches(query) {
   container.innerHTML = matches.map(match => {
     const title = match.title || (match.teams ? `${match.teams.home.name} vs ${match.teams.away.name}` : 'Match');
     return `
-      <div class="mv-modal-match-item" onclick="selectMvModalMatch('${match.id}')">
+      <div class="mv-modal-match-item" data-match-id="${escapeHtml(match.id)}">
         <div class="mv-modal-match-info">
-          <span class="mv-modal-match-title">${title}</span>
-          <span class="mv-modal-match-sport">${getSportEmoji(match.category)} ${capitalize(match.category)}</span>
+          <span class="mv-modal-match-title">${escapeHtml(title)}</span>
+          <span class="mv-modal-match-sport">${getSportEmoji(match.category)} ${escapeHtml(capitalize(match.category))}</span>
         </div>
         <div class="mv-modal-match-arrow">&rarr;</div>
       </div>
     `;
   }).join('');
+
+  container.querySelectorAll('.mv-modal-match-item').forEach(item => {
+    item.addEventListener('click', () => {
+      selectMvModalMatch(item.dataset.matchId);
+    });
+  });
 }
 
 async function selectMvModalMatch(matchId) {
@@ -1274,14 +1368,20 @@ async function selectMvModalMatch(matchId) {
 
     listContainer.innerHTML = streams.map((stream, idx) => {
       return `
-        <button class="mv-modal-stream-btn" onclick="selectMvModalStream('${match.id}', '${src.source}', ${idx})">
-          <span>Stream ${stream.streamNo || idx + 1} (${stream.language || 'English'})</span>
+        <button class="mv-modal-stream-btn" data-match-id="${escapeHtml(match.id)}" data-source="${escapeHtml(src.source)}" data-stream-idx="${idx}">
+          <span>Stream ${stream.streamNo || idx + 1} (${escapeHtml(stream.language || 'English')})</span>
           ${stream.hd ? '<span class="tab-hd">HD</span>' : ''}
         </button>
       `;
     }).join('');
+
+    listContainer.querySelectorAll('.mv-modal-stream-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectMvModalStream(btn.dataset.matchId, btn.dataset.source, parseInt(btn.dataset.streamIdx));
+      });
+    });
   } catch (e) {
-    listContainer.innerHTML = `<p style="color:var(--live);font-size:0.85rem;">Failed to load: ${e.message}</p>`;
+    listContainer.innerHTML = `<p style="color:var(--live);font-size:0.85rem;">Failed to load: ${escapeHtml(e.message)}</p>`;
   }
 }
 
