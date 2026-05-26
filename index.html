@@ -45,12 +45,12 @@
 
       <div class="header-actions">
         <div class="search-wrap">
-          <input type="text" id="search-input" class="search-input" placeholder="Search matches…" oninput="handleSearch(this.value)">
+          <input type="text" id="search-input" class="search-input" aria-label="Search matches" placeholder="Search matches…" oninput="handleSearch(this.value)">
           <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
         </div>
-        <button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleMobileMenu()">
+        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle mobile menu" onclick="toggleMobileMenu()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="3" y1="12" x2="21" y2="12"></line>
             <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -232,7 +232,7 @@
             <span class="sidebar-info">Drag to slot or click slot + stream</span>
           </div>
           <div class="sidebar-search">
-            <input type="text" id="multiview-search" placeholder="Search matches..." oninput="handleMultiviewSearch(this.value)">
+            <input type="text" id="multiview-search" aria-label="Search matches" placeholder="Search matches..." oninput="handleMultiviewSearch(this.value)">
             <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
@@ -254,11 +254,11 @@
     <div class="mv-modal-content">
       <div class="mv-modal-header">
         <h3 id="mv-modal-title">Select Match & Stream</h3>
-        <button class="mv-modal-close" onclick="closeMvModal()">&times;</button>
+        <button class="mv-modal-close" aria-label="Close modal" onclick="closeMvModal()">&times;</button>
       </div>
       <div class="mv-modal-body">
         <div class="mv-modal-search-wrap">
-          <input type="text" id="mv-modal-search" class="mv-modal-search" placeholder="Search matches..." oninput="filterMvModalMatches(this.value)">
+          <input type="text" id="mv-modal-search" class="mv-modal-search" aria-label="Search matches" placeholder="Search matches..." oninput="filterMvModalMatches(this.value)">
           <svg class="mv-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
