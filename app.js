@@ -48,6 +48,35 @@ function escapeHtml(str) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function sanitizeUrl(url) {
+  if (!url) return '';
+  const str = String(url).trim();
+  try {
+    const parsed = new URL(str);
+    const protocol = parsed.protocol;
+    if (['javascript:', 'data:', 'vbscript:'].includes(protocol)) {
+      return 'about:blank';
+    }
+  } catch (e) {
+    // If it's a relative URL, new URL() throws, which is fine, just string check it as a fallback but allow it.
+    // However, to prevent bypasses like java\nscript: in some browsers which might not be parsed by new URL
+    // (though new URL usually throws on invalid schemes, or normalizes them), we return a basic check.
+    // Actually, browsers might parse "javascript:..." without a base URL.
+    // Let's use a regex to catch obfuscated schemes if URL parsing fails.
+    const schemeMatch = str.match(/^([a-zA-Z0-9+\-.]+):/);
+    if (schemeMatch) {
+      const scheme = schemeMatch[1].toLowerCase();
+      // Also catch weird whitespace in the scheme by stripping it before check
+      const cleanScheme = str.replace(/[\n\r\t]/g, '').match(/^([a-zA-Z0-9+\-.]+):/);
+      const finalScheme = cleanScheme ? cleanScheme[1].toLowerCase() : scheme;
+      if (['javascript', 'data', 'vbscript'].includes(finalScheme)) {
+        return 'about:blank';
+      }
+    }
+  }
+  return str;
+}
+
 const LOG_LEVEL = 'warn';
 function log(level, ...args) {
   const levels = { debug: 0, warn: 1, error: 2, none: 9 };
@@ -336,7 +365,7 @@ function buildCardBadges(match, live) {
 
 function buildCardPoster(posterUrl) {
   if (!posterUrl) return '';
-  const safe = String(posterUrl).replace(/'/g, '');
+  const safe = escapeHtml(sanitizeUrl(posterUrl));
   return `<div class="card-poster" style="background-image:url('${safe}')"></div>`;
 }
 
@@ -539,9 +568,13 @@ function renderPlayerInfo(match) {
   // Set poster background on player container
   const posterEl = el('player-poster-bg');
   if (posterEl) {
-    const safePoster = posterUrl ? String(posterUrl).replace(/'/g, '') : '';
-    posterEl.style.backgroundImage = safePoster ? `url('${safePoster}')` : 'none';
-    posterEl.style.display = safePoster ? '' : 'none';
+    // Note: Do not escapeHtml here as this sets CSSOM directly, not innerHTML.
+    // Escaping would break URLs with '&' in them.
+    const safePoster = posterUrl ? sanitizeUrl(posterUrl) : '';
+    // We still strip quotes to avoid CSS injection, although sanitizeUrl blocks javascript:
+    const finalPoster = safePoster.replace(/['"\\]/g, '');
+    posterEl.style.backgroundImage = finalPoster ? `url('${finalPoster}')` : 'none';
+    posterEl.style.display = finalPoster ? '' : 'none';
   }
 
   if (hasTeams) {
@@ -591,8 +624,8 @@ function selectStream(stream, tabEl) {
     el('player-loading').classList.add('hidden');
     iframe.classList.remove('hidden');
   };
-  iframe.src = stream.embedUrl;
-  showToast(`Stream ${stream.streamNo || ''} — ${stream.language || ''} ${stream.hd ? '(HD)' : '(SD)'}`, 'success');
+  iframe.src = sanitizeUrl(stream.embedUrl);
+  showToast(`Stream ${escapeHtml(stream.streamNo) || ''} — ${escapeHtml(stream.language) || ''} ${stream.hd ? '(HD)' : '(SD)'}`, 'success');
 }
 
 // ===================== Filtering =====================
@@ -1023,7 +1056,7 @@ function buildFilledSlotContent(slot, i) {
 
   let iframeHtml = '';
   if (stream && stream.embedUrl && !loading) {
-    const escUrl = escapeHtml(stream.embedUrl);
+    const escUrl = escapeHtml(sanitizeUrl(stream.embedUrl));
     iframeHtml = `<iframe class="mv-iframe" src="${escUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>`;
   }
 
@@ -1042,7 +1075,7 @@ function buildFilledSlotContent(slot, i) {
   ).join('');
 
   const streamOptions = streams.map((str, sIdx) =>
-    `<option value="${sIdx}" ${sIdx === streamIndex ? 'selected' : ''}>Stream ${str.streamNo || sIdx + 1} (${escapeHtml(str.language || 'EN')}) ${str.hd ? 'HD' : 'SD'}</option>`
+    `<option value="${sIdx}" ${sIdx === streamIndex ? 'selected' : ''}>Stream ${escapeHtml(str.streamNo) || sIdx + 1} (${escapeHtml(str.language || 'EN')}) ${str.hd ? 'HD' : 'SD'}</option>`
   ).join('');
 
   return `
@@ -1164,7 +1197,7 @@ function changeSlotStreamIndex(slotIndex, streamIndex) {
       if (spinner) spinner.classList.add('hidden');
       iframe.classList.remove('hidden');
     };
-    iframe.src = selectedStream.embedUrl;
+    iframe.src = sanitizeUrl(selectedStream.embedUrl);
   }
 
   saveMultiviewState();
@@ -1369,7 +1402,7 @@ async function selectMvModalMatch(matchId) {
     listContainer.innerHTML = streams.map((stream, idx) => {
       return `
         <button class="mv-modal-stream-btn" data-match-id="${escapeHtml(match.id)}" data-source="${escapeHtml(src.source)}" data-stream-idx="${idx}">
-          <span>Stream ${stream.streamNo || idx + 1} (${escapeHtml(stream.language || 'English')})</span>
+          <span>Stream ${escapeHtml(stream.streamNo) || idx + 1} (${escapeHtml(stream.language || 'English')})</span>
           ${stream.hd ? '<span class="tab-hd">HD</span>' : ''}
         </button>
       `;
