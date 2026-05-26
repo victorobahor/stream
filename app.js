@@ -517,7 +517,11 @@ function renderPlayerInfo(match) {
         <span class="player-team-name">${a?.name||'Away'}</span>
       </div>`;
   } else {
-    teamsDiv.innerHTML = `<span class="player-title">${match.title||'Match'}</span>`;
+    teamsDiv.innerHTML = '';
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'player-title';
+    titleSpan.textContent = match.title || 'Match';
+    teamsDiv.appendChild(titleSpan);
   }
 
   el('player-sport-badge').textContent = `${getSportEmoji(match.category)} ${capitalize(match.category||'Sport')}`;
