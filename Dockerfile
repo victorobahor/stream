@@ -1,7 +1,7 @@
 FROM nginx:alpine
 
 # Copy static assets
-COPY index.html app.js style.css /usr/share/nginx/html/
+COPY index.html app.js benchmark.js style.css /usr/share/nginx/html/
 
 # Expose Nginx port
 EXPOSE 80
