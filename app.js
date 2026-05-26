@@ -381,11 +381,24 @@ function renderStreamTabs(streams, source) {
   streams.forEach((stream, i) => {
     const tab = document.createElement('button');
     tab.className = 'stream-tab';
-    tab.innerHTML = `
-      <span class="tab-source">${capitalize(stream.source||source)} #${stream.streamNo||i+1}</span>
-      <span class="tab-lang">${stream.language||'Unknown'}</span>
-      ${stream.hd ? '<span class="tab-hd">HD</span>' : ''}
-    `;
+
+    const sourceSpan = document.createElement('span');
+    sourceSpan.className = 'tab-source';
+    sourceSpan.textContent = `${capitalize(stream.source||source)} #${stream.streamNo||i+1}`;
+    tab.appendChild(sourceSpan);
+
+    const langSpan = document.createElement('span');
+    langSpan.className = 'tab-lang';
+    langSpan.textContent = stream.language || 'Unknown';
+    tab.appendChild(langSpan);
+
+    if (stream.hd) {
+      const hdSpan = document.createElement('span');
+      hdSpan.className = 'tab-hd';
+      hdSpan.textContent = 'HD';
+      tab.appendChild(hdSpan);
+    }
+
     tab.onclick = () => {
       tabs.querySelectorAll('.stream-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
