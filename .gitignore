@@ -1,6 +1,2 @@
 node_modules/
 dist/
-Streamed -*
-
-# Keeping legacy JS
-!app.js
