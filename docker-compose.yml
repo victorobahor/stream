@@ -1,7 +1,7 @@
 services:
   streamzone:
     build: .
-    image: v1kt0r2020/stream:latest
+    image: v1kt0r2020/streamzone:latest
     container_name: streamzone_app
     ports:
       - "8080:80"
