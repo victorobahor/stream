@@ -75,7 +75,7 @@ export function buildFilledSlotContent(slot: MultiviewSlot, i: number): string {
   let iframeHtml = '';
   if (stream && stream.embedUrl && !loading) {
     const escUrl = escapeHtml(sanitizeUrl(stream.embedUrl));
-    iframeHtml = `<iframe class="mv-iframe" src="${escUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"></iframe>`;
+    iframeHtml = `<iframe class="mv-iframe" src="${escUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>`;
   }
 
   let loadingHtml = '';
