@@ -1,0 +1,56 @@
+import type { APIMatch } from './types';
+import { LOG_LEVEL } from './state';
+
+export function el(id: string): HTMLElement | null {
+  return document.getElementById(id);
+}
+
+export function escapeHtml(str: unknown): string {
+  if (!str) return '';
+  const s = String(str);
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function sanitizeUrl(url: unknown): string {
+  if (!url) return '';
+  const str = String(url).trim();
+  try {
+    const parsed = new URL(str);
+    if (['javascript:', 'data:', 'vbscript:'].includes(parsed.protocol)) {
+      return 'about:blank';
+    }
+  } catch {
+    const schemeMatch = str.match(/^([a-zA-Z0-9+\-.]+):/);
+    if (schemeMatch) {
+      const scheme = schemeMatch[1].toLowerCase();
+      const cleanScheme = str.replace(/[\n\r\t]/g, '').match(/^([a-zA-Z0-9+\-.]+):/);
+      const finalScheme = cleanScheme ? cleanScheme[1].toLowerCase() : scheme;
+      if (['javascript', 'data', 'vbscript'].includes(finalScheme)) {
+        return 'about:blank';
+      }
+    }
+  }
+  return str;
+}
+
+export function log(level: string, ...args: unknown[]): void {
+  const levels: Record<string, number> = { debug: 0, warn: 1, error: 2, none: 9 };
+  if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 0)) {
+    const method = level === 'debug' ? 'log' : level;
+    // eslint-disable-next-line no-console
+    (console as unknown as Record<string, (...a: unknown[]) => void>)[method](...args);
+  }
+}
+
+export function matchTextIncludes(match: APIMatch, query: string): boolean {
+  const t = (match.title || '').toLowerCase();
+  const h = (match.teams?.home?.name || '').toLowerCase();
+  const a = (match.teams?.away?.name || '').toLowerCase();
+  const c = (match.category || '').toLowerCase();
+  return t.includes(query) || h.includes(query) || a.includes(query) || c.includes(query);
+}

@@ -1,0 +1,101 @@
+import type { Category, MultiviewLayout } from './types';
+import { state } from './state';
+import { filterCategory, filterSport, handleSearch } from './filters';
+import { showHome, retryLoad, toggleMobileMenu, closeMobileMenu } from './ui';
+import { showMultiview, changeMultiviewLayout } from './multiview/grid';
+import { clearAllMultiviewSlots, toggleMultiviewSidebar } from './multiview/slots';
+import { handleMultiviewSearch } from './multiview/sidebar';
+import { closeMvModal, showMvModalMatchesView, filterMvModalMatches } from './multiview/modal';
+
+type ActionHandler = (target: HTMLElement, value?: string) => void;
+
+const ACTION_MAP: Record<string, ActionHandler> = {
+  filterCategory: (_, value) => {
+    if (value) filterCategory(value as Category);
+  },
+  showHome: () => showHome(),
+  showMultiview: () => showMultiview(),
+  toggleMobileMenu: () => toggleMobileMenu(),
+  closeMobileMenu: () => closeMobileMenu(),
+  retryLoad: () => retryLoad(),
+  filterSport: (target, value) => {
+    if (value) filterSport(value, target);
+  },
+  changeMultiviewLayout: (_, value) => {
+    if (value) changeMultiviewLayout(value as MultiviewLayout);
+  },
+  clearAllMultiviewSlots: () => clearAllMultiviewSlots(),
+  toggleMultiviewSidebar: () => toggleMultiviewSidebar(),
+  closeMvModal: () => closeMvModal(),
+  showMvModalMatchesView: () => showMvModalMatchesView(),
+};
+
+export function attachGlobalDelegates(): void {
+  // Click delegation for all data-action elements
+  document.addEventListener('click', e => {
+    const target = (e.target as HTMLElement).closest('[data-action]') as HTMLElement | null;
+    if (!target) return;
+
+    const action = target.dataset.action!;
+    const value = target.dataset.value;
+
+    // Also handle nav links that set active state
+    if (target.classList.contains('nav-link') || target.closest('.nav-link')) {
+      const navLink = target.classList.contains('nav-link') ? target : target.closest('.nav-link') as HTMLElement;
+      document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+      navLink.classList.add('active');
+    }
+
+    if (action === 'setActiveNav') {
+      document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+      target.classList.add('active');
+      return;
+    }
+
+    if (action === 'filterCategory' && value) {
+      if (target.classList.contains('nav-link') || target.closest('.mobile-nav')) {
+        closeMobileMenu();
+      }
+    }
+
+    if (action === 'showMultiview') {
+      if (target.closest('.mobile-nav')) {
+        closeMobileMenu();
+      }
+    }
+
+    const handler = ACTION_MAP[action];
+    if (handler) {
+      e.preventDefault();
+      handler(target, value);
+    }
+  });
+
+  // Input delegation
+  document.addEventListener('input', e => {
+    const target = e.target as HTMLInputElement;
+    switch (target.id) {
+      case 'search-input':
+        handleSearch(target.value);
+        break;
+      case 'multiview-search':
+        handleMultiviewSearch(target.value);
+        break;
+      case 'mv-modal-search':
+        filterMvModalMatches(target.value);
+        break;
+    }
+  });
+
+  // Keyboard: Escape to close modal or go home
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('mv-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        closeMvModal();
+      } else if (state.currentMatch) {
+        showHome();
+      }
+    }
+  });
+}

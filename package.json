@@ -1,0 +1,20 @@
+{
+  "name": "streamzone",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live sports streaming web application",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.4",
+    "vitest": "^3.1.1"
+  }
+}

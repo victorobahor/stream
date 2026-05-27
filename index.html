@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <!-- Animated Background -->
@@ -24,7 +24,7 @@
   <!-- Header / Nav -->
   <header id="main-header">
     <div class="header-inner">
-      <a href="#" class="logo" id="logo-btn" onclick="showHome(); return false;">
+      <a href="#" class="logo" id="logo-btn" data-action="showHome">
         <div class="logo-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -34,23 +34,23 @@
       </a>
 
       <nav class="main-nav" id="main-nav">
-        <a href="#" class="nav-link active" id="nav-live" onclick="filterCategory('live'); setActiveNav(this); return false;">
+        <a href="#" class="nav-link active" id="nav-live" data-action="filterCategory" data-value="live">
           <span class="live-dot"></span>Live
         </a>
-        <a href="#" class="nav-link" id="nav-all" onclick="filterCategory('all'); setActiveNav(this); return false;">All Matches</a>
-        <a href="#" class="nav-link" id="nav-today" onclick="filterCategory('today'); setActiveNav(this); return false;">Today</a>
-        <a href="#" class="nav-link" id="nav-popular" onclick="filterCategory('popular'); setActiveNav(this); return false;">🔥 Popular</a>
-        <a href="#" class="nav-link" id="nav-multiview" onclick="showMultiview(); setActiveNav(this); return false;">📺 Multi View</a>
+        <a href="#" class="nav-link" id="nav-all" data-action="filterCategory" data-value="all">All Matches</a>
+        <a href="#" class="nav-link" id="nav-today" data-action="filterCategory" data-value="today">Today</a>
+        <a href="#" class="nav-link" id="nav-popular" data-action="filterCategory" data-value="popular">🔥 Popular</a>
+        <a href="#" class="nav-link" id="nav-multiview" data-action="showMultiview">📺 Multi View</a>
       </nav>
 
       <div class="header-actions">
         <div class="search-wrap">
-          <input type="text" id="search-input" class="search-input" aria-label="Search matches" placeholder="Search matches…" oninput="handleSearch(this.value)">
+          <input type="text" id="search-input" class="search-input" aria-label="Search matches" placeholder="Search matches…">
           <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
         </div>
-        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle mobile menu" onclick="toggleMobileMenu()">
+        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle mobile menu" data-action="toggleMobileMenu">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="3" y1="12" x2="21" y2="12"></line>
             <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -61,18 +61,18 @@
     </div>
     <!-- Mobile Nav -->
     <div class="mobile-nav" id="mobile-nav">
-      <a href="#" onclick="filterCategory('live'); setActiveNav(null); closeMobileMenu(); return false;">🔴 Live</a>
-      <a href="#" onclick="filterCategory('all'); setActiveNav(null); closeMobileMenu(); return false;">All Matches</a>
-      <a href="#" onclick="filterCategory('today'); setActiveNav(null); closeMobileMenu(); return false;">Today</a>
-      <a href="#" onclick="filterCategory('popular'); setActiveNav(null); closeMobileMenu(); return false;">🔥 Popular</a>
-      <a href="#" onclick="showMultiview(); setActiveNav(null); closeMobileMenu(); return false;">📺 Multi View</a>
+      <a href="#" data-action="filterCategory" data-value="live">🔴 Live</a>
+      <a href="#" data-action="filterCategory" data-value="all">All Matches</a>
+      <a href="#" data-action="filterCategory" data-value="today">Today</a>
+      <a href="#" data-action="filterCategory" data-value="popular">🔥 Popular</a>
+      <a href="#" data-action="showMultiview">📺 Multi View</a>
     </div>
   </header>
 
   <!-- Sports Filter Bar -->
   <div class="sports-bar-wrap" id="sports-bar-wrap">
     <div class="sports-bar" id="sports-bar">
-      <button class="sport-chip active" onclick="filterSport('all', this)">All Sports</button>
+      <button class="sport-chip active" data-action="filterSport" data-value="all">All Sports</button>
       <!-- Sports chips will be injected here -->
     </div>
   </div>
@@ -104,7 +104,7 @@
         <div class="empty-icon">📺</div>
         <h2>No matches found</h2>
         <p>Try a different category or check back later for live events.</p>
-        <button class="btn-primary" onclick="filterCategory('all')">Browse All Matches</button>
+        <button class="btn-primary" data-action="filterCategory" data-value="all">Browse All Matches</button>
       </div>
 
       <!-- Error State -->
@@ -112,13 +112,13 @@
         <div class="empty-icon">⚠️</div>
         <h2>Unable to load matches</h2>
         <p id="error-msg">Could not connect to the stream API. Please check your connection and try again.</p>
-        <button class="btn-primary" onclick="retryLoad()">Retry</button>
+        <button class="btn-primary" data-action="retryLoad">Retry</button>
       </div>
     </section>
 
     <!-- Player View -->
     <section id="player-view" class="hidden">
-      <button class="back-btn" onclick="showHome()">
+      <button class="back-btn" data-action="showHome">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <polyline points="15 18 9 12 15 6"></polyline>
         </svg>
@@ -197,19 +197,19 @@
         <div class="toolbar-left">
           <h1 class="multiview-title">📺 Multi View</h1>
           <div class="layout-controls">
-            <button class="layout-btn active" data-layout="1x2" onclick="changeMultiviewLayout('1x2')" title="Dual Horizontal Split">1x2</button>
-            <button class="layout-btn" data-layout="2x2" onclick="changeMultiviewLayout('2x2')" title="Quad View (2x2)">2x2</button>
+            <button class="layout-btn active" data-layout="1x2" data-action="changeMultiviewLayout" data-value="1x2" title="Dual Horizontal Split">1x2</button>
+            <button class="layout-btn" data-layout="2x2" data-action="changeMultiviewLayout" data-value="2x2" title="Quad View (2x2)">2x2</button>
           </div>
         </div>
         <div class="toolbar-right">
-          <button class="btn-secondary" onclick="clearAllMultiviewSlots()" title="Clear all streams">
+          <button class="btn-secondary" data-action="clearAllMultiviewSlots" title="Clear all streams">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
             </svg>
             Clear All
           </button>
-          <button class="btn-secondary" id="toggle-multiview-sidebar" onclick="toggleMultiviewSidebar()">
+          <button class="btn-secondary" id="toggle-multiview-sidebar" data-action="toggleMultiviewSidebar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
               <line x1="9" y1="3" x2="9" y2="21"></line>
@@ -232,7 +232,7 @@
             <span class="sidebar-info">Drag to slot or click slot + stream</span>
           </div>
           <div class="sidebar-search">
-            <input type="text" id="multiview-search" aria-label="Search matches" placeholder="Search matches..." oninput="handleMultiviewSearch(this.value)">
+            <input type="text" id="multiview-search" aria-label="Search matches" placeholder="Search matches...">
             <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
@@ -250,15 +250,15 @@
 
   <!-- Multi View Stream Selector Modal -->
   <div class="mv-modal hidden" id="mv-modal">
-    <div class="mv-modal-backdrop" onclick="closeMvModal()"></div>
+    <div class="mv-modal-backdrop" data-action="closeMvModal"></div>
     <div class="mv-modal-content">
       <div class="mv-modal-header">
         <h3 id="mv-modal-title">Select Match & Stream</h3>
-        <button class="mv-modal-close" aria-label="Close modal" onclick="closeMvModal()">&times;</button>
+        <button class="mv-modal-close" aria-label="Close modal" data-action="closeMvModal">&times;</button>
       </div>
       <div class="mv-modal-body">
         <div class="mv-modal-search-wrap">
-          <input type="text" id="mv-modal-search" class="mv-modal-search" aria-label="Search matches" placeholder="Search matches..." oninput="filterMvModalMatches(this.value)">
+          <input type="text" id="mv-modal-search" class="mv-modal-search" aria-label="Search matches" placeholder="Search matches...">
           <svg class="mv-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
@@ -276,7 +276,7 @@
         
         <div class="mv-modal-streams-view hidden" id="mv-modal-streams-view">
           <div class="mv-modal-streams-header">
-            <button class="back-btn-sm" onclick="showMvModalMatchesView()">
+            <button class="back-btn-sm" data-action="showMvModalMatchesView">
               &larr; Back to Matches
             </button>
             <h4 id="mv-modal-match-name"></h4>
@@ -296,6 +296,6 @@
     <p>StreamZone — Powered by <a href="https://streamed.pk" target="_blank" rel="noopener">Streamed API</a>. For entertainment purposes only.</p>
   </footer>
 
-  <script src="app.js"></script>
+  <script type="module" src="/src/app.ts"></script>
 </body>
 </html>
