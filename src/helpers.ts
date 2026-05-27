@@ -16,26 +16,28 @@ export function escapeHtml(str: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+const BLOCKED_PROTOCOLS = ['javascript:', 'data:', 'vbscript:', 'blob:'];
+
+const BLOCKED_SCHEMES = ['javascript', 'data', 'vbscript', 'blob'];
+
 export function sanitizeUrl(url: unknown): string {
   if (!url) return '';
-  const str = String(url).trim();
+  const str = String(url).replace(/[\n\r\t]/g, '').trim();
   try {
     const parsed = new URL(str);
-    if (['javascript:', 'data:', 'vbscript:'].includes(parsed.protocol)) {
+    if (BLOCKED_PROTOCOLS.includes(parsed.protocol)) {
       return 'about:blank';
     }
+    return str;
   } catch {
     const schemeMatch = str.match(/^([a-zA-Z0-9+\-.]+):/);
     if (schemeMatch) {
-      const scheme = schemeMatch[1].toLowerCase();
-      const cleanScheme = str.replace(/[\n\r\t]/g, '').match(/^([a-zA-Z0-9+\-.]+):/);
-      const finalScheme = cleanScheme ? cleanScheme[1].toLowerCase() : scheme;
-      if (['javascript', 'data', 'vbscript'].includes(finalScheme)) {
+      if (BLOCKED_SCHEMES.includes(schemeMatch[1].toLowerCase())) {
         return 'about:blank';
       }
     }
+    return str;
   }
-  return str;
 }
 
 export function log(level: string, ...args: unknown[]): void {
