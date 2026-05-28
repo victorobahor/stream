@@ -18,8 +18,8 @@ export function buildCardBadges(match: APIMatch, live: boolean): string {
 
 export function buildCardPoster(posterUrl: string | null): string {
   if (!posterUrl) return '';
-  const safe = escapeHtml(sanitizeUrl(posterUrl));
-  return `<div class="card-poster" style="background-image:url('${safe}')"></div>`;
+  const safe = sanitizeUrl(posterUrl).replace(/['"\\]/g, '');
+  return `<div class="card-poster" style="background-image:url('${escapeHtml(safe)}')"></div>`;
 }
 
 export function buildCardTeams(match: APIMatch, hasTeams: boolean, sportEmoji: string): string {
