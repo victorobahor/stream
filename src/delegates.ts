@@ -87,9 +87,16 @@ export function attachGlobalDelegates(): void {
     }
   });
 
-  // Keyboard: Escape to close modal or go home
+  // Keyboard: Escape to close modal or go home, / to search
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
+    if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+      e.preventDefault();
+      const searchInput = document.getElementById('search-input');
+      if (searchInput) {
+        searchInput.focus();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } else if (e.key === 'Escape') {
       const modal = document.getElementById('mv-modal');
       if (modal && !modal.classList.contains('hidden')) {
         closeMvModal();

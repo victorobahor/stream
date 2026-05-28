@@ -108,10 +108,10 @@ export function buildFilledSlotContent(slot: MultiviewSlot, i: number): string {
     <div class="mv-slot-header">
       <div class="mv-slot-title" title="${title}">${title}</div>
       <div class="mv-slot-controls">
-        <select class="mv-source-select" data-slot="${i}" data-action="change-source">
+        <select class="mv-source-select" data-slot="${i}" data-action="change-source" aria-label="Select stream source">
           ${sourceOptions}
         </select>
-        <select class="mv-source-select" data-slot="${i}" data-action="change-stream">
+        <select class="mv-source-select" data-slot="${i}" data-action="change-stream" aria-label="Select stream quality">
           ${streamOptions}
         </select>
         <button class="mv-control-btn" aria-label="Fullscreen stream" data-slot="${i}" data-action="fullscreen" title="Fullscreen">
