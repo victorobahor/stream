@@ -1,6 +1,6 @@
 import type { APIMatch } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, matchTextIncludes } from '../helpers';
+import { el, escapeHtml, matchTextIncludes, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport, sortMatchesByLive } from '../helpers';
 import { capitalize, getSportEmoji, isMatchLive, showToast } from '../format';
 import { getNumSlotsForLayout } from './grid';
 import { loadMatchStreamsIntoActiveSlot } from './slots';
@@ -13,24 +13,17 @@ export function handleMultiviewSearch(query: string): void {
 }
 
 export function applyMultiviewSidebarFilters(): void {
-  let matches = [...state.allMatches];
-  matches = matches.filter(m => m.sources && m.sources.length > 0);
+  let matches = filterMatchesWithSources(state.allMatches);
 
   if (state.multiviewSearchQuery) {
-    matches = matches.filter(m => matchTextIncludes(m, state.multiviewSearchQuery));
+    matches = filterMatchesBySearch(matches, state.multiviewSearchQuery);
   }
 
   if (state.multiviewSportFilter !== 'all') {
-    matches = matches.filter(
-      m => (m.category || '').toLowerCase() === state.multiviewSportFilter.toLowerCase()
-    );
+    matches = filterMatchesBySport(matches, state.multiviewSportFilter);
   }
 
-  matches.sort((a, b) => {
-    const aEpl = isMatchLive(a) ? 1 : 0; // simplified: live matches first
-    const bEpl = isMatchLive(b) ? 1 : 0;
-    return bEpl - aEpl;
-  });
+  matches = sortMatchesByLive(matches);
 
   renderMultiviewSidebarList(matches);
 }

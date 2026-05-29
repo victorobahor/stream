@@ -1,9 +1,36 @@
-import type { APIMatch, MultiviewSlot } from '../types';
+import type { APIMatch, MultiviewSlot, MultiviewLayout, SavedMultiviewState, SavedSlotData } from '../types';
 import { state } from '../state';
 import { el, log, sanitizeUrl } from '../helpers';
 import { showToast } from '../format';
 import { fetchJSON } from '../api';
 import { renderMultiviewGrid, getNumSlotsForLayout } from './grid';
+
+const VALID_LAYOUTS: MultiviewLayout[] = ['1x2', '2x2'];
+
+function isValidLayout(layout: unknown): layout is MultiviewLayout {
+  return typeof layout === 'string' && VALID_LAYOUTS.includes(layout as MultiviewLayout);
+}
+
+function isValidSlotData(slot: unknown): slot is SavedSlotData {
+  if (!slot || typeof slot !== 'object') return false;
+  const s = slot as Record<string, unknown>;
+  return (
+    typeof s.matchId === 'string' &&
+    s.matchId.length > 0 &&
+    typeof s.sourceName === 'string' &&
+    s.sourceName.length > 0 &&
+    typeof s.streamIndex === 'number' &&
+    s.streamIndex >= 0
+  );
+}
+
+function isValidSavedState(data: unknown): data is SavedMultiviewState {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  if (!isValidLayout(d.layout)) return false;
+  if (!Array.isArray(d.slots)) return false;
+  return d.slots.every((s: unknown) => s === null || isValidSlotData(s));
+}
 
 // ── Match stream loading into active slot ──
 
@@ -212,6 +239,10 @@ export function loadMultiviewState(): void {
     const saved = localStorage.getItem('streamzone_multiview');
     if (!saved) return;
     const data = JSON.parse(saved);
+    if (!isValidSavedState(data)) {
+      log('warn', 'Invalid multiview state in localStorage, ignoring');
+      return;
+    }
     if (data.layout) {
       state.multiviewLayout = data.layout;
       document.querySelectorAll('.layout-btn').forEach(btn => {
@@ -219,7 +250,7 @@ export function loadMultiviewState(): void {
       });
     }
     if (data.slots && Array.isArray(data.slots)) {
-      data.slots.forEach((s: { matchId: string; sourceName: string; streamIndex: number } | null, idx: number) => {
+      data.slots.forEach((s: SavedSlotData | null, idx: number) => {
         if (s && s.matchId) {
           const match = state.allMatches.find(m => m.id === s.matchId);
           if (match) {

@@ -10,37 +10,42 @@ import { applyFilters } from './filters';
 
 export function showHome(): void {
   document.body.classList.remove('multiview-active');
-  el('player-view')!.classList.add('hidden');
-  el('multiview-view')!.classList.add('hidden');
-  el('home-view')!.classList.remove('hidden');
+  el('player-view')?.classList.add('hidden');
+  el('multiview-view')?.classList.add('hidden');
+  el('home-view')?.classList.remove('hidden');
   state.currentMatch = null;
-  (el('stream-iframe') as HTMLIFrameElement).src = '';
+  const iframe = el('stream-iframe') as HTMLIFrameElement | null;
+  if (iframe) iframe.src = '';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ── Loading states ──
 
 export function showSkeleton(show: boolean): void {
-  el('skeleton-grid')!.classList.toggle('hidden', !show);
-  el('matches-grid')!.classList.toggle('hidden', show);
-  if (show) el('empty-state')!.classList.add('hidden');
+  el('skeleton-grid')?.classList.toggle('hidden', !show);
+  el('matches-grid')?.classList.toggle('hidden', show);
+  if (show) el('empty-state')?.classList.add('hidden');
 }
 
 export function hideError(): void {
-  el('error-state')!.classList.add('hidden');
+  el('error-state')?.classList.add('hidden');
 }
 
 export function showError(msg: string): void {
-  el('error-state')!.classList.remove('hidden');
-  el('error-msg')!.textContent = msg || 'Something went wrong.';
-  el('matches-grid')!.classList.add('hidden');
-  el('skeleton-grid')!.classList.add('hidden');
-  el('empty-state')!.classList.add('hidden');
+  el('error-state')?.classList.remove('hidden');
+  const errorMsg = el('error-msg');
+  if (errorMsg) errorMsg.textContent = msg || 'Something went wrong.';
+  el('matches-grid')?.classList.add('hidden');
+  el('skeleton-grid')?.classList.add('hidden');
+  el('empty-state')?.classList.add('hidden');
 }
 
 export function retryLoad(): void {
   hideError();
-  loadMatches().then(() => applyFilters()).catch(() => {});
+  loadMatches().then(() => applyFilters()).catch(err => {
+    console.error('Retry failed:', err);
+    showError('Failed to load matches. Please try again.');
+  });
 }
 
 // ── Navigation ──
@@ -51,18 +56,20 @@ export function setActiveNav(linkEl: HTMLElement | null): void {
 }
 
 export function toggleMobileMenu(): void {
-  el('mobile-nav')!.classList.toggle('open');
+  el('mobile-nav')?.classList.toggle('open');
 }
 
 export function closeMobileMenu(): void {
-  el('mobile-nav')!.classList.remove('open');
+  el('mobile-nav')?.classList.remove('open');
 }
 
 // ── Sports bar rendering ──
 
 export function renderSportsBar(): void {
-  const bar = el('sports-bar')!;
-  const allChip = bar.querySelector('.sport-chip')!;
+  const bar = el('sports-bar');
+  if (!bar) return;
+  const allChip = bar.querySelector('.sport-chip');
+  if (!allChip) return;
   bar.innerHTML = '';
   bar.appendChild(allChip);
 

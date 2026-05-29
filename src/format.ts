@@ -1,14 +1,17 @@
 import type { APIMatch, SportEmojiMap } from './types';
 import { state, getImgUrl, API_HOSTS, getActiveHostIndex } from './state';
 
+const FIVE_HOURS_MS = 18_000_000;
+const ONE_HOUR_MS = 3_600_000;
+
 // ── Date / time ──
 
 export function formatDate(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
   const diff = d.getTime() - now.getTime();
-  if (diff < 0 && diff > -18_000_000) return '🔴 Live now';
-  if (diff >= 0 && diff < 3_600_000) {
+  if (diff < 0 && diff > -FIVE_HOURS_MS) return '🔴 Live now';
+  if (diff >= 0 && diff < ONE_HOUR_MS) {
     return `In ${Math.round(diff / 60_000)}m`;
   }
   if (d.toDateString() === now.toDateString()) {
@@ -32,7 +35,7 @@ export function isMatchLive(match: APIMatch): boolean {
   if (state.liveMatchIds.has(match.id)) return true;
   if (match.date) {
     const diff = Date.now() - match.date;
-    if (diff > 0 && diff < 18_000_000) return true;
+    if (diff > 0 && diff < FIVE_HOURS_MS) return true;
   }
   return false;
 }

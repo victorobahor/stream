@@ -1,6 +1,6 @@
 import type { APIMatch, Stream } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, matchTextIncludes } from '../helpers';
+import { el, escapeHtml, matchTextIncludes, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport } from '../helpers';
 import { capitalize, getSportEmoji, isEPLMatch } from '../format';
 import { fetchJSON } from '../api';
 import { loadMultiviewSlotStream } from './slots';
@@ -15,7 +15,7 @@ export function openMvModal(slotIndex: number): void {
 
   const input = el('mv-modal-search') as HTMLInputElement;
   if (input) input.value = '';
-  el('mv-modal')!.classList.remove('hidden');
+  el('mv-modal')?.classList.remove('hidden');
 
   showMvModalMatchesView();
   renderMvModalSports();
@@ -23,13 +23,13 @@ export function openMvModal(slotIndex: number): void {
 }
 
 export function closeMvModal(): void {
-  el('mv-modal')!.classList.add('hidden');
+  el('mv-modal')?.classList.add('hidden');
   state.mvModalActiveSlot = null;
 }
 
 export function showMvModalMatchesView(): void {
-  el('mv-modal-matches-view')!.classList.remove('hidden');
-  el('mv-modal-streams-view')!.classList.add('hidden');
+  el('mv-modal-matches-view')?.classList.remove('hidden');
+  el('mv-modal-streams-view')?.classList.add('hidden');
 }
 
 // ── Modal sports filter ──
@@ -76,16 +76,14 @@ export function filterMvModalMatches(query: string): void {
   const container = el('mv-modal-matches');
   if (!container) return;
 
-  let matches = state.allMatches.filter(m => m.sources && m.sources.length > 0);
+  let matches = filterMatchesWithSources(state.allMatches);
 
   if (state.mvModalSearchQuery) {
-    matches = matches.filter(m => matchTextIncludes(m, state.mvModalSearchQuery));
+    matches = filterMatchesBySearch(matches, state.mvModalSearchQuery);
   }
 
   if (state.mvModalSportFilter !== 'all') {
-    matches = matches.filter(
-      m => (m.category || '').toLowerCase() === state.mvModalSportFilter.toLowerCase()
-    );
+    matches = filterMatchesBySport(matches, state.mvModalSportFilter);
   }
 
   matches.sort((a, b) => {

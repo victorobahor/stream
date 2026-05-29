@@ -6,6 +6,7 @@ import { showMultiview, changeMultiviewLayout } from './multiview/grid';
 import { clearAllMultiviewSlots, toggleMultiviewSidebar } from './multiview/slots';
 import { handleMultiviewSearch } from './multiview/sidebar';
 import { closeMvModal, showMvModalMatchesView, filterMvModalMatches } from './multiview/modal';
+import { debounceString } from './helpers';
 
 type ActionHandler = (target: HTMLElement, value?: string) => void;
 
@@ -29,6 +30,10 @@ const ACTION_MAP: Record<string, ActionHandler> = {
   closeMvModal: () => closeMvModal(),
   showMvModalMatchesView: () => showMvModalMatchesView(),
 };
+
+const debouncedSearch = debounceString((query: string) => handleSearch(query), 300);
+const debouncedMultiviewSearch = debounceString((query: string) => handleMultiviewSearch(query), 300);
+const debouncedModalSearch = debounceString((query: string) => filterMvModalMatches(query), 300);
 
 export function attachGlobalDelegates(): void {
   // Click delegation for all data-action elements
@@ -76,13 +81,13 @@ export function attachGlobalDelegates(): void {
     const target = e.target as HTMLInputElement;
     switch (target.id) {
       case 'search-input':
-        handleSearch(target.value);
+        debouncedSearch(target.value);
         break;
       case 'multiview-search':
-        handleMultiviewSearch(target.value);
+        debouncedMultiviewSearch(target.value);
         break;
       case 'mv-modal-search':
-        filterMvModalMatches(target.value);
+        debouncedModalSearch(target.value);
         break;
     }
   });

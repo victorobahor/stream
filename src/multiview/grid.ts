@@ -6,14 +6,11 @@ import { renderMultiviewSidebar, applyMultiviewSidebarFilters } from './sidebar'
 // ── Layout utils ──
 
 export function getNumSlotsForLayout(layout: MultiviewLayout): number {
-  const map: Record<string, number> = {
-    '1x1': 1,
+  const map: Record<MultiviewLayout, number> = {
     '1x2': 2,
-    '2x1': 2,
-    '3': 3,
     '2x2': 4,
   };
-  return map[layout] || 1;
+  return map[layout] || 2;
 }
 
 // ── Slot events ──

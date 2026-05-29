@@ -16,7 +16,8 @@ export function updateSourceBarActive(idx: number): void {
 // ── Stream tabs ──
 
 export function renderStreamTabs(streams: Stream[], source: string): void {
-  const tabs = el('stream-tabs')!;
+  const tabs = el('stream-tabs');
+  if (!tabs) return;
   tabs.innerHTML = '';
   streams.forEach((stream, i) => {
     const tab = document.createElement('button');
@@ -51,7 +52,8 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
 // ── Source buttons ──
 
 export function renderSourceButtons(sources: StreamSource[]): void {
-  const bar = el('source-bar')!;
+  const bar = el('source-bar');
+  if (!bar) return;
   if (!sources || sources.length <= 1) {
     bar.classList.add('hidden');
     return;
@@ -73,34 +75,43 @@ export function renderSourceButtons(sources: StreamSource[]): void {
 }
 
 async function loadAndDisplayStreams(source: string, id: string): Promise<void> {
-  el('streams-loading')!.classList.remove('hidden');
-  el('no-streams')!.classList.add('hidden');
-  el('stream-tabs')!.innerHTML = '';
-  el('stream-count')!.textContent = '';
+  const streamsLoading = el('streams-loading');
+  const noStreams = el('no-streams');
+  const streamTabs = el('stream-tabs');
+  const streamCount = el('stream-count');
+
+  if (streamsLoading) streamsLoading.classList.remove('hidden');
+  if (noStreams) noStreams.classList.add('hidden');
+  if (streamTabs) streamTabs.innerHTML = '';
+  if (streamCount) streamCount.textContent = '';
 
   try {
     const streams = await fetchStreams(source, id);
-    el('streams-loading')!.classList.add('hidden');
+    if (streamsLoading) streamsLoading.classList.add('hidden');
     if (streams.length === 0) {
       if (tryNextSource()) return;
-      el('no-streams')!.classList.remove('hidden');
-      const p = el('no-streams')!.querySelector('p');
-      if (p) p.textContent = 'No working streams found for any source of this match.';
+      if (noStreams) {
+        noStreams.classList.remove('hidden');
+        const p = noStreams.querySelector('p');
+        if (p) p.textContent = 'No working streams found for any source of this match.';
+      }
       return;
     }
     renderStreamTabs(streams, source);
-    el('stream-count')!.textContent = `${streams.length} stream${streams.length > 1 ? 's' : ''}`;
+    if (streamCount) streamCount.textContent = `${streams.length} stream${streams.length > 1 ? 's' : ''}`;
     const best = streams.find(s => s.hd) || streams[0];
     if (best) {
       const idx = streams.indexOf(best);
-      selectStream(best, el('stream-tabs')!.querySelectorAll('.stream-tab')[idx] as HTMLButtonElement);
+      selectStream(best, streamTabs?.querySelectorAll('.stream-tab')[idx] as HTMLButtonElement);
     }
   } catch (err) {
-    el('streams-loading')!.classList.add('hidden');
+    if (streamsLoading) streamsLoading.classList.add('hidden');
     if (tryNextSource()) return;
-    el('no-streams')!.classList.remove('hidden');
-    const p = el('no-streams')!.querySelector('p');
-    if (p) p.textContent = `Failed: ${err instanceof Error ? err.message : String(err)}. No other sources available.`;
+    if (noStreams) {
+      noStreams.classList.remove('hidden');
+      const p = noStreams.querySelector('p');
+      if (p) p.textContent = `Failed: ${err instanceof Error ? err.message : String(err)}. No other sources available.`;
+    }
   }
 }
 
@@ -113,20 +124,25 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   }
   state.selectedStream = stream;
   if (tabEl) {
-    el('stream-tabs')!.querySelectorAll('.stream-tab').forEach(t => t.classList.remove('active'));
+    el('stream-tabs')?.querySelectorAll('.stream-tab').forEach(t => t.classList.remove('active'));
     tabEl.classList.add('active');
   }
 
-  const iframe = el('stream-iframe') as HTMLIFrameElement;
-  el('player-placeholder')!.classList.add('hidden');
-  el('player-loading')!.classList.remove('hidden');
-  iframe.classList.add('hidden');
+  const iframe = el('stream-iframe') as HTMLIFrameElement | null;
+  const playerPlaceholder = el('player-placeholder');
+  const playerLoading = el('player-loading');
 
-  iframe.onload = () => {
-    el('player-loading')!.classList.add('hidden');
-    iframe.classList.remove('hidden');
-  };
-  iframe.src = sanitizeUrl(stream.embedUrl);
+  if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
+  if (playerLoading) playerLoading.classList.remove('hidden');
+  if (iframe) iframe.classList.add('hidden');
+
+  if (iframe) {
+    iframe.onload = () => {
+      if (playerLoading) playerLoading.classList.add('hidden');
+      iframe.classList.remove('hidden');
+    };
+    iframe.src = sanitizeUrl(stream.embedUrl);
+  }
   showToast(
     `Stream ${escapeHtml(String(stream.streamNo)) || ''} — ${escapeHtml(stream.language) || ''} ${stream.hd ? '(HD)' : '(SD)'}`,
     'success'
@@ -156,29 +172,33 @@ export function openPlayer(match: APIMatch): void {
   state.activeSourceIndex = 0;
 
   document.body.classList.remove('multiview-active');
-  el('home-view')!.classList.add('hidden');
-  el('multiview-view')!.classList.add('hidden');
-  el('player-view')!.classList.remove('hidden');
+  el('home-view')?.classList.add('hidden');
+  el('multiview-view')?.classList.add('hidden');
+  el('player-view')?.classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   renderPlayerInfo(match);
 
   // Reset player
-  const iframe = el('stream-iframe') as HTMLIFrameElement;
-  iframe.src = '';
-  iframe.classList.add('hidden');
-  el('player-placeholder')!.classList.remove('hidden');
-  el('player-loading')!.classList.add('hidden');
-  el('stream-tabs')!.innerHTML = '';
-  el('stream-count')!.textContent = '';
-  el('no-streams')!.classList.add('hidden');
+  const iframe = el('stream-iframe') as HTMLIFrameElement | null;
+  if (iframe) {
+    iframe.src = '';
+    iframe.classList.add('hidden');
+  }
+  el('player-placeholder')?.classList.remove('hidden');
+  el('player-loading')?.classList.add('hidden');
+  const streamTabs = el('stream-tabs');
+  if (streamTabs) streamTabs.innerHTML = '';
+  const streamCount = el('stream-count');
+  if (streamCount) streamCount.textContent = '';
+  el('no-streams')?.classList.add('hidden');
 
   if (match.sources && match.sources.length > 0) {
     renderSourceButtons(match.sources);
     loadAndDisplayStreams(match.sources[0].source, match.sources[0].id);
   } else {
-    el('source-bar')!.classList.add('hidden');
-    el('no-streams')!.classList.remove('hidden');
+    el('source-bar')?.classList.add('hidden');
+    el('no-streams')?.classList.remove('hidden');
   }
 
   // Render related (lazy import to avoid circular deps)
@@ -189,7 +209,8 @@ export function openPlayer(match: APIMatch): void {
 
 export function renderPlayerInfo(match: APIMatch): void {
   const hasTeams = !!(match.teams && (match.teams.home || match.teams.away));
-  const teamsDiv = el('player-teams')!;
+  const teamsDiv = el('player-teams');
+  if (!teamsDiv) return;
   const posterUrl = getPosterUrl(match);
 
   const posterEl = el('player-poster-bg');
@@ -227,7 +248,11 @@ export function renderPlayerInfo(match: APIMatch): void {
     teamsDiv.appendChild(titleSpan);
   }
 
-  el('player-sport-badge')!.textContent = `${getSportEmoji(match.category)} ${capitalize(match.category || 'Sport')}`;
-  const live = isMatchLive(match);
-  el('player-live-badge')!.style.display = live ? '' : 'none';
+  const sportBadge = el('player-sport-badge');
+  if (sportBadge) sportBadge.textContent = `${getSportEmoji(match.category)} ${capitalize(match.category || 'Sport')}`;
+  const liveBadge = el('player-live-badge');
+  if (liveBadge) {
+    const live = isMatchLive(match);
+    liveBadge.style.display = live ? '' : 'none';
+  }
 }

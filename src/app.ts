@@ -33,7 +33,8 @@ async function loadSportsWithUI(): Promise<void> {
     await loadSports();
     renderSportsBar();
   } catch (e) {
-    // Sports load failure is non-fatal
+    // Sports load failure is non-fatal, but log for debugging
+    console.warn('Failed to load sports:', e);
   }
 }
 

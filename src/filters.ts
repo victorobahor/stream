@@ -1,6 +1,6 @@
 import type { APIMatch, Category } from './types';
 import { state } from './state';
-import { el, matchTextIncludes } from './helpers';
+import { el, matchTextIncludes, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
 import { isEPLMatch, getSportEmoji, capitalize } from './format';
 import { renderMatches } from './cards';
 import { showHome } from './ui';
@@ -20,7 +20,9 @@ export function filterCategory(cat: string): void {
   loadMatches().then(() => {
     applyFilters();
     applyMultiviewSidebarFilters();
-  }).catch(() => {});
+  }).catch(err => {
+    console.error('Failed to load matches:', err);
+  });
 }
 
 export function filterSport(sportId: string, chipEl?: HTMLElement): void {
@@ -30,7 +32,9 @@ export function filterSport(sportId: string, chipEl?: HTMLElement): void {
   loadMatches().then(() => {
     applyFilters();
     applyMultiviewSidebarFilters();
-  }).catch(() => {});
+  }).catch(err => {
+    console.error('Failed to load matches:', err);
+  });
 }
 
 export function handleSearch(query: string): void {
@@ -39,11 +43,10 @@ export function handleSearch(query: string): void {
 }
 
 export function applyFilters(): void {
-  let matches = [...state.allMatches];
-  matches = matches.filter(m => m.sources && m.sources.length > 0);
+  let matches = filterMatchesWithSources(state.allMatches);
 
   if (state.searchQuery) {
-    matches = matches.filter(m => matchTextIncludes(m, state.searchQuery));
+    matches = filterMatchesBySearch(matches, state.searchQuery);
   }
 
   matches.sort((a, b) => {

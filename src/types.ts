@@ -49,7 +49,7 @@ export interface Stream {
 // ── App state types ──
 
 export type Category = 'live' | 'all' | 'today' | 'popular';
-export type MultiviewLayout = '1x1' | '1x2' | '2x1' | '3' | '2x2';
+export type MultiviewLayout = '1x2' | '2x2';
 export type LogLevel = 'debug' | 'warn' | 'error' | 'none';
 
 export interface MultiviewSlot {

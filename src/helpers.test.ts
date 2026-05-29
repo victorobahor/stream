@@ -1,0 +1,114 @@
+import { describe, it, expect } from 'vitest';
+import { escapeHtml, sanitizeUrl, matchTextIncludes, debounce } from './helpers';
+import type { APIMatch } from './types';
+
+describe('escapeHtml', () => {
+  it('should escape HTML special characters', () => {
+    expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+  });
+
+  it('should escape ampersands', () => {
+    expect(escapeHtml('foo & bar')).toBe('foo &amp; bar');
+  });
+
+  it('should escape single quotes', () => {
+    expect(escapeHtml("it's")).toBe('it&#39;s');
+  });
+
+  it('should return empty string for falsy values', () => {
+    expect(escapeHtml('')).toBe('');
+    expect(escapeHtml(null)).toBe('');
+    expect(escapeHtml(undefined)).toBe('');
+  });
+
+  it('should convert non-string values to string', () => {
+    expect(escapeHtml(123)).toBe('123');
+  });
+});
+
+describe('sanitizeUrl', () => {
+  it('should allow https URLs', () => {
+    expect(sanitizeUrl('https://example.com')).toBe('https://example.com');
+  });
+
+  it('should allow http URLs', () => {
+    expect(sanitizeUrl('http://example.com')).toBe('http://example.com');
+  });
+
+  it('should block javascript: protocol', () => {
+    expect(sanitizeUrl('javascript:alert(1)')).toBe('about:blank');
+  });
+
+  it('should block data: protocol', () => {
+    expect(sanitizeUrl('data:text/html,<script>alert(1)</script>')).toBe('about:blank');
+  });
+
+  it('should block vbscript: protocol', () => {
+    expect(sanitizeUrl('vbscript:alert(1)')).toBe('about:blank');
+  });
+
+  it('should return empty string for falsy values', () => {
+    expect(sanitizeUrl('')).toBe('');
+    expect(sanitizeUrl(null)).toBe('');
+    expect(sanitizeUrl(undefined)).toBe('');
+  });
+
+  it('should handle relative URLs', () => {
+    expect(sanitizeUrl('/path/to/resource')).toBe('/path/to/resource');
+  });
+});
+
+describe('matchTextIncludes', () => {
+  const match: APIMatch = {
+    id: '1',
+    title: 'Arsenal vs Chelsea',
+    category: 'football',
+    date: Date.now(),
+    popular: false,
+    sources: [],
+    teams: {
+      home: { name: 'Arsenal', badge: 'ars' },
+      away: { name: 'Chelsea', badge: 'che' },
+    },
+  };
+
+  it('should match title', () => {
+    expect(matchTextIncludes(match, 'arsenal')).toBe(true);
+  });
+
+  it('should match home team name', () => {
+    expect(matchTextIncludes(match, 'arsenal')).toBe(true);
+  });
+
+  it('should match away team name', () => {
+    expect(matchTextIncludes(match, 'chelsea')).toBe(true);
+  });
+
+  it('should match category', () => {
+    expect(matchTextIncludes(match, 'football')).toBe(true);
+  });
+
+  it('should be case insensitive when query is lowercase', () => {
+    expect(matchTextIncludes(match, 'arsenal')).toBe(true);
+  });
+
+  it('should return false for non-matching query', () => {
+    expect(matchTextIncludes(match, 'liverpool')).toBe(false);
+  });
+});
+
+describe('debounce', () => {
+  it('should debounce function calls', async () => {
+    let callCount = 0;
+    const fn = debounce(() => { callCount++; }, 100);
+
+    fn();
+    fn();
+    fn();
+
+    expect(callCount).toBe(0);
+
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(callCount).toBe(1);
+  });
+});

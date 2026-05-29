@@ -45,7 +45,10 @@ export function log(level: string, ...args: unknown[]): void {
   if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 0)) {
     const method = level === 'debug' ? 'log' : level;
     // eslint-disable-next-line no-console
-    (console as unknown as Record<string, (...a: unknown[]) => void>)[method](...args);
+    const consoleFn = console[method as keyof Console];
+    if (typeof consoleFn === 'function') {
+      (consoleFn as (...a: unknown[]) => void).apply(console, args);
+    }
   }
 }
 
@@ -55,4 +58,54 @@ export function matchTextIncludes(match: APIMatch, query: string): boolean {
   const a = (match.teams?.away?.name || '').toLowerCase();
   const c = (match.category || '').toLowerCase();
   return t.includes(query) || h.includes(query) || a.includes(query) || c.includes(query);
+}
+
+export function filterMatchesBySport(matches: APIMatch[], sportFilter: string): APIMatch[] {
+  if (sportFilter === 'all') return matches;
+  return matches.filter(
+    m => (m.category || '').toLowerCase() === sportFilter.toLowerCase()
+  );
+}
+
+export function filterMatchesBySearch(matches: APIMatch[], searchQuery: string): APIMatch[] {
+  if (!searchQuery) return matches;
+  return matches.filter(m => matchTextIncludes(m, searchQuery));
+}
+
+export function filterMatchesWithSources(matches: APIMatch[]): APIMatch[] {
+  return matches.filter(m => m.sources && m.sources.length > 0);
+}
+
+export function sortMatchesByLive(matches: APIMatch[], liveMatchIds?: Set<string>): APIMatch[] {
+  return [...matches].sort((a, b) => {
+    const aLive = liveMatchIds?.has(a.id) ? 1 : 0;
+    const bLive = liveMatchIds?.has(b.id) ? 1 : 0;
+    return bLive - aLive;
+  });
+}
+
+export function debounce<T extends (...args: unknown[]) => void>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      func(...args);
+    }, wait);
+  };
+}
+
+export function debounceString<T extends (arg: string) => void>(
+  func: T,
+  wait: number
+): (arg: string) => void {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  return (arg: string) => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      func(arg);
+    }, wait);
+  };
 }

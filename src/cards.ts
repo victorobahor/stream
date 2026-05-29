@@ -92,17 +92,21 @@ export function buildMatchCard(match: APIMatch): string {
 // ── Render grid ──
 
 export function renderMatches(matches: APIMatch[]): void {
-  const grid = el('matches-grid')!;
-  const empty = el('empty-state')!;
+  const grid = el('matches-grid');
+  const empty = el('empty-state');
+  const matchCount = el('match-count');
+
+  if (!grid || !empty) return;
+
   if (!matches || matches.length === 0) {
     grid.classList.add('hidden');
     empty.classList.remove('hidden');
-    el('match-count')!.textContent = '0 matches';
+    if (matchCount) matchCount.textContent = '0 matches';
     return;
   }
   empty.classList.add('hidden');
   grid.classList.remove('hidden');
-  el('match-count')!.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
+  if (matchCount) matchCount.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
   grid.innerHTML = matches.map(m => buildMatchCard(m)).join('');
   grid.querySelectorAll('.match-card').forEach(card => {
     card.addEventListener('click', () => {
