@@ -22,7 +22,8 @@ const BLOCKED_SCHEMES = ['javascript', 'data', 'vbscript', 'blob'];
 
 export function sanitizeUrl(url: unknown): string {
   if (!url) return '';
-  const str = String(url).replace(/[\n\r\t]/g, '').trim();
+  // Remove control characters and whitespace that can bypass protocol checks
+  const str = String(url).replace(/[\x00-\x1F\x7F-\x9F\n\r\t]/g, '').trim();
   try {
     const parsed = new URL(str);
     if (BLOCKED_PROTOCOLS.includes(parsed.protocol)) {
