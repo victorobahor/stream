@@ -84,7 +84,7 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
       const sportEmoji = getSportEmoji(match.category);
 
       return `
-      <div class="sidebar-match-card" draggable="true" data-id="${escapeHtml(match.id)}">
+      <div class="sidebar-match-card" role="button" tabindex="0" draggable="true" data-id="${escapeHtml(match.id)}">
         <div class="mv-card-meta">
           <span class="mv-card-sport">${sportEmoji} ${escapeHtml(capitalize(match.category))}</span>
           ${live ? '<span class="mv-card-live"><span class="live-dot"></span> LIVE</span>' : ''}
@@ -101,6 +101,15 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     .join('');
 
   container.querySelectorAll('.sidebar-match-card').forEach(card => {
+    card.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        const btn = card.querySelector('.mv-stream-mini-btn');
+        if (btn) (btn as HTMLElement).click();
+      }
+    });
+
     card.addEventListener('dragstart', (e) => {
       const de = e as DragEvent;
       de.dataTransfer!.setData('text/plain', (card as HTMLElement).dataset.id!);

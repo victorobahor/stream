@@ -105,7 +105,7 @@ export function filterMvModalMatches(query: string): void {
       const title =
         match.title || (match.teams ? `${match.teams!.home!.name} vs ${match.teams!.away!.name}` : 'Match');
       return `
-      <div class="mv-modal-match-item" data-match-id="${escapeHtml(match.id)}">
+      <div class="mv-modal-match-item" role="button" tabindex="0" data-match-id="${escapeHtml(match.id)}">
         <div class="mv-modal-match-info">
           <span class="mv-modal-match-title">${escapeHtml(title)}</span>
           <span class="mv-modal-match-sport">${getSportEmoji(match.category)} ${escapeHtml(capitalize(match.category))}</span>
@@ -117,8 +117,16 @@ export function filterMvModalMatches(query: string): void {
     .join('');
 
   container.querySelectorAll('.mv-modal-match-item').forEach(item => {
-    item.addEventListener('click', () => {
+    const clickHandler = () => {
       selectMvModalMatch((item as HTMLElement).dataset.matchId!);
+    };
+    item.addEventListener('click', clickHandler);
+    item.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        clickHandler();
+      }
     });
   });
 }
