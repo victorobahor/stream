@@ -28,7 +28,7 @@ export function renderRelated(currentMatch: APIMatch): void {
           ? `${m.teams?.home?.name || ''} vs ${m.teams?.away?.name || ''}`
           : 'Match');
       return `
-      <div class="related-card" data-match-id="${escapeHtml(m.id)}">
+      <div class="related-card" role="button" tabindex="0" data-match-id="${escapeHtml(m.id)}">
         <div class="related-card-meta">
           <span class="related-sport">${getSportEmoji(m.category)} ${escapeHtml(capitalize(m.category))}</span>
           ${live ? '<span class="related-live"><span class="live-dot"></span> LIVE</span>' : ''}
@@ -39,11 +39,21 @@ export function renderRelated(currentMatch: APIMatch): void {
     .join('');
 
   list.querySelectorAll('.related-card').forEach(card => {
-    card.addEventListener('click', () => {
+    const clickHandler = () => {
       const match = state.allMatches.find(m => m.id === (card as HTMLElement).dataset.matchId);
       if (match) {
         // Dynamic import to avoid circular dependency with player.ts
         import('./player').then(m => m.openPlayer(match));
+      }
+    };
+
+    card.addEventListener('click', clickHandler);
+
+    card.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); // Prevent page scroll for space
+        clickHandler();
       }
     });
   });

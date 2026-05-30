@@ -109,9 +109,19 @@ export function renderMatches(matches: APIMatch[]): void {
   if (matchCount) matchCount.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
   grid.innerHTML = matches.map(m => buildMatchCard(m)).join('');
   grid.querySelectorAll('.match-card').forEach(card => {
-    card.addEventListener('click', () => {
+    const clickHandler = () => {
       const match = state.allMatches.find(m => m.id === (card as HTMLElement).dataset.id);
       if (match) openPlayer(match);
+    };
+
+    card.addEventListener('click', clickHandler);
+
+    card.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); // Prevent page scroll for space
+        clickHandler();
+      }
     });
   });
 }
