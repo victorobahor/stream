@@ -108,20 +108,32 @@ export function renderMatches(matches: APIMatch[]): void {
   grid.classList.remove('hidden');
   if (matchCount) matchCount.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
   grid.innerHTML = matches.map(m => buildMatchCard(m)).join('');
-  grid.querySelectorAll('.match-card').forEach(card => {
-    const clickHandler = () => {
-      const match = state.allMatches.find(m => m.id === (card as HTMLElement).dataset.id);
+
+  if (!grid.dataset.eventsBound) {
+    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
+    const clickHandler = (card: HTMLElement) => {
+      const match = state.allMatches.find(m => m.id === card.dataset.id);
       if (match) openPlayer(match);
     };
 
-    card.addEventListener('click', clickHandler);
-
-    card.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault(); // Prevent page scroll for space
-        clickHandler();
+    grid.addEventListener('click', (e) => {
+      const card = (e.target as HTMLElement).closest('.match-card') as HTMLElement;
+      if (card && grid.contains(card)) {
+        clickHandler(card);
       }
     });
-  });
+
+    grid.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        const card = (e.target as HTMLElement).closest('.match-card') as HTMLElement;
+        if (card && grid.contains(card)) {
+          event.preventDefault(); // Prevent page scroll for space
+          clickHandler(card);
+        }
+      }
+    });
+
+    grid.dataset.eventsBound = 'true';
+  }
 }

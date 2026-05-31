@@ -1,5 +1,3 @@
-import type { Category } from './types';
-import type { Sport } from './types';
 import { state } from './state';
 import { el } from './helpers';
 import { capitalize, getSportEmoji } from './format';
