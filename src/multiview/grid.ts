@@ -1,4 +1,4 @@
-import type { APIMatch, MultiviewSlot, MultiviewLayout } from '../types';
+import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
 import { el, escapeHtml, sanitizeUrl } from '../helpers';
 import { renderMultiviewSidebar, applyMultiviewSidebarFilters } from './sidebar';

@@ -1,4 +1,4 @@
-import type { APIMatch, MultiviewSlot, MultiviewLayout, SavedMultiviewState, SavedSlotData } from '../types';
+import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData } from '../types';
 import { state } from '../state';
 import { el, log, sanitizeUrl } from '../helpers';
 import { showToast } from '../format';

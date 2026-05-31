@@ -1,6 +1,6 @@
-import type { APIMatch, Category } from './types';
+import type { Category } from './types';
 import { state } from './state';
-import { el, matchTextIncludes, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
+import { el, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
 import { isEPLMatch, getSportEmoji, capitalize } from './format';
 import { renderMatches } from './cards';
 import { showHome } from './ui';
