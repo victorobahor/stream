@@ -1,8 +1,7 @@
 import type { APIMatch } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, matchTextIncludes, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport, sortMatchesByLive } from '../helpers';
-import { capitalize, getSportEmoji, isMatchLive, showToast } from '../format';
-import { getNumSlotsForLayout } from './grid';
+import { el, escapeHtml, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport, sortMatchesByLive } from '../helpers';
+import { capitalize, getSportEmoji, isMatchLive } from '../format';
 import { loadMatchStreamsIntoActiveSlot } from './slots';
 
 // ── Sidebar search ──
@@ -100,32 +99,46 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     })
     .join('');
 
-  container.querySelectorAll('.sidebar-match-card').forEach(card => {
-    card.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        const btn = card.querySelector('.mv-stream-mini-btn');
-        if (btn) (btn as HTMLElement).click();
+  if (!container.dataset.eventsBound) {
+    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
+    container.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.mv-stream-mini-btn') as HTMLElement;
+      if (btn && container.contains(btn)) {
+        e.stopPropagation();
+        loadMatchStreamsIntoActiveSlot(btn.dataset.loadMatchId!);
       }
     });
 
-    card.addEventListener('dragstart', (e) => {
-      const de = e as DragEvent;
-      de.dataTransfer!.setData('text/plain', (card as HTMLElement).dataset.id!);
-      card.classList.add('dragging');
-      document.querySelectorAll('.mv-slot').forEach(s => s.classList.add('active-target'));
+    container.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        const card = (e.target as HTMLElement).closest('.sidebar-match-card') as HTMLElement;
+        if (card && container.contains(card)) {
+          event.preventDefault();
+          const btn = card.querySelector('.mv-stream-mini-btn');
+          if (btn) (btn as HTMLElement).click();
+        }
+      }
     });
-    card.addEventListener('dragend', () => {
-      card.classList.remove('dragging');
-      document.querySelectorAll('.mv-slot').forEach(s => s.classList.remove('active-target'));
-    });
-  });
 
-  container.querySelectorAll('.mv-stream-mini-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      loadMatchStreamsIntoActiveSlot((btn as HTMLElement).dataset.loadMatchId!);
+    container.addEventListener('dragstart', (e) => {
+      const card = (e.target as HTMLElement).closest('.sidebar-match-card') as HTMLElement;
+      if (card && container.contains(card)) {
+        const de = e as DragEvent;
+        de.dataTransfer!.setData('text/plain', card.dataset.id!);
+        card.classList.add('dragging');
+        document.querySelectorAll('.mv-slot').forEach(s => s.classList.add('active-target'));
+      }
     });
-  });
+
+    container.addEventListener('dragend', (e) => {
+      const card = (e.target as HTMLElement).closest('.sidebar-match-card') as HTMLElement;
+      if (card && container.contains(card)) {
+        card.classList.remove('dragging');
+        document.querySelectorAll('.mv-slot').forEach(s => s.classList.remove('active-target'));
+      }
+    });
+
+    container.dataset.eventsBound = 'true';
+  }
 }

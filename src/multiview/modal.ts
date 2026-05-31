@@ -1,10 +1,9 @@
-import type { APIMatch, Stream } from '../types';
+import type { Stream } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, matchTextIncludes, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport } from '../helpers';
+import { el, escapeHtml, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport } from '../helpers';
 import { capitalize, getSportEmoji, isEPLMatch } from '../format';
 import { fetchJSON } from '../api';
 import { loadMultiviewSlotStream } from './slots';
-import { renderMultiviewGrid } from './grid';
 
 // ── Modal lifecycle ──
 
@@ -116,19 +115,32 @@ export function filterMvModalMatches(query: string): void {
     })
     .join('');
 
-  container.querySelectorAll('.mv-modal-match-item').forEach(item => {
-    const clickHandler = () => {
-      selectMvModalMatch((item as HTMLElement).dataset.matchId!);
+  if (!container.dataset.eventsBound) {
+    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
+    const clickHandler = (item: HTMLElement) => {
+      selectMvModalMatch(item.dataset.matchId!);
     };
-    item.addEventListener('click', clickHandler);
-    item.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        clickHandler();
+
+    container.addEventListener('click', (e) => {
+      const item = (e.target as HTMLElement).closest('.mv-modal-match-item') as HTMLElement;
+      if (item && container.contains(item)) {
+        clickHandler(item);
       }
     });
-  });
+
+    container.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        const item = (e.target as HTMLElement).closest('.mv-modal-match-item') as HTMLElement;
+        if (item && container.contains(item)) {
+          event.preventDefault();
+          clickHandler(item);
+        }
+      }
+    });
+
+    container.dataset.eventsBound = 'true';
+  }
 }
 
 // ── Modal stream selection ──
@@ -175,15 +187,20 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
       })
       .join('');
 
-    listContainer.querySelectorAll('.mv-modal-stream-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        selectMvModalStream(
-          (btn as HTMLElement).dataset.matchId!,
-          (btn as HTMLElement).dataset.source!,
-          parseInt((btn as HTMLElement).dataset.streamIdx!)
-        );
+    if (!listContainer.dataset.eventsBound) {
+      // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
+      listContainer.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest('.mv-modal-stream-btn') as HTMLElement;
+        if (btn && listContainer.contains(btn)) {
+          selectMvModalStream(
+            btn.dataset.matchId!,
+            btn.dataset.source!,
+            parseInt(btn.dataset.streamIdx!)
+          );
+        }
       });
-    });
+      listContainer.dataset.eventsBound = 'true';
+    }
   } catch (e) {
     listContainer.innerHTML = `<p style="color:var(--live);font-size:0.85rem;">Failed to load: ${escapeHtml(e instanceof Error ? e.message : String(e))}</p>`;
   }
