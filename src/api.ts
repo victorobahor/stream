@@ -77,7 +77,15 @@ export async function loadMatches(): Promise<APIMatch[]> {
 
 // ── Streams ──
 
+const streamsCache = new Map<string, Stream[]>();
+
 export async function loadStreams(source: string, id: string): Promise<Stream[]> {
+  const cacheKey = `${source}:${id}`;
+  if (streamsCache.has(cacheKey)) {
+    return streamsCache.get(cacheKey)!;
+  }
   const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
-  return Array.isArray(data) ? data : [];
+  const streams = Array.isArray(data) ? data : [];
+  streamsCache.set(cacheKey, streams);
+  return streams;
 }
