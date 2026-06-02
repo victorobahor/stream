@@ -36,13 +36,17 @@ export function renderMultiviewSidebar(): void {
 
   const fragment = document.createDocumentFragment();
 
+  let activeChip: HTMLElement | null = null;
+
   const allChip = document.createElement('button');
   allChip.className = 'mini-sport-chip' + (state.multiviewSportFilter === 'all' ? ' active' : '');
+  if (state.multiviewSportFilter === 'all') activeChip = allChip;
   allChip.textContent = 'All';
   allChip.onclick = () => {
     state.multiviewSportFilter = 'all';
-    bar.querySelectorAll('.mini-sport-chip').forEach(c => c.classList.remove('active'));
+    if (activeChip) activeChip.classList.remove('active');
     allChip.classList.add('active');
+    activeChip = allChip;
     applyMultiviewSidebarFilters();
   };
   fragment.appendChild(allChip);
@@ -55,11 +59,13 @@ export function renderMultiviewSidebar(): void {
     const name = sport.name || sport.id || (sport as unknown as string);
     const chip = document.createElement('button');
     chip.className = 'mini-sport-chip' + (state.multiviewSportFilter === id ? ' active' : '');
+    if (state.multiviewSportFilter === id) activeChip = chip;
     chip.textContent = capitalize(name);
     chip.onclick = () => {
       state.multiviewSportFilter = id;
-      bar.querySelectorAll('.mini-sport-chip').forEach(c => c.classList.remove('active'));
+      if (activeChip) activeChip.classList.remove('active');
       chip.classList.add('active');
+      activeChip = chip;
       applyMultiviewSidebarFilters();
     };
     fragment.appendChild(chip);
