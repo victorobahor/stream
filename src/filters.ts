@@ -1,6 +1,6 @@
 import type { Category } from './types';
 import { state } from './state';
-import { el, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
+import { el, filterMatchesWithSources, filterMatchesBySearch, log } from './helpers';
 import { isEPLMatch, getSportEmoji, capitalize } from './format';
 import { renderMatches } from './cards';
 import { showHome } from './ui';
@@ -21,7 +21,7 @@ export function filterCategory(cat: string): void {
     applyFilters();
     applyMultiviewSidebarFilters();
   }).catch(err => {
-    console.error('Failed to load matches:', err);
+    log('error', 'Failed to load matches:', err);
   });
 }
 
@@ -33,7 +33,7 @@ export function filterSport(sportId: string, chipEl?: HTMLElement): void {
     applyFilters();
     applyMultiviewSidebarFilters();
   }).catch(err => {
-    console.error('Failed to load matches:', err);
+    log('error', 'Failed to load matches:', err);
   });
 }
 
