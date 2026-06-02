@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeHtml, sanitizeUrl, matchTextIncludes, filterMatchesBySport, debounce, filterMatchesWithSources } from './helpers';
+import { escapeHtml, sanitizeUrl, matchTextIncludes, filterMatchesBySport, debounce, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
 import type { APIMatch } from './types';
 
 describe('escapeHtml', () => {
