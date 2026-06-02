@@ -6,6 +6,7 @@ import { updateSectionTitle } from './filters';
 import { applyMultiviewSidebarFilters } from './multiview/sidebar';
 import { loadMultiviewState } from './multiview/slots';
 import { attachGlobalDelegates } from './delegates';
+import { log } from './helpers';
 
 // ── Orchestrated loadMatches with UI feedback ──
 
@@ -34,7 +35,7 @@ async function loadSportsWithUI(): Promise<void> {
     renderSportsBar();
   } catch (e) {
     // Sports load failure is non-fatal, but log for debugging
-    console.warn('Failed to load sports:', e);
+    log('warn', 'Failed to load sports:', e);
   }
 }
 
