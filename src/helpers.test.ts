@@ -97,6 +97,74 @@ describe('matchTextIncludes', () => {
   });
 });
 
+describe('filterMatchesBySport', () => {
+  const matches: APIMatch[] = [
+    {
+      id: '1',
+      title: 'Match 1',
+      category: 'football',
+      date: Date.now(),
+      popular: false,
+      sources: [],
+    },
+    {
+      id: '2',
+      title: 'Match 2',
+      category: 'BASKETBALL',
+      date: Date.now(),
+      popular: false,
+      sources: [],
+    },
+    {
+      id: '3',
+      title: 'Match 3',
+      category: 'tennis',
+      date: Date.now(),
+      popular: false,
+      sources: [],
+    },
+    {
+      id: '4',
+      title: 'Match 4',
+      category: undefined,
+      date: Date.now(),
+      popular: false,
+      sources: [],
+    },
+  ];
+
+  it('should return all matches when sportFilter is "all"', () => {
+    expect(filterMatchesBySport(matches, 'all')).toEqual(matches);
+  });
+
+  it('should filter matches by exact category match', () => {
+    const result = filterMatchesBySport(matches, 'football');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('1');
+  });
+
+  it('should filter matches case-insensitively', () => {
+    const resultLowercaseFilter = filterMatchesBySport(matches, 'basketball');
+    expect(resultLowercaseFilter).toHaveLength(1);
+    expect(resultLowercaseFilter[0].id).toBe('2');
+
+    const resultUppercaseFilter = filterMatchesBySport(matches, 'TENNIS');
+    expect(resultUppercaseFilter).toHaveLength(1);
+    expect(resultUppercaseFilter[0].id).toBe('3');
+  });
+
+  it('should handle matches with missing categories gracefully', () => {
+    const matchesMissingCat: APIMatch[] = [{ ...matches[0], category: undefined }];
+    const result = filterMatchesBySport(matchesMissingCat, 'football');
+    expect(result).toHaveLength(0);
+  });
+
+  it('should return empty array when no matches match the filter', () => {
+    const result = filterMatchesBySport(matches, 'rugby');
+    expect(result).toHaveLength(0);
+  });
+});
+
 describe('debounce', () => {
   it('should debounce function calls', async () => {
     let callCount = 0;
