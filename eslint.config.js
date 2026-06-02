@@ -12,6 +12,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/helpers.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
     ignores: ['dist/', 'node_modules/', '*.config.js', '*.config.ts'],
   }
 );

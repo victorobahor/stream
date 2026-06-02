@@ -44,7 +44,6 @@ export function log(level: string, ...args: unknown[]): void {
   const levels: Record<string, number> = { debug: 0, warn: 1, error: 2, none: 9 };
   if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 0)) {
     const method = level === 'debug' ? 'log' : level;
-    // eslint-disable-next-line no-console
     const consoleFn = console[method as keyof Console];
     if (typeof consoleFn === 'function') {
       (consoleFn as (...a: unknown[]) => void).apply(console, args);
