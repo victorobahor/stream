@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeHtml, sanitizeUrl, matchTextIncludes, debounce } from './helpers';
+import { escapeHtml, sanitizeUrl, matchTextIncludes, debounce, filterMatchesWithSources } from './helpers';
 import type { APIMatch } from './types';
 
 describe('escapeHtml', () => {
@@ -110,5 +110,67 @@ describe('debounce', () => {
 
     await new Promise(resolve => setTimeout(resolve, 150));
     expect(callCount).toBe(1);
+  });
+});
+
+describe('filterMatchesWithSources', () => {
+  const baseMatch = {
+    id: '1',
+    title: 'Test',
+    category: 'test',
+    date: Date.now(),
+    popular: false,
+  };
+
+  it('should include matches with populated sources', () => {
+    const matches: APIMatch[] = [
+      { ...baseMatch, sources: [{ source: 'src1', id: '1' }] }
+    ];
+    const result = filterMatchesWithSources(matches);
+    expect(result).toHaveLength(1);
+    expect(result[0].sources).toHaveLength(1);
+  });
+
+  it('should exclude matches with empty sources array', () => {
+    const matches: APIMatch[] = [
+      { ...baseMatch, sources: [] }
+    ];
+    const result = filterMatchesWithSources(matches);
+    expect(result).toHaveLength(0);
+  });
+
+  it('should exclude matches with missing sources property', () => {
+    const matches = [
+      { ...baseMatch }
+    ] as unknown as APIMatch[];
+    const result = filterMatchesWithSources(matches);
+    expect(result).toHaveLength(0);
+  });
+
+  it('should exclude matches with undefined sources property', () => {
+    const matches = [
+      { ...baseMatch, sources: undefined }
+    ] as unknown as APIMatch[];
+    const result = filterMatchesWithSources(matches);
+    expect(result).toHaveLength(0);
+  });
+
+  it('should handle an empty input array', () => {
+    const result = filterMatchesWithSources([]);
+    expect(result).toHaveLength(0);
+  });
+
+  it('should return only valid matches from a mixed array', () => {
+    const matches = [
+      { ...baseMatch, id: '1', sources: [{ source: 'src1', id: 's1' }] },
+      { ...baseMatch, id: '2', sources: [] },
+      { ...baseMatch, id: '3', sources: undefined },
+      { ...baseMatch, id: '4', sources: [{ source: 'src2', id: 's2' }] },
+      { ...baseMatch, id: '5' }
+    ] as unknown as APIMatch[];
+    const result = filterMatchesWithSources(matches);
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe('1');
+    expect(result[1].id).toBe('4');
   });
 });
