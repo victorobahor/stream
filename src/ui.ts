@@ -73,10 +73,11 @@ export function renderSportsBar(): void {
 
   const seen = new Set<string>();
   state.sports.forEach(sport => {
-    const id = sport.id || sport.name || (sport as unknown as string);
+    const isString = typeof sport === 'string';
+    const id = isString ? sport : (sport.id || sport.name);
     if (seen.has(id)) return;
     seen.add(id);
-    const name = sport.name || sport.id || (sport as unknown as string);
+    const name = isString ? sport : (sport.name || sport.id);
     const chip = document.createElement('button');
     chip.className = 'sport-chip';
     chip.dataset.id = id;
