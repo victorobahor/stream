@@ -58,6 +58,49 @@ describe('sanitizeUrl', () => {
   });
 });
 
+describe('filterMatchesBySearch', () => {
+  const matches: APIMatch[] = [
+    {
+      id: '1',
+      title: 'Arsenal vs Chelsea',
+      category: 'football',
+      date: Date.now(),
+      popular: false,
+      sources: [],
+      teams: {
+        home: { name: 'Arsenal', badge: 'ars' },
+        away: { name: 'Chelsea', badge: 'che' },
+      },
+    },
+    {
+      id: '2',
+      title: 'Lakers vs Bulls',
+      category: 'basketball',
+      date: Date.now(),
+      popular: false,
+      sources: [],
+      teams: {
+        home: { name: 'Lakers', badge: 'lak' },
+        away: { name: 'Bulls', badge: 'bul' },
+      },
+    }
+  ];
+
+  it('should return all matches when search query is empty', () => {
+    expect(filterMatchesBySearch(matches, '')).toEqual(matches);
+  });
+
+  it('should return matched matches based on query', () => {
+    const result = filterMatchesBySearch(matches, 'arsenal');
+    expect(result.length).toBe(1);
+    expect(result[0].id).toBe('1');
+  });
+
+  it('should return empty array when no matches found', () => {
+    expect(filterMatchesBySearch(matches, 'liverpool')).toEqual([]);
+  });
+});
+
 describe('matchTextIncludes', () => {
   const match: APIMatch = {
     id: '1',
