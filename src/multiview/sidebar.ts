@@ -34,6 +34,8 @@ export function renderMultiviewSidebar(): void {
   if (!bar) return;
   bar.innerHTML = '';
 
+  const fragment = document.createDocumentFragment();
+
   const allChip = document.createElement('button');
   allChip.className = 'mini-sport-chip' + (state.multiviewSportFilter === 'all' ? ' active' : '');
   allChip.textContent = 'All';
@@ -43,7 +45,7 @@ export function renderMultiviewSidebar(): void {
     allChip.classList.add('active');
     applyMultiviewSidebarFilters();
   };
-  bar.appendChild(allChip);
+  fragment.appendChild(allChip);
 
   const seen = new Set<string>();
   state.sports.forEach(sport => {
@@ -60,8 +62,10 @@ export function renderMultiviewSidebar(): void {
       chip.classList.add('active');
       applyMultiviewSidebarFilters();
     };
-    bar.appendChild(chip);
+    fragment.appendChild(chip);
   });
+
+  bar.appendChild(fragment);
 
   applyMultiviewSidebarFilters();
 }
