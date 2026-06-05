@@ -39,6 +39,12 @@ describe('sanitizeUrl', () => {
     expect(sanitizeUrl('javascript:alert(1)')).toBe('about:blank');
   });
 
+  it('should block javascript: protocol with control characters', () => {
+    expect(sanitizeUrl('java\x0Cscript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('\x0Bjavascript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('javascript\x08:alert(1)')).toBe('about:blank');
+  });
+
   it('should block data: protocol', () => {
     expect(sanitizeUrl('data:text/html,<script>alert(1)</script>')).toBe('about:blank');
   });
