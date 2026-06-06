@@ -198,10 +198,18 @@ export function toggleMultiviewSidebar(): void {
 // ── Clear slots ──
 
 export function clearAllMultiviewSlots(): void {
-  state.multiviewSlots = [null, null, null, null];
-  renderMultiviewGrid();
-  saveMultiviewState();
-  showToast('All slots cleared.', 'info');
+  const isEmpty = state.multiviewSlots.every(slot => slot === null);
+  if (isEmpty) {
+    showToast('All slots are already empty.', 'info');
+    return;
+  }
+
+  if (window.confirm('Are you sure you want to clear all streams?')) {
+    state.multiviewSlots = [null, null, null, null];
+    renderMultiviewGrid();
+    saveMultiviewState();
+    showToast('All slots cleared.', 'info');
+  }
 }
 
 export function clearMultiviewSlot(slotIndex: number): void {
