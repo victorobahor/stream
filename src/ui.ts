@@ -69,7 +69,9 @@ export function renderSportsBar(): void {
   const allChip = bar.querySelector('.sport-chip');
   if (!allChip) return;
   bar.innerHTML = '';
-  bar.appendChild(allChip);
+
+  const fragment = document.createDocumentFragment();
+  fragment.appendChild(allChip);
 
   const seen = new Set<string>();
   state.sports.forEach(sport => {
@@ -87,6 +89,8 @@ export function renderSportsBar(): void {
       chip.classList.add('active');
       import('./filters').then(m => m.filterSport(id, chip));
     };
-    bar.appendChild(chip);
+    fragment.appendChild(chip);
   });
+
+  bar.appendChild(fragment);
 }

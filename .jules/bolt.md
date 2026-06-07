@@ -10,3 +10,8 @@
 **Learning:** When managing `active` class states among dynamically created elements inside a loop, keeping track of the active element using a variable closure avoids repeatedly triggering expensive DOM queries (`querySelectorAll`) on every click.
 
 **Action:** Optimized `renderMultiviewSidebar` in `src/multiview/sidebar.ts` to cache the `activeChip` element.
+
+## 2024-06-07 - Optimizing Active State lookups
+
+**Learning:** When generating interactive list items (like sports chips) that maintain a single active state within a container, repeatedly calling `container.querySelectorAll` inside click handlers scales poorly and wastes CPU cycles traversing the DOM.
+**Action:** Always maintain a reference (e.g., `let activeChip: HTMLElement | null`) to the currently active element within the scope that generates the elements. Update this reference dynamically on click to avoid ever querying the DOM.

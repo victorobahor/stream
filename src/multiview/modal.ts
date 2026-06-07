@@ -38,16 +38,21 @@ function renderMvModalSports(): void {
   if (!container) return;
   container.innerHTML = '';
 
+  const fragment = document.createDocumentFragment();
+  let activeChip: HTMLElement | null = null;
+
   const allChip = document.createElement('button');
   allChip.className = 'mini-sport-chip' + (state.mvModalSportFilter === 'all' ? ' active' : '');
+  if (state.mvModalSportFilter === 'all') activeChip = allChip;
   allChip.textContent = 'All';
   allChip.onclick = () => {
     state.mvModalSportFilter = 'all';
-    container.querySelectorAll('.mini-sport-chip').forEach(c => c.classList.remove('active'));
+    if (activeChip) activeChip.classList.remove('active');
     allChip.classList.add('active');
+    activeChip = allChip;
     filterMvModalMatches(state.mvModalSearchQuery);
   };
-  container.appendChild(allChip);
+  fragment.appendChild(allChip);
 
   const seen = new Set<string>();
   state.sports.forEach(sport => {
@@ -57,15 +62,19 @@ function renderMvModalSports(): void {
     const name = sport.name || sport.id || (sport as unknown as string);
     const chip = document.createElement('button');
     chip.className = 'mini-sport-chip' + (state.mvModalSportFilter === id ? ' active' : '');
+    if (state.mvModalSportFilter === id) activeChip = chip;
     chip.textContent = capitalize(name);
     chip.onclick = () => {
       state.mvModalSportFilter = id;
-      container.querySelectorAll('.mini-sport-chip').forEach(c => c.classList.remove('active'));
+      if (activeChip) activeChip.classList.remove('active');
       chip.classList.add('active');
+      activeChip = chip;
       filterMvModalMatches(state.mvModalSearchQuery);
     };
-    container.appendChild(chip);
+    fragment.appendChild(chip);
   });
+
+  container.appendChild(fragment);
 }
 
 // ── Modal match filtering ──
