@@ -89,7 +89,7 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     .map(match => {
       const live = isMatchLive(match);
       const title =
-        match.title || (match.teams ? `${match.teams.home!.name} vs ${match.teams.away!.name}` : 'Match');
+        match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');
       const sportEmoji = getSportEmoji(match.category);
 
       return `
@@ -135,7 +135,9 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
       const card = (e.target as HTMLElement).closest('.sidebar-match-card') as HTMLElement;
       if (card && container.contains(card)) {
         const de = e as DragEvent;
-        de.dataTransfer!.setData('text/plain', card.dataset.id!);
+        const id = card.dataset.id;
+        if (!id || !de.dataTransfer) return;
+        de.dataTransfer.setData('text/plain', id);
         card.classList.add('dragging');
         document.querySelectorAll('.mv-slot').forEach(s => s.classList.add('active-target'));
       }

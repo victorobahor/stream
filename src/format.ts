@@ -3,6 +3,7 @@ import { state, getImgUrl, API_HOSTS, getActiveHostIndex } from './state';
 
 const FIVE_HOURS_MS = 18_000_000;
 const ONE_HOUR_MS = 3_600_000;
+const LIVE_WINDOW_MS = 2_700_000; // 45 minutes
 
 // ── Date / time ──
 
@@ -35,7 +36,8 @@ export function isMatchLive(match: APIMatch): boolean {
   if (state.liveMatchIds.has(match.id)) return true;
   if (match.date) {
     const diff = Date.now() - match.date;
-    if (diff > 0 && diff < FIVE_HOURS_MS) return true;
+    // Match is live if it started less than 45 minutes ago
+    if (diff >= 0 && diff < LIVE_WINDOW_MS) return true;
   }
   return false;
 }
@@ -60,35 +62,36 @@ export function isEPLMatch(match: APIMatch): boolean {
   return match.isEPL;
 }
 
+const SPORT_EMOJI_MAP: SportEmojiMap = {
+  football: '⚽',
+  soccer: '⚽',
+  basketball: '🏀',
+  tennis: '🎾',
+  baseball: '⚾',
+  hockey: '🏒',
+  american_football: '🏈',
+  cricket: '🏏',
+  golf: '⛳',
+  rugby: '🏉',
+  volleyball: '🏐',
+  boxing: '🥊',
+  mma: '🥋',
+  ufc: '🥋',
+  formula1: '🏎️',
+  motorsport: '🏎️',
+  cycling: '🚴',
+  darts: '🎯',
+  snooker: '🎱',
+  handball: '🤾',
+  swimming: '🏊',
+  athletics: '🏃',
+  fighting: '🥊',
+  motor_sports: '🏎️',
+  default: '🏆',
+};
+
 export function getSportEmoji(sport: string): string {
-  const map: SportEmojiMap = {
-    football: '⚽',
-    soccer: '⚽',
-    basketball: '🏀',
-    tennis: '🎾',
-    baseball: '⚾',
-    hockey: '🏒',
-    american_football: '🏈',
-    cricket: '🏏',
-    golf: '⛳',
-    rugby: '🏉',
-    volleyball: '🏐',
-    boxing: '🥊',
-    mma: '🥋',
-    ufc: '🥋',
-    formula1: '🏎️',
-    motorsport: '🏎️',
-    cycling: '🚴',
-    darts: '🎯',
-    snooker: '🎱',
-    handball: '🤾',
-    swimming: '🏊',
-    athletics: '🏃',
-    fighting: '🥊',
-    motor_sports: '🏎️',
-    default: '🏆',
-  };
-  return map[(sport || '').toLowerCase().replace(/[- ]/g, '_')] || map.default;
+  return SPORT_EMOJI_MAP[(sport || '').toLowerCase().replace(/[- ]/g, '_')] || SPORT_EMOJI_MAP.default;
 }
 
 // ── Poster URL ──

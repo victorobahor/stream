@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { capitalize, isEPLMatch, getSportEmoji } from './format';
+import { describe, it, expect, afterEach } from 'vitest';
+import { capitalize, isEPLMatch, getSportEmoji, isMatchLive, formatDate } from './format';
+import { state } from './state';
 import type { APIMatch } from './types';
 
 describe('capitalize', () => {
@@ -88,5 +89,72 @@ describe('getSportEmoji', () => {
   it('should be case insensitive', () => {
     expect(getSportEmoji('Football')).toBe('⚽');
     expect(getSportEmoji('FOOTBALL')).toBe('⚽');
+  });
+});
+
+describe('isMatchLive', () => {
+  afterEach(() => {
+    state.liveMatchIds.clear();
+  });
+
+  it('should return true if match ID is in liveMatchIds', () => {
+    state.liveMatchIds.add('match-1');
+    const match: APIMatch = { id: 'match-1', title: 'T', category: 'c', date: 0, popular: false, sources: [] };
+    expect(isMatchLive(match)).toBe(true);
+  });
+
+  it('should return true if match started less than 45 minutes ago', () => {
+    const match: APIMatch = {
+      id: 'm1', title: 'T', category: 'c', date: Date.now() - 1_800_000, popular: false, sources: [],
+    };
+    expect(isMatchLive(match)).toBe(true);
+  });
+
+  it('should return false if match started more than 45 minutes ago', () => {
+    const match: APIMatch = {
+      id: 'm1', title: 'T', category: 'c', date: Date.now() - 3_000_000, popular: false, sources: [],
+    };
+    expect(isMatchLive(match)).toBe(false);
+  });
+
+  it('should return false if match has no date', () => {
+    const match: APIMatch = { id: 'm1', title: 'T', category: 'c', date: 0, popular: false, sources: [] };
+    match.date = 0;
+    expect(isMatchLive(match)).toBe(false);
+  });
+
+  it('should return false for future matches', () => {
+    const match: APIMatch = {
+      id: 'm1', title: 'T', category: 'c', date: Date.now() + 3_600_000, popular: false, sources: [],
+    };
+    expect(isMatchLive(match)).toBe(false);
+  });
+});
+
+describe('formatDate', () => {
+  it('should return "Live now" for matches within 5 hours in the past', () => {
+    const ts = Date.now() - 1_000_000;
+    expect(formatDate(ts)).toBe('🔴 Live now');
+  });
+
+  it('should return relative time for matches within 1 hour in the future', () => {
+    const ts = Date.now() + 1_800_000; // 30 minutes
+    const result = formatDate(ts);
+    expect(result).toMatch(/^In \d+m$/);
+  });
+
+  it('should return time-only for matches today', () => {
+    const now = new Date();
+    const ts = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 30).getTime();
+    const result = formatDate(ts);
+    expect(result).toMatch(/\d+:\d+ [AP]M/);
+  });
+
+  it('should return date+time for matches on a different day', () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 5);
+    future.setHours(14, 30, 0, 0);
+    const result = formatDate(future.getTime());
+    expect(result).toMatch(/\w+ \d+.*\d+:\d+ [AP]M/);
   });
 });

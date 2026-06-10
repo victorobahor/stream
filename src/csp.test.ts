@@ -15,12 +15,12 @@ describe('Content Security Policy', () => {
     expect(csp).not.toContain('frame-src *');
   });
 
-  it('should use frame-src https: instead of wildcard', () => {
-    expect(csp).toContain('frame-src https:');
+  it('should use allowlisted frame-src instead of wildcard', () => {
+    expect(csp).toContain('frame-src https://streamed.pk https://strmd.link');
   });
 
   it('should have restrictive connect-src', () => {
-    expect(csp).toContain('connect-src https://streamed.pk https://strmd.link');
+    expect(csp).toContain("connect-src 'self' https://streamed.pk https://strmd.link");
   });
 
   it('should have base-uri self', () => {

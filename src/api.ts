@@ -3,6 +3,10 @@ import type { Category } from './types';
 import { state, API_HOSTS, getActiveHostIndex, rotateActiveHost } from './state';
 import { log } from './helpers';
 
+// ── Request tracking for race condition prevention ──
+
+let loadMatchesRequestId = 0;
+
 // ── Generic fetcher ──
 
 export async function fetchJSON<T>(urlPath: string): Promise<T> {
@@ -59,11 +63,17 @@ export function resolveMatchesEndpoint(cat: Category, sport: string): { endpoint
 }
 
 export async function loadMatches(): Promise<APIMatch[]> {
+  const requestId = ++loadMatchesRequestId;
   const { endpoint, clientSportFilter } = resolveMatchesEndpoint(state.currentCategory, state.currentSport);
   const data = await fetchJSON<APIMatch[]>(endpoint);
+
+  // Discard stale response if a newer request has started
+  if (requestId !== loadMatchesRequestId) return state.allMatches;
+
   let matches: APIMatch[] = Array.isArray(data) ? data : [];
 
   if (state.currentCategory === 'live') {
+    state.liveMatchIds.clear();
     matches.forEach(m => state.liveMatchIds.add(m.id));
   }
 
@@ -77,15 +87,21 @@ export async function loadMatches(): Promise<APIMatch[]> {
 
 // ── Streams ──
 
-const streamsCache = new Map<string, Stream[]>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const streamsCache = new Map<string, { data: Stream[]; ts: number }>();
+
+export function clearStreamsCache(): void {
+  streamsCache.clear();
+}
 
 export async function loadStreams(source: string, id: string): Promise<Stream[]> {
   const cacheKey = `${source}:${id}`;
-  if (streamsCache.has(cacheKey)) {
-    return streamsCache.get(cacheKey)!;
+  const cached = streamsCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.data;
   }
   const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
   const streams = Array.isArray(data) ? data : [];
-  streamsCache.set(cacheKey, streams);
+  streamsCache.set(cacheKey, { data: streams, ts: Date.now() });
   return streams;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeHtml, sanitizeUrl, matchTextIncludes, filterMatchesBySport, debounce, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
+import { escapeHtml, sanitizeUrl, matchTextIncludes, filterMatchesBySport, debounce, debounceString, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
 import type { APIMatch } from './types';
 
 describe('escapeHtml', () => {
@@ -221,6 +221,22 @@ describe('debounce', () => {
 
     await new Promise(resolve => setTimeout(resolve, 150));
     expect(callCount).toBe(1);
+  });
+});
+
+describe('debounceString', () => {
+  it('should debounce string function calls', async () => {
+    let lastArg = '';
+    const fn = debounceString((arg: string) => { lastArg = arg; }, 100);
+
+    fn('a');
+    fn('b');
+    fn('c');
+
+    expect(lastArg).toBe('');
+
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(lastArg).toBe('c');
   });
 });
 

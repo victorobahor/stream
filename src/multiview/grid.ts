@@ -30,7 +30,8 @@ export function attachSlotEvents(slotEl: HTMLDivElement, i: number): void {
     e.preventDefault();
     slotEl.classList.remove('drag-over');
     const de = e as DragEvent;
-    const matchId = de.dataTransfer!.getData('text/plain');
+    const matchId = de.dataTransfer?.getData('text/plain');
+    if (!matchId) return;
     const match = state.allMatches.find(m => m.id === matchId);
     if (match && match.sources && match.sources.length > 0) {
       import('./slots').then(m => m.loadMultiviewSlotStream(i, match, match.sources[0].source, 0));
@@ -61,7 +62,7 @@ export function buildEmptySlotContent(i: number): string {
 export function buildFilledSlotContent(slot: MultiviewSlot, i: number): string {
   const match = slot.match;
   const title = match.teams
-    ? `${escapeHtml(match.teams.home!.name)} vs ${escapeHtml(match.teams.away!.name)}`
+    ? `${escapeHtml(match.teams.home?.name ?? '')} vs ${escapeHtml(match.teams.away?.name ?? '')}`
     : escapeHtml(match.title);
   const sourceName = slot.sourceName;
   const streamIndex = slot.streamIndex;
@@ -206,9 +207,9 @@ export function renderMultiviewGrid(): void {
 
 export function showMultiview(): void {
   document.body.classList.add('multiview-active');
-  el('home-view')!.classList.add('hidden');
-  el('player-view')!.classList.add('hidden');
-  el('multiview-view')!.classList.remove('hidden');
+  el('home-view')?.classList.add('hidden');
+  el('player-view')?.classList.add('hidden');
+  el('multiview-view')?.classList.remove('hidden');
 
   const mainIframe = el('stream-iframe') as HTMLIFrameElement;
   if (mainIframe) mainIframe.src = '';

@@ -102,7 +102,7 @@ export function filterMvModalMatches(query: string): void {
   container.innerHTML = matches
     .map(match => {
       const title =
-        match.title || (match.teams ? `${match.teams!.home!.name} vs ${match.teams!.away!.name}` : 'Match');
+        match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');
       return `
       <div class="mv-modal-match-item" role="button" tabindex="0" data-match-id="${escapeHtml(match.id)}">
         <div class="mv-modal-match-info">
@@ -149,11 +149,12 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
   const match = state.allMatches.find(m => m.id === matchId);
   if (!match) return;
 
-  el('mv-modal-match-name')!.textContent =
-    match.title || (match.teams ? `${match.teams.home!.name} vs ${match.teams.away!.name}` : 'Match');
+  const nameEl = el('mv-modal-match-name');
+  if (nameEl) nameEl.textContent =
+    match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');
 
-  el('mv-modal-matches-view')!.classList.add('hidden');
-  el('mv-modal-streams-view')!.classList.remove('hidden');
+  el('mv-modal-matches-view')?.classList.add('hidden');
+  el('mv-modal-streams-view')?.classList.remove('hidden');
 
   const listContainer = el('mv-modal-streams-list')!;
   listContainer.innerHTML =
@@ -195,7 +196,7 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
           selectMvModalStream(
             btn.dataset.matchId!,
             btn.dataset.source!,
-            parseInt(btn.dataset.streamIdx!)
+            parseInt(btn.dataset.streamIdx!, 10)
           );
         }
       });

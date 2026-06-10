@@ -1,5 +1,5 @@
 import { state } from './state';
-import { el } from './helpers';
+import { el, log } from './helpers';
 import { capitalize, getSportEmoji } from './format';
 import { loadMatches } from './api';
 import { applyFilters } from './filters';
@@ -40,8 +40,10 @@ export function showError(msg: string): void {
 
 export function retryLoad(): void {
   hideError();
+  showSkeleton(true);
   loadMatches().then(() => applyFilters()).catch(err => {
-    console.error('Retry failed:', err);
+    log('error', 'Retry failed:', err);
+    showSkeleton(false);
     showError('Failed to load matches. Please try again.');
   });
 }

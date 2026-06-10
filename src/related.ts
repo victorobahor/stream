@@ -4,7 +4,8 @@ import { el, escapeHtml } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive } from './format';
 
 export function renderRelated(currentMatch: APIMatch): void {
-  const list = el('related-list')!;
+  const list = el('related-list');
+  if (!list) return;
   // Prefer same-sport matches, then others
   const sameSport = state.allMatches.filter(
     m => m.id !== currentMatch.id && m.category === currentMatch.category
