@@ -77,6 +77,12 @@ export async function loadMatches(): Promise<APIMatch[]> {
     matches.forEach(m => state.liveMatchIds.add(m.id));
   }
 
+  // Client-side filter: "today" endpoint may include non-today matches from the API
+  if (state.currentCategory === 'today') {
+    const todayStr = new Date().toDateString();
+    matches = matches.filter(m => m.date && new Date(m.date).toDateString() === todayStr);
+  }
+
   if (clientSportFilter) {
     matches = matches.filter(m => (m.category || '').toLowerCase() === state.currentSport.toLowerCase());
   }
