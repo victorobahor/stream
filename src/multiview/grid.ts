@@ -1,6 +1,6 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, buildSandboxedSrcdocAttr } from '../helpers';
+import { el, escapeHtml, sanitizeUrl, applySandboxedSrcdoc } from '../helpers';
 import { renderMultiviewSidebar, applyMultiviewSidebarFilters } from './sidebar';
 
 // ── Layout utils ──
@@ -72,8 +72,8 @@ export function buildFilledSlotContent(slot: MultiviewSlot, i: number): string {
 
   let iframeHtml = '';
   if (stream && stream.embedUrl && !loading) {
-    const srcdoc = buildSandboxedSrcdocAttr(stream.embedUrl);
-    iframeHtml = `<iframe class="mv-iframe" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer" srcdoc="${srcdoc}"></iframe>`;
+    const safeUrl = escapeHtml(sanitizeUrl(stream.embedUrl));
+    iframeHtml = `<iframe class="mv-iframe" data-embed-url="${safeUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>`;
   }
 
   let loadingHtml = '';
@@ -201,6 +201,11 @@ export function renderMultiviewGrid(): void {
 
     container.appendChild(slotEl);
   }
+
+  container.querySelectorAll<HTMLIFrameElement>('.mv-iframe[data-embed-url]').forEach(iframe => {
+    const url = iframe.dataset.embedUrl;
+    if (url) applySandboxedSrcdoc(iframe, url);
+  });
 }
 
 // ── Show multiview ──
