@@ -1,6 +1,6 @@
 import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
-import { el, escapeHtml, sanitizeUrl } from './helpers';
+import { el, escapeHtml, sanitizeUrl, applySandboxedSrcdoc, clearSandboxedSrcdoc } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import { getImgUrl } from './state';
 import { loadStreams as fetchStreams } from './api';
@@ -151,7 +151,7 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
       if (playerLoading) playerLoading.classList.add('hidden');
       iframe.classList.remove('hidden');
     };
-    iframe.src = sanitizeUrl(stream.embedUrl);
+    applySandboxedSrcdoc(iframe, stream.embedUrl);
     // Fallback: if onload never fires (embed server issue), hide loading after timeout
     setTimeout(() => {
       if (playerLoading && !playerLoading.classList.contains('hidden')) {
@@ -199,7 +199,7 @@ export function openPlayer(match: APIMatch): void {
   // Reset player
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
   if (iframe) {
-    iframe.src = '';
+    clearSandboxedSrcdoc(iframe);
     iframe.classList.add('hidden');
   }
   el('player-placeholder')?.classList.remove('hidden');

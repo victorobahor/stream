@@ -1,6 +1,6 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, sanitizeUrl } from '../helpers';
+import { el, escapeHtml, buildSandboxedSrcdocAttr } from '../helpers';
 import { renderMultiviewSidebar, applyMultiviewSidebarFilters } from './sidebar';
 
 // ── Layout utils ──
@@ -72,8 +72,8 @@ export function buildFilledSlotContent(slot: MultiviewSlot, i: number): string {
 
   let iframeHtml = '';
   if (stream && stream.embedUrl && !loading) {
-    const escUrl = escapeHtml(sanitizeUrl(stream.embedUrl));
-    iframeHtml = `<iframe class="mv-iframe" src="${escUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>`;
+    const srcdoc = buildSandboxedSrcdocAttr(stream.embedUrl);
+    iframeHtml = `<iframe class="mv-iframe" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer" srcdoc="${srcdoc}"></iframe>`;
   }
 
   let loadingHtml = '';

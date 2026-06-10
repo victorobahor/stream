@@ -1,6 +1,6 @@
 import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData } from '../types';
 import { state } from '../state';
-import { el, log, sanitizeUrl } from '../helpers';
+import { el, log, applySandboxedSrcdoc } from '../helpers';
 import { showToast } from '../format';
 import { fetchJSON } from '../api';
 import { renderMultiviewGrid, getNumSlotsForLayout } from './grid';
@@ -157,7 +157,7 @@ export function changeSlotStreamIndex(slotIndex: number, streamIndex: number): v
       if (spinner) spinner.classList.add('hidden');
       iframe.classList.remove('hidden');
     };
-    iframe.src = sanitizeUrl(selectedStream.embedUrl);
+    applySandboxedSrcdoc(iframe, selectedStream.embedUrl);
   }
 
   saveMultiviewState();

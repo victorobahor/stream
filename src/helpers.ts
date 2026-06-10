@@ -96,6 +96,31 @@ export function debounce<T extends (...args: unknown[]) => void>(
   };
 }
 
+const SANDBOX_CSP = "sandbox allow-scripts allow-same-origin";
+
+export function buildSandboxedSrcdoc(embedUrl: string): string {
+  const safeUrl = sanitizeUrl(embedUrl);
+  return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}"><style>body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src="${safeUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="no-referrer"></iframe></body></html>`;
+}
+
+export function buildSandboxedSrcdocAttr(embedUrl: string): string {
+  const safeUrl = escapeHtml(sanitizeUrl(embedUrl));
+  const csp = escapeHtml(SANDBOX_CSP);
+  return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}"><style>body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src=&quot;${safeUrl}&quot; allowfullscreen allow=&quot;autoplay; encrypted-media; picture-in-picture&quot; referrerpolicy=&quot;no-referrer&quot;></iframe></body></html>`;
+}
+
+export function applySandboxedSrcdoc(iframe: HTMLIFrameElement, embedUrl: string): void {
+  iframe.removeAttribute('src');
+  iframe.removeAttribute('sandbox');
+  iframe.setAttribute('srcdoc', buildSandboxedSrcdoc(embedUrl));
+}
+
+export function clearSandboxedSrcdoc(iframe: HTMLIFrameElement): void {
+  iframe.removeAttribute('srcdoc');
+  iframe.removeAttribute('sandbox');
+  iframe.removeAttribute('src');
+}
+
 export function debounceString<T extends (arg: string) => void>(
   func: T,
   wait: number
