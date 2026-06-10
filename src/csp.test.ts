@@ -16,7 +16,7 @@ describe('Content Security Policy', () => {
   });
 
   it('should use allowlisted frame-src instead of wildcard', () => {
-    expect(csp).toContain('frame-src https://streamed.pk https://strmd.link');
+    expect(csp).toContain('frame-src https://streamed.pk https://strmd.link https://embed.st');
   });
 
   it('should have restrictive connect-src', () => {
