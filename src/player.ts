@@ -74,7 +74,12 @@ export function renderSourceButtons(sources: StreamSource[]): void {
   });
 }
 
+// ── Stream loading request tracking ──
+
+let streamLoadRequestId = 0;
+
 async function loadAndDisplayStreams(source: string, id: string): Promise<void> {
+  const requestId = ++streamLoadRequestId;
   const streamsLoading = el('streams-loading');
   const noStreams = el('no-streams');
   const streamTabs = el('stream-tabs');
@@ -87,6 +92,10 @@ async function loadAndDisplayStreams(source: string, id: string): Promise<void> 
 
   try {
     const streams = await fetchStreams(source, id);
+
+    // Discard stale response if user navigated away
+    if (requestId !== streamLoadRequestId) return;
+
     if (streamsLoading) streamsLoading.classList.add('hidden');
     if (streams.length === 0) {
       if (tryNextSource()) return;
@@ -105,6 +114,7 @@ async function loadAndDisplayStreams(source: string, id: string): Promise<void> 
       selectStream(best, streamTabs?.querySelectorAll('.stream-tab')[idx] as HTMLButtonElement);
     }
   } catch (err) {
+    if (requestId !== streamLoadRequestId) return;
     if (streamsLoading) streamsLoading.classList.add('hidden');
     if (tryNextSource()) return;
     if (noStreams) {
@@ -142,6 +152,13 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
       iframe.classList.remove('hidden');
     };
     iframe.src = sanitizeUrl(stream.embedUrl);
+    // Fallback: if onload never fires (embed server issue), hide loading after timeout
+    setTimeout(() => {
+      if (playerLoading && !playerLoading.classList.contains('hidden')) {
+        playerLoading.classList.add('hidden');
+        iframe.classList.remove('hidden');
+      }
+    }, 5000);
   }
   showToast(
     `Stream ${escapeHtml(String(stream.streamNo)) || ''} — ${escapeHtml(stream.language) || ''} ${stream.hd ? '(HD)' : '(SD)'}`,

@@ -108,6 +108,9 @@ export async function loadStreams(source: string, id: string): Promise<Stream[]>
   }
   const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
   const streams = Array.isArray(data) ? data : [];
-  streamsCache.set(cacheKey, { data: streams, ts: Date.now() });
+  // Only cache non-empty results so retries can fetch fresh data
+  if (streams.length > 0) {
+    streamsCache.set(cacheKey, { data: streams, ts: Date.now() });
+  }
   return streams;
 }
