@@ -1,6 +1,6 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, sanitizeUrl, applySandboxedSrcdoc } from '../helpers';
+import { el, escapeHtml, sanitizeUrl, applySandboxedSrcdoc, clearSandboxedSrcdoc } from '../helpers';
 import { renderMultiviewSidebar, applyMultiviewSidebarFilters } from './sidebar';
 
 // ── Layout utils ──
@@ -217,7 +217,7 @@ export function showMultiview(): void {
   el('multiview-view')?.classList.remove('hidden');
 
   const mainIframe = el('stream-iframe') as HTMLIFrameElement;
-  if (mainIframe) mainIframe.src = '';
+  if (mainIframe) clearSandboxedSrcdoc(mainIframe);
 
   import('../ui').then(m => m.setActiveNav(el('nav-multiview')));
 

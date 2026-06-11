@@ -6,7 +6,7 @@ import { updateSectionTitle } from './filters';
 import { applyMultiviewSidebarFilters } from './multiview/sidebar';
 import { loadMultiviewState } from './multiview/slots';
 import { attachGlobalDelegates } from './delegates';
-import { log } from './helpers';
+import { log, stopAllIframes } from './helpers';
 
 // ── Orchestrated loadMatches with UI feedback ──
 
@@ -65,6 +65,10 @@ async function init(): Promise<void> {
   await loadMatchesWithUI();
   loadMultiviewState();
   startAutoRefresh();
+
+  window.addEventListener('beforeunload', () => {
+    stopAllIframes();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', init);

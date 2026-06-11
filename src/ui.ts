@@ -1,5 +1,5 @@
 import { state } from './state';
-import { el, log } from './helpers';
+import { el, log, stopAllIframes } from './helpers';
 import { capitalize, getSportEmoji } from './format';
 import { loadMatches } from './api';
 import { applyFilters } from './filters';
@@ -12,8 +12,7 @@ export function showHome(): void {
   el('multiview-view')?.classList.add('hidden');
   el('home-view')?.classList.remove('hidden');
   state.currentMatch = null;
-  const iframe = el('stream-iframe') as HTMLIFrameElement | null;
-  if (iframe) iframe.src = '';
+  stopAllIframes();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 

@@ -121,6 +121,14 @@ export function clearSandboxedSrcdoc(iframe: HTMLIFrameElement): void {
   iframe.removeAttribute('src');
 }
 
+export function stopAllIframes(): void {
+  const mainIframe = document.getElementById('stream-iframe') as HTMLIFrameElement | null;
+  if (mainIframe) clearSandboxedSrcdoc(mainIframe);
+  document.querySelectorAll<HTMLIFrameElement>('.mv-iframe').forEach(iframe => {
+    clearSandboxedSrcdoc(iframe);
+  });
+}
+
 export function debounceString<T extends (arg: string) => void>(
   func: T,
   wait: number
