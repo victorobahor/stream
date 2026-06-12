@@ -47,6 +47,13 @@ describe('sanitizeUrl', () => {
     expect(sanitizeUrl('vbscript:alert(1)')).toBe('about:blank');
   });
 
+  it('should block javascript URLs bypassing via control characters', () => {
+    expect(sanitizeUrl('\x01javascript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('java\x00script:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl('\njavascript:alert(1)')).toBe('about:blank');
+    expect(sanitizeUrl(' javascript:alert(1)')).toBe('about:blank');
+  });
+
   it('should return empty string for falsy values', () => {
     expect(sanitizeUrl('')).toBe('');
     expect(sanitizeUrl(null)).toBe('');
