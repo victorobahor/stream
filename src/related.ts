@@ -29,7 +29,7 @@ export function renderRelated(currentMatch: APIMatch): void {
           ? `${m.teams?.home?.name || ''} vs ${m.teams?.away?.name || ''}`
           : 'Match');
       return `
-      <div class="related-card" role="button" tabindex="0" data-match-id="${escapeHtml(m.id)}">
+      <div class="related-card" role="button" tabindex="0" aria-label="Watch ${escapeHtml(title)}" data-match-id="${escapeHtml(m.id)}">
         <div class="related-card-meta">
           <span class="related-sport">${getSportEmoji(m.category)} ${escapeHtml(capitalize(m.category))}</span>
           ${live ? '<span class="related-live"><span class="live-dot"></span> LIVE</span>' : ''}

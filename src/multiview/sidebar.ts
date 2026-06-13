@@ -93,7 +93,7 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
       const sportEmoji = getSportEmoji(match.category);
 
       return `
-      <div class="sidebar-match-card" role="button" tabindex="0" draggable="true" data-id="${escapeHtml(match.id)}">
+      <div class="sidebar-match-card" role="button" tabindex="0" draggable="true" aria-label="Select ${escapeHtml(title)}" data-id="${escapeHtml(match.id)}">
         <div class="mv-card-meta">
           <span class="mv-card-sport">${sportEmoji} ${escapeHtml(capitalize(match.category))}</span>
           ${live ? '<span class="mv-card-live"><span class="live-dot"></span> LIVE</span>' : ''}
