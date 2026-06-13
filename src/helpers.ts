@@ -22,7 +22,8 @@ const BLOCKED_SCHEMES = ['javascript', 'data', 'vbscript', 'blob'];
 
 export function sanitizeUrl(url: unknown): string {
   if (!url) return '';
-  const str = String(url).replace(/[\n\r\t]/g, '').trim();
+  // eslint-disable-next-line no-control-regex
+  const str = String(url).replace(/[\x00-\x1F\x7F]/g, '').trim();
   try {
     const parsed = new URL(str);
     if (BLOCKED_PROTOCOLS.includes(parsed.protocol)) {
