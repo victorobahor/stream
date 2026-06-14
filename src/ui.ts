@@ -73,6 +73,7 @@ export function renderSportsBar(): void {
   bar.appendChild(allChip);
 
   const seen = new Set<string>();
+  const fragment = document.createDocumentFragment();
   state.sports.forEach(sport => {
     const isString = typeof sport === 'string';
     const id = isString ? sport : (sport.id || sport.name);
@@ -88,6 +89,7 @@ export function renderSportsBar(): void {
       chip.classList.add('active');
       import('./filters').then(m => m.filterSport(id, chip));
     };
-    bar.appendChild(chip);
+    fragment.appendChild(chip);
   });
+  bar.appendChild(fragment);
 }
