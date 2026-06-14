@@ -19,6 +19,7 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
   const tabs = el('stream-tabs');
   if (!tabs) return;
   tabs.innerHTML = '';
+  const fragment = document.createDocumentFragment();
   streams.forEach((stream, i) => {
     const tab = document.createElement('button');
     tab.className = 'stream-tab';
@@ -45,8 +46,9 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
       tab.classList.add('active');
       selectStream(stream, tab);
     };
-    tabs.appendChild(tab);
+    fragment.appendChild(tab);
   });
+  tabs.appendChild(fragment);
 }
 
 // ── Source buttons ──
@@ -60,6 +62,7 @@ export function renderSourceButtons(sources: StreamSource[]): void {
   }
   bar.classList.remove('hidden');
   bar.innerHTML = '<span class="source-bar-label">Sources:</span>';
+  const fragment = document.createDocumentFragment();
   sources.forEach((src, i) => {
     const btn = document.createElement('button');
     btn.className = 'source-chip' + (i === state.activeSourceIndex ? ' active' : '');
@@ -70,8 +73,9 @@ export function renderSourceButtons(sources: StreamSource[]): void {
       updateSourceBarActive(i);
       loadAndDisplayStreams(src.source, src.id);
     };
-    bar.appendChild(btn);
+    fragment.appendChild(btn);
   });
+  bar.appendChild(fragment);
 }
 
 // ── Stream loading request tracking ──
