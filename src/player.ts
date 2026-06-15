@@ -245,22 +245,34 @@ export function renderPlayerInfo(match: APIMatch): void {
   if (hasTeams) {
     const h = match.teams!.home!;
     const a = match.teams!.away!;
-    const hBadge = h?.badge
-      ? `<img src="${escapeHtml(getImgUrl('/badge/' + h.badge + '.webp'))}" alt="${escapeHtml(h?.name || '')}" loading="lazy">`
-      : '';
-    const aBadge = a?.badge
-      ? `<img src="${escapeHtml(getImgUrl('/badge/' + a.badge + '.webp'))}" alt="${escapeHtml(a?.name || '')}" loading="lazy">`
-      : '';
-    teamsDiv.innerHTML = `
-      <div class="player-team">
-        <div class="player-badge">${hBadge}</div>
-        <span class="player-team-name">${escapeHtml(h?.name || 'Home')}</span>
-      </div>
-      <span class="player-vs">VS</span>
-      <div class="player-team">
-        <div class="player-badge">${aBadge}</div>
-        <span class="player-team-name">${escapeHtml(a?.name || 'Away')}</span>
-      </div>`;
+    teamsDiv.innerHTML = '';
+
+    const buildTeam = (team: typeof h, defName: string) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'player-team';
+      const badge = document.createElement('div');
+      badge.className = 'player-badge';
+      if (team?.badge) {
+        const img = document.createElement('img');
+        img.src = getImgUrl('/badge/' + team.badge + '.webp');
+        img.alt = team.name || '';
+        img.loading = 'lazy';
+        badge.appendChild(img);
+      }
+      const name = document.createElement('span');
+      name.className = 'player-team-name';
+      name.textContent = team?.name || defName;
+      wrap.appendChild(badge);
+      wrap.appendChild(name);
+      return wrap;
+    };
+
+    teamsDiv.appendChild(buildTeam(h, 'Home'));
+    const vs = document.createElement('span');
+    vs.className = 'player-vs';
+    vs.textContent = 'VS';
+    teamsDiv.appendChild(vs);
+    teamsDiv.appendChild(buildTeam(a, 'Away'));
   } else {
     teamsDiv.innerHTML = '';
     const titleSpan = document.createElement('span');
