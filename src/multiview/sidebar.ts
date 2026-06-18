@@ -1,6 +1,6 @@
 import type { APIMatch } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport, sortMatchesByLive } from '../helpers';
+import { el, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport, sortMatchesByLive } from '../helpers';
 import { capitalize, getSportEmoji, isMatchLive } from '../format';
 import { loadMatchStreamsIntoActiveSlot } from './slots';
 
@@ -85,29 +85,56 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     return;
   }
 
-  container.innerHTML = matches
-    .map(match => {
-      const live = isMatchLive(match);
-      const title =
-        match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');
-      const sportEmoji = getSportEmoji(match.category);
+  container.innerHTML = '';
+  const fragment = document.createDocumentFragment();
 
-      return `
-      <div class="sidebar-match-card" role="button" tabindex="0" draggable="true" aria-label="Select ${escapeHtml(title)}" data-id="${escapeHtml(match.id)}">
-        <div class="mv-card-meta">
-          <span class="mv-card-sport">${sportEmoji} ${escapeHtml(capitalize(match.category))}</span>
-          ${live ? '<span class="mv-card-live"><span class="live-dot"></span> LIVE</span>' : ''}
-        </div>
-        <div class="mv-card-teams">${escapeHtml(title)}</div>
-        <div class="sidebar-match-streams">
-          <button class="mv-stream-mini-btn" data-load-match-id="${escapeHtml(match.id)}">
-            Load Stream
-          </button>
-        </div>
-      </div>
-    `;
-    })
-    .join('');
+  matches.forEach(match => {
+    const live = isMatchLive(match);
+    const title =
+      match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');
+    const sportEmoji = getSportEmoji(match.category);
+
+    const card = document.createElement('div');
+    card.className = 'sidebar-match-card';
+    card.setAttribute('role', 'button');
+    card.tabIndex = 0;
+    card.draggable = true;
+    card.setAttribute('aria-label', `Select ${title}`);
+    card.dataset.id = match.id;
+
+    const meta = document.createElement('div');
+    meta.className = 'mv-card-meta';
+
+    const sportSpan = document.createElement('span');
+    sportSpan.className = 'mv-card-sport';
+    sportSpan.textContent = `${sportEmoji} ${capitalize(match.category || '')}`;
+    meta.appendChild(sportSpan);
+
+    if (live) {
+      const liveSpan = document.createElement('span');
+      liveSpan.className = 'mv-card-live';
+      liveSpan.innerHTML = '<span class="live-dot"></span> LIVE';
+      meta.appendChild(liveSpan);
+    }
+
+    const teams = document.createElement('div');
+    teams.className = 'mv-card-teams';
+    teams.textContent = title;
+
+    const streams = document.createElement('div');
+    streams.className = 'sidebar-match-streams';
+
+    const btn = document.createElement('button');
+    btn.className = 'mv-stream-mini-btn';
+    btn.dataset.loadMatchId = match.id;
+    btn.textContent = 'Load Stream';
+    streams.appendChild(btn);
+
+    card.append(meta, teams, streams);
+    fragment.appendChild(card);
+  });
+
+  container.appendChild(fragment);
 
   if (!container.dataset.eventsBound) {
     // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
