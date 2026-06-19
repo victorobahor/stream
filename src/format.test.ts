@@ -144,9 +144,9 @@ describe('formatDate', () => {
   });
 
   it('should return time-only for matches today', () => {
-    const now = new Date();
-    const ts = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 30).getTime();
-    const result = formatDate(ts);
+    // Set to today, 6 hours from now (future) to avoid "Live now" window
+    const ts2 = Date.now() + 6 * 3600_000;
+    const result = formatDate(ts2);
     expect(result).toMatch(/\d+:\d+ [AP]M/);
   });
 

@@ -1,92 +1,160 @@
 import type { APIMatch } from './types';
 import { state, getImgUrl } from './state';
-import { el, escapeHtml, sanitizeUrl } from './helpers';
+import { el, sanitizeUrl } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive, isEPLMatch, getPosterUrl, formatDate } from './format';
 import { openPlayer } from './player';
 
-// ── Badge helpers ──
-
-export function buildCardBadges(match: APIMatch, live: boolean): string {
-  const parts: string[] = [];
-  if (live) parts.push('<span class="live-badge">LIVE</span>');
-  if (match.popular) parts.push('<span class="popular-badge">🔥 Hot</span>');
-  if (isEPLMatch(match)) parts.push(
-    '<span class="epl-badge">🏴\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F EPL</span>'
-  );
-  return parts.length ? `<div style="display:flex;gap:6px">${parts.join('')}</div>` : '';
-}
-
-export function buildCardPoster(posterUrl: string | null): string {
-  if (!posterUrl) return '';
-  const safe = sanitizeUrl(posterUrl).replace(/['"\\]/g, '');
-  return `<div class="card-poster" style="background-image:url('${escapeHtml(safe)}')"></div>`;
-}
-
-export function buildCardTeams(match: APIMatch, hasTeams: boolean, sportEmoji: string): string {
-  if (!hasTeams) {
-    return `<div class="card-title">${escapeHtml(match.title || 'Match')}</div>`;
-  }
-  const home = match.teams!.home!;
-  const away = match.teams!.away!;
-  const hImg = home?.badge
-    ? `<img src="${escapeHtml(getImgUrl('/badge/' + home.badge + '.webp'))}" alt="${escapeHtml(home.name || '')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-    : '';
-  const aImg = away?.badge
-    ? `<img src="${escapeHtml(getImgUrl('/badge/' + away.badge + '.webp'))}" alt="${escapeHtml(away.name || '')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-    : '';
-  return `
-    <div class="card-teams">
-      <div class="team">
-        <div class="team-badge-wrap">${hImg}<span class="team-badge-placeholder" style="${home?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
-        <span class="team-name">${escapeHtml(home?.name || 'Home')}</span>
-      </div>
-      <span class="vs-separator">VS</span>
-      <div class="team">
-        <div class="team-badge-wrap">${aImg}<span class="team-badge-placeholder" style="${away?.badge ? 'display:none' : ''}">${sportEmoji}</span></div>
-        <span class="team-name">${escapeHtml(away?.name || 'Away')}</span>
-      </div>
-    </div>`;
-}
-
-export function buildCardFooter(timestamp: string, srcCount: number): string {
-  const srcDots = Array.from({ length: Math.min(srcCount, 5) }, () => '<span class="source-dot"></span>').join('');
-  return `
-    <div class="card-footer">
-      <span class="card-time">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        ${escapeHtml(timestamp)}
-      </span>
-      <div style="display:flex;align-items:center;gap:8px">
-        <div class="card-sources" title="${srcCount} source${srcCount !== 1 ? 's' : ''}">${srcDots}</div>
-        <span class="source-label">${srcCount} src</span>
-      </div>
-      <button class="watch-btn">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg>
-        Watch
-      </button>
-    </div>`;
-}
-
 // ── Main card builder ──
 
-export function buildMatchCard(match: APIMatch): string {
+export function buildMatchCard(match: APIMatch): HTMLElement {
   const hasTeams = !!(match.teams && (match.teams.home || match.teams.away));
   const live = isMatchLive(match);
-  const timestamp = match.date ? formatDate(match.date) : '';
   const sportEmoji = getSportEmoji(match.category);
   const posterUrl = getPosterUrl(match);
   const srcCount = (match.sources || []).length;
+  const timestamp = match.date ? formatDate(match.date) : '';
 
-  return `
-    <div class="match-card${posterUrl ? ' has-poster' : ''}" data-id="${escapeHtml(match.id)}" role="button" tabindex="0" aria-label="Watch ${escapeHtml(match.title || 'match')}">
-      ${buildCardPoster(posterUrl)}
-      <div class="card-sport-tag">
-        <span class="sport-label">${sportEmoji} ${escapeHtml(capitalize(match.category || 'Sport'))}</span>
-        ${buildCardBadges(match, live)}
-      </div>
-      ${buildCardTeams(match, hasTeams, sportEmoji)}
-      ${buildCardFooter(timestamp, srcCount)}
-    </div>`;
+  const card = document.createElement('div');
+  card.className = `match-card${posterUrl ? ' has-poster' : ''}`;
+  card.dataset.id = match.id || '';
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
+  card.setAttribute('aria-label', `Watch ${match.title || 'match'}`);
+
+  if (posterUrl) {
+    const poster = document.createElement('div');
+    poster.className = 'card-poster';
+    poster.style.backgroundImage = `url('${sanitizeUrl(posterUrl).replace(/['"\\]/g, '')}')`;
+    card.appendChild(poster);
+  }
+
+  const sportTag = document.createElement('div');
+  sportTag.className = 'card-sport-tag';
+  const sportLabel = document.createElement('span');
+  sportLabel.className = 'sport-label';
+  sportLabel.textContent = `${sportEmoji} ${capitalize(match.category || 'Sport')}`;
+  sportTag.appendChild(sportLabel);
+
+  if (live || match.popular || isEPLMatch(match)) {
+    const badges = document.createElement('div');
+    badges.style.display = 'flex';
+    badges.style.gap = '6px';
+    if (live) {
+      const liveBadge = document.createElement('span');
+      liveBadge.className = 'live-badge';
+      liveBadge.textContent = 'LIVE';
+      badges.appendChild(liveBadge);
+    }
+    if (match.popular) {
+      const popBadge = document.createElement('span');
+      popBadge.className = 'popular-badge';
+      popBadge.textContent = '🔥 Hot';
+      badges.appendChild(popBadge);
+    }
+    if (isEPLMatch(match)) {
+      const eplBadge = document.createElement('span');
+      eplBadge.className = 'epl-badge';
+      eplBadge.textContent = '🏴\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F EPL';
+      badges.appendChild(eplBadge);
+    }
+    sportTag.appendChild(badges);
+  }
+  card.appendChild(sportTag);
+
+  if (!hasTeams) {
+    const title = document.createElement('div');
+    title.className = 'card-title';
+    title.textContent = match.title || 'Match';
+    card.appendChild(title);
+  } else {
+    const teams = document.createElement('div');
+    teams.className = 'card-teams';
+
+    const buildTeam = (teamData: { name?: string | null; badge?: string | null; }, isHome: boolean) => {
+      const team = document.createElement('div');
+      team.className = 'team';
+      const wrap = document.createElement('div');
+      wrap.className = 'team-badge-wrap';
+
+      if (teamData.badge) {
+        const img = document.createElement('img');
+        img.src = getImgUrl(`/badge/${teamData.badge}.webp`);
+        img.alt = teamData.name || '';
+        img.loading = 'lazy';
+        img.onerror = function() {
+          (this as HTMLImageElement).style.display = 'none';
+          ((this as HTMLImageElement).nextElementSibling as HTMLElement).style.display = 'flex';
+        };
+        wrap.appendChild(img);
+      }
+
+      const placeholder = document.createElement('span');
+      placeholder.className = 'team-badge-placeholder';
+      placeholder.textContent = sportEmoji;
+      if (teamData.badge) placeholder.style.display = 'none';
+      wrap.appendChild(placeholder);
+
+      const name = document.createElement('span');
+      name.className = `team-name ${isHome ? 'home-name' : 'away-name'}`;
+      name.textContent = teamData.name || (isHome ? 'Home' : 'Away');
+
+      team.appendChild(wrap);
+      team.appendChild(name);
+      return team;
+    };
+
+    teams.appendChild(buildTeam(match.teams!.home || {}, true));
+    const vs = document.createElement('span');
+    vs.className = 'vs-separator';
+    vs.textContent = 'VS';
+    teams.appendChild(vs);
+    teams.appendChild(buildTeam(match.teams!.away || {}, false));
+
+    card.appendChild(teams);
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'card-footer';
+
+  const cardTime = document.createElement('span');
+  cardTime.className = 'card-time';
+  cardTime.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ';
+  const timeText = document.createElement('span');
+  timeText.className = 'time-text';
+  timeText.textContent = timestamp;
+  cardTime.appendChild(timeText);
+  footer.appendChild(cardTime);
+
+  const sourcesWrap = document.createElement('div');
+  sourcesWrap.style.display = 'flex';
+  sourcesWrap.style.alignItems = 'center';
+  sourcesWrap.style.gap = '8px';
+
+  const sourcesDiv = document.createElement('div');
+  sourcesDiv.className = 'card-sources';
+  sourcesDiv.title = `${srcCount} source${srcCount !== 1 ? 's' : ''}`;
+  for (let i = 0; i < Math.min(srcCount, 5); i++) {
+    const dot = document.createElement('span');
+    dot.className = 'source-dot';
+    sourcesDiv.appendChild(dot);
+  }
+  sourcesWrap.appendChild(sourcesDiv);
+
+  const srcLabel = document.createElement('span');
+  srcLabel.className = 'source-label';
+  srcLabel.textContent = `${srcCount} src`;
+  sourcesWrap.appendChild(srcLabel);
+
+  footer.appendChild(sourcesWrap);
+
+  const watchBtn = document.createElement('button');
+  watchBtn.className = 'watch-btn';
+  watchBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg> Watch';
+  footer.appendChild(watchBtn);
+
+  card.appendChild(footer);
+
+  return card;
 }
 
 // ── Render grid ──
@@ -107,7 +175,13 @@ export function renderMatches(matches: APIMatch[]): void {
   empty.classList.add('hidden');
   grid.classList.remove('hidden');
   if (matchCount) matchCount.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
-  grid.innerHTML = matches.map(m => buildMatchCard(m)).join('');
+
+  grid.replaceChildren();
+  const frag = document.createDocumentFragment();
+  for (const m of matches) {
+    frag.appendChild(buildMatchCard(m));
+  }
+  grid.appendChild(frag);
 
   if (!grid.dataset.eventsBound) {
     // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
