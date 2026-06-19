@@ -100,7 +100,7 @@ export function debounce<T extends (...args: unknown[]) => void>(
 const SANDBOX_CSP = "sandbox allow-scripts allow-same-origin";
 
 export function buildSandboxedSrcdoc(embedUrl: string): string {
-  const safeUrl = sanitizeUrl(embedUrl);
+  const safeUrl = escapeHtml(sanitizeUrl(embedUrl));
   return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}"><style>body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src="${safeUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="no-referrer"></iframe></body></html>`;
 }
 

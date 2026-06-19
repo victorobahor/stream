@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeHtml, sanitizeUrl, matchTextIncludes, filterMatchesBySport, debounce, debounceString, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
+import { escapeHtml, sanitizeUrl, buildSandboxedSrcdoc, matchTextIncludes, filterMatchesBySport, debounce, debounceString, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
 import type { APIMatch } from './types';
 
 describe('escapeHtml', () => {
@@ -62,6 +62,15 @@ describe('sanitizeUrl', () => {
 
   it('should handle relative URLs', () => {
     expect(sanitizeUrl('/path/to/resource')).toBe('/path/to/resource');
+  });
+});
+
+describe('buildSandboxedSrcdoc', () => {
+  it('should escape HTML tags and quotes in the URL to prevent XSS', () => {
+    const maliciousUrl = 'https://example.com"></iframe><script>alert(1)</script>';
+    const srcdoc = buildSandboxedSrcdoc(maliciousUrl);
+    expect(srcdoc).not.toContain('"></iframe><script>');
+    expect(srcdoc).toContain('&quot;&gt;&lt;/iframe&gt;&lt;script&gt;');
   });
 });
 
