@@ -39,23 +39,34 @@ export function renderRelated(currentMatch: APIMatch): void {
     })
     .join('');
 
-  list.querySelectorAll('.related-card').forEach(card => {
-    const clickHandler = () => {
-      const match = state.allMatches.find(m => m.id === (card as HTMLElement).dataset.matchId);
+  if (!list.dataset.eventsBound) {
+    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
+    const clickHandler = (card: HTMLElement) => {
+      const match = state.allMatches.find(m => m.id === card.dataset.matchId);
       if (match) {
         // Dynamic import to avoid circular dependency with player.ts
         import('./player').then(m => m.openPlayer(match));
       }
     };
 
-    card.addEventListener('click', clickHandler);
-
-    card.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault(); // Prevent page scroll for space
-        clickHandler();
+    list.addEventListener('click', (e) => {
+      const card = (e.target as HTMLElement).closest('.related-card') as HTMLElement;
+      if (card && list.contains(card)) {
+        clickHandler(card);
       }
     });
-  });
+
+    list.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' || event.key === ' ') {
+        const card = (e.target as HTMLElement).closest('.related-card') as HTMLElement;
+        if (card && list.contains(card)) {
+          event.preventDefault(); // Prevent page scroll for space
+          clickHandler(card);
+        }
+      }
+    });
+
+    list.dataset.eventsBound = 'true';
+  }
 }
