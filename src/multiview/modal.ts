@@ -7,7 +7,10 @@ import { loadMultiviewSlotStream } from './slots';
 
 // ── Modal lifecycle ──
 
+let previousActiveElement: HTMLElement | null = null;
+
 export function openMvModal(slotIndex: number): void {
+  previousActiveElement = document.activeElement as HTMLElement | null;
   state.mvModalActiveSlot = slotIndex;
   state.mvModalSearchQuery = '';
   state.mvModalSportFilter = 'all';
@@ -19,11 +22,17 @@ export function openMvModal(slotIndex: number): void {
   showMvModalMatchesView();
   renderMvModalSports();
   filterMvModalMatches('');
+
+  if (input) input.focus();
 }
 
 export function closeMvModal(): void {
   el('mv-modal')?.classList.add('hidden');
   state.mvModalActiveSlot = null;
+  if (previousActiveElement) {
+    previousActiveElement.focus();
+    previousActiveElement = null;
+  }
 }
 
 export function showMvModalMatchesView(): void {
