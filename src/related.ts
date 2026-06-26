@@ -1,6 +1,6 @@
 import type { APIMatch } from './types';
 import { state } from './state';
-import { el, escapeHtml } from './helpers';
+import { el } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive } from './format';
 
 export function renderRelated(currentMatch: APIMatch): void {
@@ -15,29 +15,59 @@ export function renderRelated(currentMatch: APIMatch): void {
   );
   const related = [...sameSport, ...otherSport].slice(0, 12);
 
+  list.innerHTML = '';
+
   if (related.length === 0) {
-    list.innerHTML = '<p style="color:var(--text3);font-size:0.85rem">No other matches available</p>';
+    const p = document.createElement('p');
+    p.style.color = 'var(--text3)';
+    p.style.fontSize = '0.85rem';
+    p.textContent = 'No other matches available';
+    list.appendChild(p);
     return;
   }
 
-  list.innerHTML = related
-    .map(m => {
-      const live = isMatchLive(m);
-      const title =
-        m.title ||
-        (m.teams
-          ? `${m.teams?.home?.name || ''} vs ${m.teams?.away?.name || ''}`
-          : 'Match');
-      return `
-      <div class="related-card" role="button" tabindex="0" aria-label="Watch ${escapeHtml(title)}" data-match-id="${escapeHtml(m.id)}">
-        <div class="related-card-meta">
-          <span class="related-sport">${getSportEmoji(m.category)} ${escapeHtml(capitalize(m.category))}</span>
-          ${live ? '<span class="related-live"><span class="live-dot"></span> LIVE</span>' : ''}
-        </div>
-        <div class="related-card-title">${escapeHtml(title)}</div>
-      </div>`;
-    })
-    .join('');
+  const fragment = document.createDocumentFragment();
+
+  related.forEach(m => {
+    const live = isMatchLive(m);
+    const title =
+      m.title ||
+      (m.teams
+        ? `${m.teams?.home?.name || ''} vs ${m.teams?.away?.name || ''}`
+        : 'Match');
+
+    const card = document.createElement('div');
+    card.className = 'related-card';
+    card.setAttribute('role', 'button');
+    card.tabIndex = 0;
+    card.setAttribute('aria-label', `Watch ${title}`);
+    card.dataset.matchId = m.id;
+
+    const meta = document.createElement('div');
+    meta.className = 'related-card-meta';
+
+    const sport = document.createElement('span');
+    sport.className = 'related-sport';
+    sport.textContent = `${getSportEmoji(m.category)} ${capitalize(m.category)}`;
+    meta.appendChild(sport);
+
+    if (live) {
+      const liveSpan = document.createElement('span');
+      liveSpan.className = 'related-live';
+      liveSpan.innerHTML = '<span class="live-dot"></span> LIVE';
+      meta.appendChild(liveSpan);
+    }
+
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'related-card-title';
+    titleDiv.textContent = title;
+
+    card.appendChild(meta);
+    card.appendChild(titleDiv);
+    fragment.appendChild(card);
+  });
+
+  list.appendChild(fragment);
 
   if (!list.dataset.eventsBound) {
     // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
