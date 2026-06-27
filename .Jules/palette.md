@@ -13,3 +13,7 @@
 ## 2024-06-20 - Accessible Modals and Focus Management
 **Learning:** For a custom modal in Vanilla JS to be fully accessible, it is critical to explicitly manage focus. Setting `role="dialog"`, `aria-modal="true"`, and `aria-labelledby` ensures screen readers announce the modal correctly. Furthermore, capturing `document.activeElement` before the modal opens, shifting focus into the modal (e.g. to the search input), and restoring focus when the modal closes is required to prevent keyboard users from losing their place in the DOM and experiencing a jarring navigation flow.
 **Action:** Always add ARIA modal attributes to custom modal containers and implement programmatic focus trapping/restoration when developing or enhancing modal components.
+
+## 2024-07-26 - Contextual Shortcut Routing
+**Learning:** A global search shortcut like `/` can be frustrating if it unconditionally refocuses the main search bar while the user is actually interacting with a modal or a dedicated sub-view (like Multi View) that has its own search input.
+**Action:** When implementing global hotkeys, check the active view state (e.g., via class checks like `.multiview-active` or checking if modals are open) and intelligently route the shortcut focus to the most relevant input field in the current user context.
