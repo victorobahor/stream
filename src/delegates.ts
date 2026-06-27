@@ -96,10 +96,23 @@ export function attachGlobalDelegates(): void {
   document.addEventListener('keydown', e => {
     if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
       e.preventDefault();
-      const searchInput = document.getElementById('search-input');
+      const modal = document.getElementById('mv-modal');
+      const isModalOpen = modal && !modal.classList.contains('hidden');
+      const isMultiviewOpen = document.body.classList.contains('multiview-active');
+
+      let targetInputId = 'search-input';
+      if (isModalOpen) {
+        targetInputId = 'mv-modal-search';
+      } else if (isMultiviewOpen) {
+        targetInputId = 'multiview-search';
+      }
+
+      const searchInput = document.getElementById(targetInputId);
       if (searchInput) {
         searchInput.focus();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (!isModalOpen) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       }
     } else if (e.key === 'Escape') {
       const modal = document.getElementById('mv-modal');
