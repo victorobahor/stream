@@ -10,3 +10,6 @@
 **Learning:** When managing `active` class states among dynamically created elements inside a loop, keeping track of the active element using a variable closure avoids repeatedly triggering expensive DOM queries (`querySelectorAll`) on every click.
 
 **Action:** Optimized `renderMultiviewSidebar` in `src/multiview/sidebar.ts` to cache the `activeChip` element.
+## 2026-06-28 - DOM Query Caching Patterns
+**Learning:** When trying to optimize `querySelectorAll` loops for UI active state management in this Vanilla JS app, attempting to abstract state updates out of local rendering contexts can lead to anti-patterns (e.g., exposing local closures to the global `window` object) or severe performance regressions (e.g., triggering full component re-renders instead of localized DOM updates).
+**Action:** Use simple module-scoped variables to cache active DOM elements. Maintain these caches directly within the same context where the elements are created or updated, enabling O(1) class toggling without global namespace pollution or expensive DOM re-building.

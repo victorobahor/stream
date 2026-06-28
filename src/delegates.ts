@@ -7,6 +7,7 @@ import { clearAllMultiviewSlots, toggleMultiviewSidebar } from './multiview/slot
 import { handleMultiviewSearch } from './multiview/sidebar';
 import { closeMvModal, showMvModalMatchesView, filterMvModalMatches } from './multiview/modal';
 import { debounceString } from './helpers';
+import { setActiveNav } from './ui';
 
 type ActionHandler = (target: HTMLElement, value?: string) => void;
 
@@ -47,13 +48,11 @@ export function attachGlobalDelegates(): void {
     // Also handle nav links that set active state
     if (target.classList.contains('nav-link') || target.closest('.nav-link')) {
       const navLink = target.classList.contains('nav-link') ? target : target.closest('.nav-link') as HTMLElement;
-      document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-      navLink.classList.add('active');
+      setActiveNav(navLink);
     }
 
     if (action === 'setActiveNav') {
-      document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-      target.classList.add('active');
+      setActiveNav(target);
       return;
     }
 
