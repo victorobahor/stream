@@ -49,9 +49,22 @@ export function retryLoad(): void {
 
 // ── Navigation ──
 
+let activeNavLink: HTMLElement | null = null;
+
 export function setActiveNav(linkEl: HTMLElement | null): void {
-  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-  if (linkEl) linkEl.classList.add('active');
+  if (activeNavLink) {
+    activeNavLink.classList.remove('active');
+  } else if (!activeNavLink) {
+    // initial page load edge case, clean up existing active classes if any
+    document.querySelectorAll('.nav-link.active').forEach(l => l.classList.remove('active'));
+  }
+
+  if (linkEl) {
+    linkEl.classList.add('active');
+    activeNavLink = linkEl;
+  } else {
+    activeNavLink = null;
+  }
 }
 
 export function toggleMobileMenu(): void {

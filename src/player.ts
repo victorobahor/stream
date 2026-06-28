@@ -5,12 +5,18 @@ import { capitalize, getSportEmoji, isMatchLive, getPosterUrl, showToast } from 
 import { getImgUrl } from './state';
 import { loadStreams as fetchStreams } from './api';
 
+// ── Module level state for caching active elements ──
+let activeStreamTab: HTMLElement | null = null;
+
 // ── Source bar active ──
 
 export function updateSourceBarActive(idx: number): void {
-  el('source-bar')?.querySelectorAll('.source-chip').forEach((c, i) => {
-    c.classList.toggle('active', i === idx);
-  });
+  const bar = el('source-bar');
+  if (!bar) return;
+  const currentActive = bar.querySelector('.source-chip.active');
+  if (currentActive) currentActive.classList.remove('active');
+  const target = bar.children[idx + 1]; // +1 because the first child is the label span
+  if (target) target.classList.add('active');
 }
 
 // ── Stream tabs ──
@@ -19,6 +25,7 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
   const tabs = el('stream-tabs');
   if (!tabs) return;
   tabs.innerHTML = '';
+  activeStreamTab = null;
   const fragment = document.createDocumentFragment();
   streams.forEach((stream, i) => {
     const tab = document.createElement('button');
@@ -42,8 +49,9 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
     }
 
     tab.onclick = () => {
-      tabs.querySelectorAll('.stream-tab').forEach(t => t.classList.remove('active'));
+      if (activeStreamTab) activeStreamTab.classList.remove('active');
       tab.classList.add('active');
+      activeStreamTab = tab;
       selectStream(stream, tab);
     };
     fragment.appendChild(tab);
@@ -138,8 +146,9 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   }
   state.selectedStream = stream;
   if (tabEl) {
-    el('stream-tabs')?.querySelectorAll('.stream-tab').forEach(t => t.classList.remove('active'));
+    if (activeStreamTab) activeStreamTab.classList.remove('active');
     tabEl.classList.add('active');
+    activeStreamTab = tabEl;
   }
 
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
