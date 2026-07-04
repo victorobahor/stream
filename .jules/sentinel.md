@@ -11,3 +11,7 @@
 **Vulnerability:** Constructing DOM elements by concatenating dynamic user or API data into HTML strings (e.g., via template literals assigned to `innerHTML`) allows XSS payloads to execute via attribute breakout, even if partially escaped.
 **Learning:** Using `<template>` elements with dynamic string interpolation still poses an XSS risk because the browser parses the malicious payload as soon as the string is assigned to `innerHTML`.
 **Prevention:** Always construct DOM elements statically and apply dynamic data exclusively through direct DOM APIs (`document.createElement`, `element.textContent`, `element.setAttribute`, etc.).
+## 2026-06-20 - Prevent XSS in src/multiview/modal.ts with Direct DOM Manipulation
+**Vulnerability:** Constructing DOM elements by concatenating dynamic user or API data into HTML strings (e.g., via template literals assigned to `innerHTML`) allows XSS payloads to execute via attribute breakout, even if partially escaped. This was prevalent in `src/multiview/modal.ts`.
+**Learning:** Using `<template>` elements with dynamic string interpolation still poses an XSS risk because the browser parses the malicious payload as soon as the string is assigned to `innerHTML`.
+**Prevention:** Always construct DOM elements statically and apply dynamic data exclusively through direct DOM APIs (`document.createElement`, `element.textContent`, `element.setAttribute`, etc.).

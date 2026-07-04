@@ -1,6 +1,6 @@
 import type { Stream } from '../types';
 import { state } from '../state';
-import { el, escapeHtml, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport } from '../helpers';
+import { el, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport } from '../helpers';
 import { capitalize, getSportEmoji, isEPLMatch } from '../format';
 import { fetchJSON } from '../api';
 import { loadMultiviewSlotStream } from './slots';
@@ -108,21 +108,42 @@ export function filterMvModalMatches(query: string): void {
     return;
   }
 
-  container.innerHTML = matches
-    .map(match => {
-      const title =
-        match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');
-      return `
-      <div class="mv-modal-match-item" role="button" tabindex="0" aria-label="Select ${escapeHtml(title)}" data-match-id="${escapeHtml(match.id)}">
-        <div class="mv-modal-match-info">
-          <span class="mv-modal-match-title">${escapeHtml(title)}</span>
-          <span class="mv-modal-match-sport">${getSportEmoji(match.category)} ${escapeHtml(capitalize(match.category))}</span>
-        </div>
-        <div class="mv-modal-match-arrow">&rarr;</div>
-      </div>
-    `;
-    })
-    .join('');
+  container.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  matches.forEach(match => {
+    const title =
+      match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');
+
+    const item = document.createElement('div');
+    item.className = 'mv-modal-match-item';
+    item.setAttribute('role', 'button');
+    item.tabIndex = 0;
+    item.setAttribute('aria-label', `Select ${title}`);
+    item.dataset.matchId = match.id;
+
+    const info = document.createElement('div');
+    info.className = 'mv-modal-match-info';
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'mv-modal-match-title';
+    titleSpan.textContent = title;
+
+    const sportSpan = document.createElement('span');
+    sportSpan.className = 'mv-modal-match-sport';
+    sportSpan.textContent = `${getSportEmoji(match.category)} ${capitalize(match.category)}`;
+
+    info.appendChild(titleSpan);
+    info.appendChild(sportSpan);
+
+    const arrow = document.createElement('div');
+    arrow.className = 'mv-modal-match-arrow';
+    arrow.innerHTML = '&rarr;';
+
+    item.appendChild(info);
+    item.appendChild(arrow);
+    frag.appendChild(item);
+  });
+  container.appendChild(frag);
 
   if (!container.dataset.eventsBound) {
     // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
@@ -186,16 +207,29 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
       return;
     }
 
-    listContainer.innerHTML = streams
-      .map((stream, idx) => {
-        return `
-        <button class="mv-modal-stream-btn" data-match-id="${escapeHtml(match.id)}" data-source="${escapeHtml(src.source)}" data-stream-idx="${idx}">
-          <span>Stream ${escapeHtml(String(stream.streamNo)) || idx + 1} (${escapeHtml(stream.language || 'English')})</span>
-          ${stream.hd ? '<span class="tab-hd">HD</span>' : ''}
-        </button>
-      `;
-      })
-      .join('');
+    listContainer.innerHTML = '';
+    const streamsFrag = document.createDocumentFragment();
+    streams.forEach((stream, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'mv-modal-stream-btn';
+      btn.dataset.matchId = match.id;
+      btn.dataset.source = src.source;
+      btn.dataset.streamIdx = String(idx);
+
+      const span = document.createElement('span');
+      span.textContent = `Stream ${String(stream.streamNo) || idx + 1} (${stream.language || 'English'})`;
+      btn.appendChild(span);
+
+      if (stream.hd) {
+        const hdSpan = document.createElement('span');
+        hdSpan.className = 'tab-hd';
+        hdSpan.textContent = 'HD';
+        btn.appendChild(hdSpan);
+      }
+
+      streamsFrag.appendChild(btn);
+    });
+    listContainer.appendChild(streamsFrag);
 
     if (!listContainer.dataset.eventsBound) {
       // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
@@ -212,7 +246,12 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
       listContainer.dataset.eventsBound = 'true';
     }
   } catch (e) {
-    listContainer.innerHTML = `<p style="color:var(--live);font-size:0.85rem;">Failed to load: ${escapeHtml(e instanceof Error ? e.message : String(e))}</p>`;
+    listContainer.innerHTML = '';
+    const p = document.createElement('p');
+    p.style.color = 'var(--live)';
+    p.style.fontSize = '0.85rem';
+    p.textContent = `Failed to load: ${e instanceof Error ? e.message : String(e)}`;
+    listContainer.appendChild(p);
   }
 }
 
