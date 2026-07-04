@@ -25,7 +25,7 @@
   <!-- Header / Nav -->
   <header id="main-header">
     <div class="header-inner">
-      <a href="#" class="logo" id="logo-btn" data-action="showHome">
+      <a href="#" class="logo" id="logo-btn" data-action="showHome" aria-label="Home">
         <div class="logo-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -119,7 +119,7 @@
 
     <!-- Player View -->
     <section id="player-view" class="hidden">
-      <button class="back-btn" data-action="showHome">
+      <button class="back-btn" data-action="showHome" aria-label="Back to Matches">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <polyline points="15 18 9 12 15 6"></polyline>
         </svg>
@@ -198,19 +198,19 @@
         <div class="toolbar-left">
           <h1 class="multiview-title">📺 Multi View</h1>
           <div class="layout-controls">
-            <button class="layout-btn active" data-layout="1x2" data-action="changeMultiviewLayout" data-value="1x2" title="Dual Horizontal Split">1x2</button>
-            <button class="layout-btn" data-layout="2x2" data-action="changeMultiviewLayout" data-value="2x2" title="Quad View (2x2)">2x2</button>
+            <button class="layout-btn active" data-layout="1x2" data-action="changeMultiviewLayout" data-value="1x2" title="Dual Horizontal Split" aria-label="Dual Horizontal Split">1x2</button>
+            <button class="layout-btn" data-layout="2x2" data-action="changeMultiviewLayout" data-value="2x2" title="Quad View (2x2)" aria-label="Quad View">2x2</button>
           </div>
         </div>
         <div class="toolbar-right">
-          <button class="btn-secondary" data-action="clearAllMultiviewSlots" title="Clear all streams">
+          <button class="btn-secondary" data-action="clearAllMultiviewSlots" title="Clear all streams" aria-label="Clear all streams">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
             </svg>
             Clear All
           </button>
-          <button class="btn-secondary" id="toggle-multiview-sidebar" data-action="toggleMultiviewSidebar">
+          <button class="btn-secondary" id="toggle-multiview-sidebar" data-action="toggleMultiviewSidebar" aria-label="Toggle Sidebar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
               <line x1="9" y1="3" x2="9" y2="21"></line>
@@ -277,7 +277,7 @@
         
         <div class="mv-modal-streams-view hidden" id="mv-modal-streams-view">
           <div class="mv-modal-streams-header">
-            <button class="back-btn-sm" data-action="showMvModalMatchesView">
+            <button class="back-btn-sm" data-action="showMvModalMatchesView" aria-label="Back to Matches">
               &larr; Back to Matches
             </button>
             <h4 id="mv-modal-match-name"></h4>
