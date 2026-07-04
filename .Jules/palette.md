@@ -17,3 +17,9 @@
 ## 2024-07-26 - Contextual Shortcut Routing
 **Learning:** A global search shortcut like `/` can be frustrating if it unconditionally refocuses the main search bar while the user is actually interacting with a modal or a dedicated sub-view (like Multi View) that has its own search input.
 **Action:** When implementing global hotkeys, check the active view state (e.g., via class checks like `.multiview-active` or checking if modals are open) and intelligently route the shortcut focus to the most relevant input field in the current user context.
+## 2024-07-27 - Icon-only buttons lacking ARIA labels
+**Learning:** Important navigation and functional buttons represented only by icons (or vague text like "1x2") might not provide sufficient context for screen readers if s are missing.
+**Action:** Add descriptive s to these interactive elements (e.g., logo, sidebar toggle, back buttons, and multiview layout toggles) so screen reader users understand their functionality.
+## 2024-07-27 - Icon-only buttons lacking ARIA labels
+**Learning:** Important navigation and functional buttons represented only by icons (or vague text like "1x2") might not provide sufficient context for screen readers if `aria-label`s are missing.
+**Action:** Add descriptive `aria-label`s to these interactive elements (e.g., logo, sidebar toggle, back buttons, and multiview layout toggles) so screen reader users understand their functionality.
