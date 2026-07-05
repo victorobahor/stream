@@ -13,3 +13,7 @@
 ## 2026-06-28 - DOM Query Caching Patterns
 **Learning:** When trying to optimize `querySelectorAll` loops for UI active state management in this Vanilla JS app, attempting to abstract state updates out of local rendering contexts can lead to anti-patterns (e.g., exposing local closures to the global `window` object) or severe performance regressions (e.g., triggering full component re-renders instead of localized DOM updates).
 **Action:** Use simple module-scoped variables to cache active DOM elements. Maintain these caches directly within the same context where the elements are created or updated, enabling O(1) class toggling without global namespace pollution or expensive DOM re-building.
+
+## 2026-07-05 - Batch DOM modifications
+**Learning:** In highly interactive components like modals, appending items directly to the DOM one by one in a loop causes expensive reflows. Similarly, using a querySelectorAll every time an item is selected causes O(N) operations.
+**Action:** Use `DocumentFragment` when rendering lists inside modals (e.g., multiview modal sports) and maintain a local `activeChip` closure variable to make selection O(1) in `src/multiview/modal.ts`.
