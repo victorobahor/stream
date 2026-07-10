@@ -1,6 +1,6 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
-import { el, sanitizeUrl, applySandboxedSrcdoc, clearSandboxedSrcdoc } from '../helpers';
+import { el, escapeHtml, sanitizeUrl, applySandboxedSrcdoc, clearSandboxedSrcdoc } from '../helpers';
 import { renderMultiviewSidebar, applyMultiviewSidebarFilters } from './sidebar';
 
 // ── Layout utils ──
@@ -59,61 +59,68 @@ export function buildEmptySlotContent(i: number): string {
   `;
 }
 
-export function buildFilledSlotContent(slot: MultiviewSlot, i: number): DocumentFragment {
+export function buildFilledSlotContent(slot: MultiviewSlot, i: number): string {
   const match = slot.match;
-  const title = match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : (match.title || '');
+  const title = match.teams
+    ? `${escapeHtml(match.teams.home?.name ?? '')} vs ${escapeHtml(match.teams.away?.name ?? '')}`
+    : escapeHtml(match.title);
+  const sourceName = slot.sourceName;
+  const streamIndex = slot.streamIndex;
+  const streams = slot.streams || [];
+  const stream = slot.stream;
+  const loading = slot.loading;
 
-  const frag = document.createDocumentFragment();
-
-  if (slot.stream && slot.stream.embedUrl && !slot.loading) {
-    const ifr = document.createElement('iframe');
-    ifr.className = 'mv-iframe';
-    ifr.dataset.embedUrl = sanitizeUrl(slot.stream.embedUrl);
-    ifr.allowFullscreen = true;
-    ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-    ifr.frameBorder = '0';
-    ifr.scrolling = 'no';
-    ifr.setAttribute('referrerpolicy', 'no-referrer');
-    frag.appendChild(ifr);
+  let iframeHtml = '';
+  if (stream && stream.embedUrl && !loading) {
+    const safeUrl = escapeHtml(sanitizeUrl(stream.embedUrl));
+    iframeHtml = `<iframe class="mv-iframe" data-embed-url="${safeUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>`;
   }
 
-  if (slot.loading) {
-    const ld = document.createElement('div');
-    ld.className = 'mv-loading';
-    ld.innerHTML = '<div class="spinner"></div><span>Loading stream...</span>';
-    frag.appendChild(ld);
+  let loadingHtml = '';
+  if (loading) {
+    loadingHtml = `
+      <div class="mv-loading">
+        <div class="spinner"></div>
+        <span>Loading stream...</span>
+      </div>
+    `;
   }
 
-  const tmpl = document.createElement('template');
-  tmpl.innerHTML = `<div class="mv-slot-header"><div class="mv-slot-title"></div><div class="mv-slot-controls"><select class="mv-source-select" data-action="change-source" aria-label="Select stream source"></select><select class="mv-source-select" data-action="change-stream" aria-label="Select stream quality"></select><button class="mv-control-btn" aria-label="Fullscreen stream" data-action="fullscreen" title="Fullscreen"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button><button class="mv-control-btn close-btn" aria-label="Close stream" data-action="clear-slot" title="Close Stream"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div></div>`;
+  const sourceOptions = match.sources
+    .map(
+      src =>
+        `<option value="${escapeHtml(src.source)}" ${src.source === sourceName ? 'selected' : ''}>${escapeHtml(src.source)}</option>`
+    )
+    .join('');
 
-  const content = tmpl.content.cloneNode(true) as DocumentFragment;
-  const titleEl = content.querySelector('.mv-slot-title') as HTMLElement;
-  titleEl.title = title;
-  titleEl.textContent = title;
+  const streamOptions = streams
+    .map(
+      (str, sIdx) =>
+        `<option value="${sIdx}" ${sIdx === streamIndex ? 'selected' : ''}>Stream ${escapeHtml(String(str.streamNo)) || sIdx + 1} (${escapeHtml(str.language || 'EN')}) ${str.hd ? 'HD' : 'SD'}</option>`
+    )
+    .join('');
 
-  const selects = content.querySelectorAll('.mv-source-select');
-  const s1 = selects[0] as HTMLSelectElement;
-  s1.dataset.slot = String(i);
-  match.sources.forEach(src => {
-    const opt = document.createElement('option');
-    opt.value = src.source; opt.textContent = src.source; opt.selected = src.source === slot.sourceName;
-    s1.appendChild(opt);
-  });
-
-  const s2 = selects[1] as HTMLSelectElement;
-  s2.dataset.slot = String(i);
-  (slot.streams || []).forEach((str, sIdx) => {
-    const opt = document.createElement('option');
-    opt.value = String(sIdx); opt.textContent = `Stream ${str.streamNo || sIdx + 1} (${str.language || 'EN'}) ${str.hd ? 'HD' : 'SD'}`;
-    opt.selected = sIdx === slot.streamIndex;
-    s2.appendChild(opt);
-  });
-
-  content.querySelectorAll('.mv-control-btn').forEach(b => { (b as HTMLElement).dataset.slot = String(i); });
-  frag.appendChild(content);
-
-  return frag;
+  return `
+    ${iframeHtml}
+    ${loadingHtml}
+    <div class="mv-slot-header">
+      <div class="mv-slot-title" title="${title}">${title}</div>
+      <div class="mv-slot-controls">
+        <select class="mv-source-select" data-slot="${i}" data-action="change-source" aria-label="Select stream source">
+          ${sourceOptions}
+        </select>
+        <select class="mv-source-select" data-slot="${i}" data-action="change-stream" aria-label="Select stream quality">
+          ${streamOptions}
+        </select>
+        <button class="mv-control-btn" aria-label="Fullscreen stream" data-slot="${i}" data-action="fullscreen" title="Fullscreen">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        </button>
+        <button class="mv-control-btn close-btn" aria-label="Close stream" data-slot="${i}" data-action="clear-slot" title="Close Stream">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
 }
 
 // ── Bind child events on a slot ──
@@ -187,8 +194,7 @@ export function renderMultiviewGrid(): void {
       slotEl.classList.add('empty');
       slotEl.innerHTML = buildEmptySlotContent(i);
     } else {
-      slotEl.innerHTML = '';
-      slotEl.appendChild(buildFilledSlotContent(slot, i));
+      slotEl.innerHTML = buildFilledSlotContent(slot, i);
     }
 
     bindSlotChildEvents(slotEl, i, !!slot);
