@@ -23,3 +23,7 @@
 ## 2024-07-27 - Icon-only buttons lacking ARIA labels
 **Learning:** Important navigation and functional buttons represented only by icons (or vague text like "1x2") might not provide sufficient context for screen readers if `aria-label`s are missing.
 **Action:** Add descriptive `aria-label`s to these interactive elements (e.g., logo, sidebar toggle, back buttons, and multiview layout toggles) so screen reader users understand their functionality.
+
+## 2024-07-27 - Color Contrast for Helper and Placeholder Text
+**Learning:** Text using `--text3` (`rgba(240,244,255,0.35)`) over the dark background (`#080c14`) only achieves a contrast ratio of ~2.96:1, falling short of WCAG AA requirements for normal-sized text. This makes placeholder text, stream counts, and other helper text harder to read for users with visual impairments.
+**Action:** When designing a dark theme, ensure text with reduced opacity still maintains a contrast ratio of at least 4.5:1 against its background. Adjust the alpha value or use a lighter base color if necessary.
