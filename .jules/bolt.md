@@ -17,3 +17,6 @@
 ## 2026-07-05 - Batch DOM modifications
 **Learning:** In highly interactive components like modals, appending items directly to the DOM one by one in a loop causes expensive reflows. Similarly, using a querySelectorAll every time an item is selected causes O(N) operations.
 **Action:** Use `DocumentFragment` when rendering lists inside modals (e.g., multiview modal sports) and maintain a local `activeChip` closure variable to make selection O(1) in `src/multiview/modal.ts`.
+## 2026-07-12 - DOM Query Caching Antipatterns
+**Learning:** Caching raw DOM nodes in module-scoped variables to avoid querySelectorAll is a dangerous antipattern in UIs that frequently re-render, as it leads to stale references to dead nodes and memory leaks.
+**Action:** Avoid global or module-scoped DOM node caching for dynamic elements. Prefer optimizing pure JS operations, like moving costly string manipulations (e.g. `toLowerCase()`) outside of loops.

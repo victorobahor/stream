@@ -62,8 +62,10 @@ export function matchTextIncludes(match: APIMatch, query: string): boolean {
 
 export function filterMatchesBySport(matches: APIMatch[], sportFilter: string): APIMatch[] {
   if (sportFilter === 'all') return matches;
+  // ⚡ Bolt Optimization: Extract sportFilter.toLowerCase() to avoid O(N) evaluations inside the loop.
+  const lowerFilter = sportFilter.toLowerCase();
   return matches.filter(
-    m => (m.category || '').toLowerCase() === sportFilter.toLowerCase()
+    m => (m.category || '').toLowerCase() === lowerFilter
   );
 }
 
