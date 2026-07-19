@@ -20,3 +20,6 @@
 ## 2026-07-12 - DOM Query Caching Antipatterns
 **Learning:** Caching raw DOM nodes in module-scoped variables to avoid querySelectorAll is a dangerous antipattern in UIs that frequently re-render, as it leads to stale references to dead nodes and memory leaks.
 **Action:** Avoid global or module-scoped DOM node caching for dynamic elements. Prefer optimizing pure JS operations, like moving costly string manipulations (e.g. `toLowerCase()`) outside of loops.
+## 2024-07-19 - Short-circuiting String Operations
+**Learning:** In hot loops like `matchTextIncludes` (which runs on every keystroke during search), unconditionally executing `.toLowerCase()` and `.includes()` on multiple properties before evaluating the results creates unnecessary string allocations and CPU overhead, especially when a match might be found on the very first property.
+**Action:** When evaluating multiple string conditions for a single true/false outcome, use early returns (short-circuiting). Check the first property and return immediately if true, skipping expensive operations on the remaining properties.
