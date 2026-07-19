@@ -53,11 +53,12 @@ export function log(level: string, ...args: unknown[]): void {
 }
 
 export function matchTextIncludes(match: APIMatch, query: string): boolean {
-  const t = (match.title || '').toLowerCase();
-  const h = (match.teams?.home?.name || '').toLowerCase();
-  const a = (match.teams?.away?.name || '').toLowerCase();
-  const c = (match.category || '').toLowerCase();
-  return t.includes(query) || h.includes(query) || a.includes(query) || c.includes(query);
+  // ⚡ Bolt Optimization: Use early returns to short-circuit expensive string operations
+  if ((match.title || '').toLowerCase().includes(query)) return true;
+  if ((match.teams?.home?.name || '').toLowerCase().includes(query)) return true;
+  if ((match.teams?.away?.name || '').toLowerCase().includes(query)) return true;
+  if ((match.category || '').toLowerCase().includes(query)) return true;
+  return false;
 }
 
 export function filterMatchesBySport(matches: APIMatch[], sportFilter: string): APIMatch[] {
