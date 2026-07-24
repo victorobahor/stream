@@ -1,8 +1,7 @@
-import type { Stream } from '../types';
 import { state } from '../state';
 import { el, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport } from '../helpers';
 import { capitalize, getSportEmoji, isEPLMatch } from '../format';
-import { fetchJSON } from '../api';
+import { loadStreams } from '../api';
 import { loadMultiviewSlotStream } from './slots';
 
 // ── Modal lifecycle ──
@@ -209,8 +208,7 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
 
   try {
     const src = match.sources[0];
-    const data = await fetchJSON<Stream[]>(`/api/stream/${src.source}/${src.id}`);
-    const streams = Array.isArray(data) ? data : [];
+    const streams = await loadStreams(src.source, src.id);
 
     if (streams.length === 0) {
       listContainer.innerHTML =

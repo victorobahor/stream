@@ -2,7 +2,7 @@ import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData } fr
 import { state } from '../state';
 import { el, log, applySandboxedSrcdoc } from '../helpers';
 import { showToast } from '../format';
-import { fetchJSON } from '../api';
+import { loadStreams } from '../api';
 import { renderMultiviewGrid, getNumSlotsForLayout } from './grid';
 
 const VALID_LAYOUTS: MultiviewLayout[] = ['1x2', '2x2'];
@@ -89,8 +89,7 @@ export async function loadMultiviewSlotStream(
   const activeId = sourceObj.id;
 
   try {
-    const data = await fetchJSON<import('../types').Stream[]>(`/api/stream/${activeSource}/${activeId}`);
-    const streams = Array.isArray(data) ? data : [];
+    const streams = await loadStreams(activeSource, activeId);
     if (streams.length === 0) {
       const nextSourceIdx = match.sources.findIndex(s => s.source === activeSource) + 1;
       if (nextSourceIdx < match.sources.length) {

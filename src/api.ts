@@ -41,12 +41,13 @@ export async function loadSports(): Promise<Sport[]> {
 export function resolveMatchesEndpoint(cat: Category, sport: string): { endpoint: string; clientSportFilter: boolean } {
   let endpoint: string;
   let clientSportFilter = false;
+  const safeSport = encodeURIComponent(sport);
 
   if (sport !== 'all') {
     if (cat === 'popular') {
-      endpoint = `/api/matches/${sport}/popular`;
+      endpoint = `/api/matches/${safeSport}/popular`;
     } else if (cat === 'all') {
-      endpoint = `/api/matches/${sport}`;
+      endpoint = `/api/matches/${safeSport}`;
     } else {
       endpoint = cat === 'live' ? '/api/matches/live' : '/api/matches/all-today';
       clientSportFilter = true;
@@ -106,7 +107,7 @@ export async function loadStreams(source: string, id: string): Promise<Stream[]>
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data;
   }
-  const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
+  const data = await fetchJSON<Stream[]>(`/api/stream/${encodeURIComponent(source)}/${encodeURIComponent(id)}`);
   const streams = Array.isArray(data) ? data : [];
   // Only cache non-empty results so retries can fetch fresh data
   if (streams.length > 0) {
