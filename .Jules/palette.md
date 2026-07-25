@@ -27,3 +27,6 @@
 ## 2024-07-27 - Color Contrast for Helper and Placeholder Text
 **Learning:** Text using `--text3` (`rgba(240,244,255,0.35)`) over the dark background (`#080c14`) only achieves a contrast ratio of ~2.96:1, falling short of WCAG AA requirements for normal-sized text. This makes placeholder text, stream counts, and other helper text harder to read for users with visual impairments.
 **Action:** When designing a dark theme, ensure text with reduced opacity still maintains a contrast ratio of at least 4.5:1 against its background. Adjust the alpha value or use a lighter base color if necessary.
+## 2025-02-09 - Accessible Dynamic Elements
+**Learning:** In this Vanilla JS app where UI elements like sports chips and stream selector buttons are built dynamically using `document.createElement`, they were missing `aria-label`s, rendering them contextless to assistive tech.
+**Action:** Always add `setAttribute('aria-label', ...)` to dynamically generated interactive elements (buttons, chips, grid items) that have icon-heavy, repetitive, or dynamic text content to ensure accessibility for screen reader users.

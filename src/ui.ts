@@ -96,6 +96,7 @@ export function renderSportsBar(): void {
     const chip = document.createElement('button');
     chip.className = 'sport-chip';
     chip.dataset.id = id;
+    chip.setAttribute('aria-label', `Filter by ${capitalize(name)}`);
     chip.textContent = `${getSportEmoji(name)} ${capitalize(name)}`;
     chip.onclick = () => {
       document.querySelectorAll('.sport-chip').forEach(c => c.classList.remove('active'));

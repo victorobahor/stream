@@ -30,6 +30,7 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
   streams.forEach((stream, i) => {
     const tab = document.createElement('button');
     tab.className = 'stream-tab';
+    tab.setAttribute('aria-label', `Select stream ${capitalize(stream.source || source)} #${stream.streamNo || i + 1} (${stream.language || 'Unknown'})`);
 
     const sourceSpan = document.createElement('span');
     sourceSpan.className = 'tab-source';
@@ -74,6 +75,7 @@ export function renderSourceButtons(sources: StreamSource[]): void {
   sources.forEach((src, i) => {
     const btn = document.createElement('button');
     btn.className = 'source-chip' + (i === state.activeSourceIndex ? ' active' : '');
+    btn.setAttribute('aria-label', `Select source ${capitalize(src.source)}`);
     btn.textContent = capitalize(src.source);
     btn.onclick = () => {
       if (i === state.activeSourceIndex) return;

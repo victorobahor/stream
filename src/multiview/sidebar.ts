@@ -40,6 +40,7 @@ export function renderMultiviewSidebar(): void {
 
   const allChip = document.createElement('button');
   allChip.className = 'mini-sport-chip' + (state.multiviewSportFilter === 'all' ? ' active' : '');
+  allChip.setAttribute('aria-label', 'Filter by All Sports');
   if (state.multiviewSportFilter === 'all') activeChip = allChip;
   allChip.textContent = 'All';
   allChip.onclick = () => {
@@ -59,6 +60,7 @@ export function renderMultiviewSidebar(): void {
     const name = sport.name || sport.id || (sport as unknown as string);
     const chip = document.createElement('button');
     chip.className = 'mini-sport-chip' + (state.multiviewSportFilter === id ? ' active' : '');
+    chip.setAttribute('aria-label', `Filter by ${capitalize(name)}`);
     if (state.multiviewSportFilter === id) activeChip = chip;
     chip.textContent = capitalize(name);
     chip.onclick = () => {
@@ -127,6 +129,7 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     const btn = document.createElement('button');
     btn.className = 'mv-stream-mini-btn';
     btn.dataset.loadMatchId = match.id;
+    btn.setAttribute('aria-label', `Load stream for ${title}`);
     btn.textContent = 'Load Stream';
     streams.appendChild(btn);
 
