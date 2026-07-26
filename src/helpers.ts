@@ -106,13 +106,23 @@ export function filterMatchesWithSources(matches: APIMatch[]): APIMatch[] {
  * Returns a new array — callers must not rely on the input being sorted.
  */
 export function sortMatchesForDisplay(matches: APIMatch[]): APIMatch[] {
-  return [...matches].sort((a, b) => {
-    const liveDelta = Number(isMatchLive(b)) - Number(isMatchLive(a));
-    if (liveDelta !== 0) return liveDelta;
-    const eplDelta = Number(isEPLMatch(b)) - Number(isEPLMatch(a));
-    if (eplDelta !== 0) return eplDelta;
-    return (a.date || 0) - (b.date || 0);
-  });
+  // Use a Schwartzian transform to avoid re-evaluating `isMatchLive` (which
+  // reads Date.now()) and `isEPLMatch` inside the O(N log N) comparison loop.
+  return matches
+    .map(match => ({
+      match,
+      isLive: isMatchLive(match) ? 1 : 0,
+      isEpl: isEPLMatch(match) ? 1 : 0,
+      date: match.date || 0,
+    }))
+    .sort((a, b) => {
+      const liveDelta = b.isLive - a.isLive;
+      if (liveDelta !== 0) return liveDelta;
+      const eplDelta = b.isEpl - a.isEpl;
+      if (eplDelta !== 0) return eplDelta;
+      return a.date - b.date;
+    })
+    .map(item => item.match);
 }
 
 export function debounce<A extends unknown[]>(
