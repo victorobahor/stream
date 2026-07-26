@@ -1,9 +1,10 @@
 import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData } from '../types';
 import { state } from '../state';
-import { el, log, applySandboxedSrcdoc } from '../helpers';
+import { el, log } from '../helpers';
 import { showToast } from '../format';
-import { fetchJSON } from '../api';
-import { renderMultiviewGrid, getNumSlotsForLayout } from './grid';
+import { loadStreams, getMatchById } from '../api';
+import { renderMultiviewGrid, renderMultiviewSlot, getNumSlotsForLayout } from './grid';
+import { MULTIVIEW_STORAGE_KEY } from './storageKey';
 
 const VALID_LAYOUTS: MultiviewLayout[] = ['1x2', '2x2'];
 
@@ -34,8 +35,18 @@ function isValidSavedState(data: unknown): data is SavedMultiviewState {
 
 // ── Match stream loading into active slot ──
 
+/**
+ * Whether the user picked the active slot themselves, as opposed to it being
+ * left over from the previous load. An explicit pick is always honoured.
+ */
+let activeSlotPickedByUser = false;
+
+export function markActiveSlotPicked(): void {
+  activeSlotPickedByUser = true;
+}
+
 export function loadMatchStreamsIntoActiveSlot(matchId: string): void {
-  const match = state.allMatches.find(m => m.id === matchId);
+  const match = getMatchById(matchId);
   if (!match) return;
 
   let targetSlot = state.multiviewActiveSlot;
@@ -44,24 +55,38 @@ export function loadMatchStreamsIntoActiveSlot(matchId: string): void {
     targetSlot = 0;
   }
 
-  const slots = state.multiviewSlots;
-  for (let i = 0; i < numSlots; i++) {
-    if (slots[i] === null) {
-      targetSlot = i;
-      break;
-    }
+  // The active slot used to be overwritten unconditionally, so clicking a slot
+  // and hitting "Load Stream" filled a different one. Now a slot the user
+  // actually clicked always wins; the first-empty fallback only applies to a
+  // leftover target, which keeps "load several in a row" filling the grid.
+  if (!activeSlotPickedByUser && state.multiviewSlots[targetSlot] !== null) {
+    const firstEmpty = state.multiviewSlots.findIndex((slot, i) => i < numSlots && slot === null);
+    if (firstEmpty !== -1) targetSlot = firstEmpty;
   }
+  activeSlotPickedByUser = false;
 
   state.multiviewActiveSlot = targetSlot;
 
   if (match.sources && match.sources.length > 0) {
-    loadMultiviewSlotStream(targetSlot, match, match.sources[0].source, 0);
+    void loadMultiviewSlotStream(targetSlot, match, match.sources[0].source, 0);
   } else {
     showToast('No sources available for this match.', 'error');
   }
 }
 
 // ── Load stream into a slot ──
+
+/**
+ * Newest load request per slot. A slower earlier response must not overwrite
+ * the stream the user has since selected.
+ */
+const slotRequestIds = new Map<number, number>();
+
+function nextRequestId(slotIndex: number): number {
+  const id = (slotRequestIds.get(slotIndex) ?? 0) + 1;
+  slotRequestIds.set(slotIndex, id);
+  return id;
+}
 
 export async function loadMultiviewSlotStream(
   slotIndex: number,
@@ -74,6 +99,8 @@ export async function loadMultiviewSlotStream(
     return;
   }
 
+  const requestId = nextRequestId(slotIndex);
+
   state.multiviewSlots[slotIndex] = {
     match,
     sourceName,
@@ -82,25 +109,31 @@ export async function loadMultiviewSlotStream(
     streams: [],
   };
 
-  renderMultiviewGrid();
+  renderMultiviewSlot(slotIndex);
 
   const sourceObj = match.sources.find(s => s.source === sourceName) || match.sources[0];
   const activeSource = sourceObj.source;
   const activeId = sourceObj.id;
 
+  const isStale = () => slotRequestIds.get(slotIndex) !== requestId;
+
+  const tryNextSource = (message?: string): boolean => {
+    const nextSourceIdx = match.sources.findIndex(s => s.source === activeSource) + 1;
+    if (nextSourceIdx >= match.sources.length) return false;
+    if (message) showToast(message, 'info');
+    void loadMultiviewSlotStream(slotIndex, match, match.sources[nextSourceIdx].source, 0);
+    return true;
+  };
+
   try {
-    const data = await fetchJSON<import('../types').Stream[]>(`/api/stream/${activeSource}/${activeId}`);
-    const streams = Array.isArray(data) ? data : [];
+    const streams = await loadStreams(activeSource, activeId);
+    if (isStale()) return;
+
     if (streams.length === 0) {
-      const nextSourceIdx = match.sources.findIndex(s => s.source === activeSource) + 1;
-      if (nextSourceIdx < match.sources.length) {
-        showToast(`Source ${activeSource} failed, trying ${match.sources[nextSourceIdx].source}...`, 'info');
-        loadMultiviewSlotStream(slotIndex, match, match.sources[nextSourceIdx].source, 0);
-      } else {
-        state.multiviewSlots[slotIndex] = null;
-        renderMultiviewGrid();
-        showToast(`No working streams found for ${match.title || 'match'}.`, 'error');
-      }
+      if (tryNextSource(`Source ${activeSource} failed, trying the next one…`)) return;
+      state.multiviewSlots[slotIndex] = null;
+      renderMultiviewSlot(slotIndex);
+      showToast(`No working streams found for ${match.title || 'match'}.`, 'error');
       return;
     }
 
@@ -114,18 +147,15 @@ export async function loadMultiviewSlotStream(
       loading: false,
     };
 
-    renderMultiviewGrid();
+    renderMultiviewSlot(slotIndex);
     saveMultiviewState();
   } catch (err) {
+    if (isStale()) return;
     log('error', `Failed loading streams for slot ${slotIndex}:`, err);
-    const nextSourceIdx = match.sources.findIndex(s => s.source === activeSource) + 1;
-    if (nextSourceIdx < match.sources.length) {
-      loadMultiviewSlotStream(slotIndex, match, match.sources[nextSourceIdx].source, 0);
-    } else {
-      state.multiviewSlots[slotIndex] = null;
-      renderMultiviewGrid();
-      showToast(`Error loading stream: ${err instanceof Error ? err.message : String(err)}`, 'error');
-    }
+    if (tryNextSource()) return;
+    state.multiviewSlots[slotIndex] = null;
+    renderMultiviewSlot(slotIndex);
+    showToast(`Error loading stream: ${err instanceof Error ? err.message : String(err)}`, 'error');
   }
 }
 
@@ -134,7 +164,7 @@ export async function loadMultiviewSlotStream(
 export function changeSlotSource(slotIndex: number, sourceName: string): void {
   const slot = state.multiviewSlots[slotIndex];
   if (!slot) return;
-  loadMultiviewSlotStream(slotIndex, slot.match, sourceName, 0);
+  void loadMultiviewSlotStream(slotIndex, slot.match, sourceName, 0);
 }
 
 export function changeSlotStreamIndex(slotIndex: number, streamIndex: number): void {
@@ -146,20 +176,9 @@ export function changeSlotStreamIndex(slotIndex: number, streamIndex: number): v
   slot.streamIndex = streamIndex;
   slot.stream = selectedStream;
 
-  const iframe = document.querySelector(
-    `.mv-slot[data-index="${slotIndex}"] .mv-iframe`
-  ) as HTMLIFrameElement | null;
-  if (iframe) {
-    const spinner = document.querySelector(`.mv-slot[data-index="${slotIndex}"] .mv-loading`);
-    if (spinner) spinner.classList.remove('hidden');
-    iframe.classList.add('hidden');
-    iframe.onload = () => {
-      if (spinner) spinner.classList.add('hidden');
-      iframe.classList.remove('hidden');
-    };
-    applySandboxedSrcdoc(iframe, selectedStream.embedUrl);
-  }
-
+  // The slot renderer swaps the iframe only because the embed URL changed, and
+  // handles the loading overlay for us.
+  renderMultiviewSlot(slotIndex);
   saveMultiviewState();
 }
 
@@ -199,14 +218,18 @@ export function toggleMultiviewSidebar(): void {
 
 export function clearAllMultiviewSlots(): void {
   state.multiviewSlots = [null, null, null, null];
-  renderMultiviewGrid();
+  state.multiviewSlots.forEach((_, i) => {
+    nextRequestId(i); // invalidate any load still in flight
+    renderMultiviewSlot(i);
+  });
   saveMultiviewState();
   showToast('All slots cleared.', 'info');
 }
 
 export function clearMultiviewSlot(slotIndex: number): void {
   state.multiviewSlots[slotIndex] = null;
-  renderMultiviewGrid();
+  nextRequestId(slotIndex);
+  renderMultiviewSlot(slotIndex);
   saveMultiviewState();
 }
 
@@ -228,7 +251,7 @@ export function saveMultiviewState(): void {
       slots: slotsData,
     };
 
-    localStorage.setItem('streamzone_multiview', JSON.stringify(data));
+    localStorage.setItem(MULTIVIEW_STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
     log('warn', 'Failed to save multiview state:', e);
   }
@@ -236,7 +259,7 @@ export function saveMultiviewState(): void {
 
 export function loadMultiviewState(): void {
   try {
-    const saved = localStorage.getItem('streamzone_multiview');
+    const saved = localStorage.getItem(MULTIVIEW_STORAGE_KEY);
     if (!saved) return;
     const data = JSON.parse(saved);
     if (!isValidSavedState(data)) {
@@ -249,13 +272,15 @@ export function loadMultiviewState(): void {
         btn.classList.toggle('active', (btn as HTMLElement).dataset.layout === data.layout);
       });
     }
+    // Build the slot elements up front so the restores below can paint into
+    // them individually instead of rebuilding the grid once per saved slot.
+    renderMultiviewGrid();
     if (data.slots && Array.isArray(data.slots)) {
       data.slots.forEach((s: SavedSlotData | null, idx: number) => {
-        if (s && s.matchId) {
-          const match = state.allMatches.find(m => m.id === s.matchId);
-          if (match) {
-            loadMultiviewSlotStream(idx, match, s.sourceName, s.streamIndex);
-          }
+        if (!s || !s.matchId) return;
+        const match = getMatchById(s.matchId);
+        if (match) {
+          void loadMultiviewSlotStream(idx, match, s.sourceName, s.streamIndex);
         }
       });
     }

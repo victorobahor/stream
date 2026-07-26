@@ -1,14 +1,35 @@
 import type { APIMatch } from './types';
-import { state, getImgUrl } from './state';
-import { el, sanitizeUrl } from './helpers';
+import { el, bindListDelegation, setHostImage } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive, isEPLMatch, getPosterUrl, formatDate } from './format';
+import { getMatchById } from './api';
 import { openPlayer } from './player';
+
+// ── Icon templates ──
+// Parsed once at module load instead of once per icon per card.
+
+function iconTemplate(markup: string): HTMLTemplateElement {
+  const tmpl = document.createElement('template');
+  tmpl.innerHTML = markup;
+  return tmpl;
+}
+
+const CLOCK_ICON = iconTemplate(
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
+);
+const PLAY_ICON = iconTemplate(
+  '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21"/></svg>'
+);
+
+function icon(tmpl: HTMLTemplateElement): Node {
+  return tmpl.content.cloneNode(true);
+}
 
 // ── Main card builder ──
 
 export function buildMatchCard(match: APIMatch): HTMLElement {
   const hasTeams = !!(match.teams && (match.teams.home || match.teams.away));
   const live = isMatchLive(match);
+  const isEPL = isEPLMatch(match);
   const sportEmoji = getSportEmoji(match.category);
   const posterUrl = getPosterUrl(match);
   const srcCount = (match.sources || []).length;
@@ -22,9 +43,25 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
   card.setAttribute('aria-label', `Watch ${match.title || 'match'}`);
 
   if (posterUrl) {
-    const poster = document.createElement('div');
+    // An <img> rather than a CSS background so posters below the fold are
+    // actually deferred — background-image is never lazy.
+    const poster = document.createElement('img');
     poster.className = 'card-poster';
-    poster.style.backgroundImage = `url('${sanitizeUrl(posterUrl).replace(/['"\\]/g, '')}')`;
+    poster.src = posterUrl;
+    poster.alt = '';
+    poster.loading = 'lazy';
+    poster.decoding = 'async';
+    poster.setAttribute('aria-hidden', 'true');
+    poster.onerror = () => {
+      // The URL was resolved against whichever host was active at render time.
+      // If that host has since rotated, re-resolve before giving up.
+      const retry = getPosterUrl(match);
+      if (retry && retry !== poster.getAttribute('src')) {
+        poster.src = retry;
+        return;
+      }
+      poster.remove();
+    };
     card.appendChild(poster);
   }
 
@@ -35,10 +72,9 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
   sportLabel.textContent = `${sportEmoji} ${capitalize(match.category || 'Sport')}`;
   sportTag.appendChild(sportLabel);
 
-  if (live || match.popular || isEPLMatch(match)) {
+  if (live || match.popular || isEPL) {
     const badges = document.createElement('div');
-    badges.style.display = 'flex';
-    badges.style.gap = '6px';
+    badges.className = 'card-badges';
     if (live) {
       const liveBadge = document.createElement('span');
       liveBadge.className = 'live-badge';
@@ -51,10 +87,10 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
       popBadge.textContent = '🔥 Hot';
       badges.appendChild(popBadge);
     }
-    if (isEPLMatch(match)) {
+    if (isEPL) {
       const eplBadge = document.createElement('span');
       eplBadge.className = 'epl-badge';
-      eplBadge.textContent = '🏴\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F EPL';
+      eplBadge.textContent = '🏴󠁧󠁢󠁥󠁮󠁧󠁿 EPL';
       badges.appendChild(eplBadge);
     }
     sportTag.appendChild(badges);
@@ -76,22 +112,23 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
       const wrap = document.createElement('div');
       wrap.className = 'team-badge-wrap';
 
-      if (teamData.badge) {
-        const img = document.createElement('img');
-        img.src = getImgUrl(`/badge/${teamData.badge}.webp`);
-        img.alt = teamData.name || '';
-        img.loading = 'lazy';
-        img.onerror = function() {
-          (this as HTMLImageElement).style.display = 'none';
-          ((this as HTMLImageElement).nextElementSibling as HTMLElement).style.display = 'flex';
-        };
-        wrap.appendChild(img);
-      }
-
       const placeholder = document.createElement('span');
       placeholder.className = 'team-badge-placeholder';
       placeholder.textContent = sportEmoji;
-      if (teamData.badge) placeholder.style.display = 'none';
+
+      if (teamData.badge) {
+        const img = document.createElement('img');
+        img.alt = teamData.name || '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        placeholder.style.display = 'none';
+        setHostImage(img, `/badge/${teamData.badge}.webp`, () => {
+          img.style.display = 'none';
+          placeholder.style.display = 'flex';
+        });
+        wrap.appendChild(img);
+      }
+
       wrap.appendChild(placeholder);
 
       const name = document.createElement('span');
@@ -118,7 +155,7 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
 
   const cardTime = document.createElement('span');
   cardTime.className = 'card-time';
-  cardTime.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ';
+  cardTime.appendChild(icon(CLOCK_ICON));
   const timeText = document.createElement('span');
   timeText.className = 'time-text';
   timeText.textContent = timestamp;
@@ -126,9 +163,7 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
   footer.appendChild(cardTime);
 
   const sourcesWrap = document.createElement('div');
-  sourcesWrap.style.display = 'flex';
-  sourcesWrap.style.alignItems = 'center';
-  sourcesWrap.style.gap = '8px';
+  sourcesWrap.className = 'card-sources-wrap';
 
   const sourcesDiv = document.createElement('div');
   sourcesDiv.className = 'card-sources';
@@ -149,7 +184,8 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
 
   const watchBtn = document.createElement('button');
   watchBtn.className = 'watch-btn';
-  watchBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg> Watch';
+  watchBtn.appendChild(icon(PLAY_ICON));
+  watchBtn.appendChild(document.createTextNode(' Watch'));
   footer.appendChild(watchBtn);
 
   card.appendChild(footer);
@@ -176,38 +212,14 @@ export function renderMatches(matches: APIMatch[]): void {
   grid.classList.remove('hidden');
   if (matchCount) matchCount.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
 
-  grid.replaceChildren();
   const frag = document.createDocumentFragment();
   for (const m of matches) {
     frag.appendChild(buildMatchCard(m));
   }
-  grid.appendChild(frag);
+  grid.replaceChildren(frag);
 
-  if (!grid.dataset.eventsBound) {
-    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
-    const clickHandler = (card: HTMLElement) => {
-      const match = state.allMatches.find(m => m.id === card.dataset.id);
-      if (match) openPlayer(match);
-    };
-
-    grid.addEventListener('click', (e) => {
-      const card = (e.target as HTMLElement).closest('.match-card') as HTMLElement;
-      if (card && grid.contains(card)) {
-        clickHandler(card);
-      }
-    });
-
-    grid.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        const card = (e.target as HTMLElement).closest('.match-card') as HTMLElement;
-        if (card && grid.contains(card)) {
-          event.preventDefault(); // Prevent page scroll for space
-          clickHandler(card);
-        }
-      }
-    });
-
-    grid.dataset.eventsBound = 'true';
-  }
+  bindListDelegation(grid, '.match-card', card => {
+    const match = getMatchById(card.dataset.id);
+    if (match) openPlayer(match);
+  });
 }

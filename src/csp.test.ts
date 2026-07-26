@@ -15,12 +15,29 @@ describe('Content Security Policy', () => {
     expect(csp).not.toContain('frame-src *');
   });
 
-  it('should use allowlisted frame-src instead of wildcard', () => {
-    expect(csp).toContain('frame-src https://streamed.pk https://strmd.link https://embed.st');
+  it('should restrict frames to https', () => {
+    expect(csp).toContain('frame-src https:');
+  });
+
+  it('should keep script-src locked to self', () => {
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+  });
+
+  it('should block plugin content', () => {
+    expect(csp).toContain("object-src 'none'");
   });
 
   it('should have restrictive connect-src', () => {
     expect(csp).toContain("connect-src 'self' https://streamed.pk https://strmd.link");
+  });
+
+  it('should not rely on header-only directives that a meta tag ignores', () => {
+    // `sandbox`, `frame-ancestors` and `report-uri` are silently dropped when
+    // delivered via <meta> — putting them here is a no-op that reads as safety.
+    expect(csp).not.toMatch(/(^|;)\s*sandbox\b/);
+    expect(csp).not.toContain('frame-ancestors');
+    expect(csp).not.toContain('report-uri');
   });
 
   it('should have base-uri self', () => {

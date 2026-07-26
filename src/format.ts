@@ -1,9 +1,14 @@
 import type { APIMatch, SportEmojiMap } from './types';
 import { state, getImgUrl, API_HOSTS, getActiveHostIndex } from './state';
 
-const FIVE_HOURS_MS = 18_000_000;
 const ONE_HOUR_MS = 3_600_000;
-const LIVE_WINDOW_MS = 2_700_000; // 45 minutes
+
+/**
+ * Single definition of "live": a match that started within this window is
+ * treated as in progress by both the card timestamp and the LIVE badge.
+ * Wide enough to cover a full football/tennis/basketball fixture.
+ */
+export const LIVE_WINDOW_MS = 3 * ONE_HOUR_MS;
 
 // ── Date / time ──
 
@@ -11,7 +16,7 @@ export function formatDate(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
   const diff = d.getTime() - now.getTime();
-  if (diff < 0 && diff > -FIVE_HOURS_MS) return '🔴 Live now';
+  if (diff < 0 && diff > -LIVE_WINDOW_MS) return '🔴 Live now';
   if (diff >= 0 && diff < ONE_HOUR_MS) {
     return `In ${Math.round(diff / 60_000)}m`;
   }
@@ -36,7 +41,6 @@ export function isMatchLive(match: APIMatch): boolean {
   if (state.liveMatchIds.has(match.id)) return true;
   if (match.date) {
     const diff = Date.now() - match.date;
-    // Match is live if it started less than 45 minutes ago
     if (diff >= 0 && diff < LIVE_WINDOW_MS) return true;
   }
   return false;
@@ -45,21 +49,25 @@ export function isMatchLive(match: APIMatch): boolean {
 const EPL_TEAMS_REGEX =
   /arsenal|aston villa|brentford|brighton|bournemouth|chelsea|crystal palace|everton|fulham|ipswich|leicester|liverpool|manchester city|man city|manchester united|man united|man utd|newcastle|nottingham forest|southampton|tottenham|spurs|west ham|wolves|wolverhampton|luton|burnley|sheffield united/;
 
+// Memoised off to the side so the API object is never mutated.
+const eplCache = new WeakMap<APIMatch, boolean>();
+
 export function isEPLMatch(match: APIMatch): boolean {
-  if (match.isEPL !== undefined) return match.isEPL;
-  if ((match.category || '').toLowerCase() !== 'football') {
-    match.isEPL = false;
-    return false;
-  }
+  const cached = eplCache.get(match);
+  if (cached !== undefined) return cached;
+
+  const result = computeIsEPL(match);
+  eplCache.set(match, result);
+  return result;
+}
+
+function computeIsEPL(match: APIMatch): boolean {
+  if ((match.category || '').toLowerCase() !== 'football') return false;
   const title = (match.title || '').toLowerCase();
-  if (title.includes('premier league') || title.includes('epl')) {
-    match.isEPL = true;
-    return true;
-  }
+  if (title.includes('premier league') || title.includes('epl')) return true;
   const home = (match.teams?.home?.name || '').toLowerCase();
   const away = (match.teams?.away?.name || '').toLowerCase();
-  match.isEPL = EPL_TEAMS_REGEX.test(home) || EPL_TEAMS_REGEX.test(away);
-  return match.isEPL;
+  return EPL_TEAMS_REGEX.test(home) || EPL_TEAMS_REGEX.test(away);
 }
 
 const SPORT_EMOJI_MAP: SportEmojiMap = {
@@ -108,7 +116,9 @@ export function getPosterUrl(match: APIMatch): string | null {
       const path = p.startsWith('/') ? p : '/' + p;
       return `${API_HOSTS[getActiveHostIndex()]}${path}`;
     }
-    return getImgUrl(`/proxy/${p}.webp`);
+    // A poster of `/api/images/proxy/<id>.webp` is stripped to `<id>.webp`
+    // above, so appending unconditionally produced a `.webp.webp` suffix.
+    return getImgUrl(`/proxy/${p}${p.endsWith('.webp') ? '' : '.webp'}`);
   }
   if (match.teams?.home?.badge && match.teams?.away?.badge) {
     return getImgUrl(`/poster/${match.teams.home.badge}/${match.teams.away.badge}.webp`);
@@ -116,12 +126,18 @@ export function getPosterUrl(match: APIMatch): string | null {
   return null;
 }
 
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function showToast(msg: string, type: string = 'info', duration: number = 3000): void {
   const t = document.getElementById('toast');
   if (!t) return;
+  // Back-to-back toasts share one element: cancel the previous timer so it
+  // cannot clear the message that replaced it.
+  if (toastTimer) clearTimeout(toastTimer);
   t.textContent = msg;
   t.className = `toast show ${type}`;
-  setTimeout(() => {
+  toastTimer = setTimeout(() => {
     t.className = 'toast';
+    toastTimer = null;
   }, duration);
 }

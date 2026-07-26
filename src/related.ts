@@ -1,28 +1,40 @@
 import type { APIMatch } from './types';
 import { state } from './state';
-import { el } from './helpers';
+import { el, bindListDelegation, log } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive } from './format';
+import { getMatchById } from './api';
+
+const RELATED_LIMIT = 12;
+
+/** Same-sport matches first, then everything else, capped at RELATED_LIMIT. */
+function pickRelated(currentMatch: APIMatch): APIMatch[] {
+  const sameSport: APIMatch[] = [];
+  const otherSport: APIMatch[] = [];
+
+  for (const m of state.allMatches) {
+    if (m.id === currentMatch.id) continue;
+    if (m.category === currentMatch.category) {
+      if (sameSport.length < RELATED_LIMIT) sameSport.push(m);
+    } else if (otherSport.length < RELATED_LIMIT) {
+      otherSport.push(m);
+    }
+    if (sameSport.length >= RELATED_LIMIT) break;
+  }
+
+  return sameSport.concat(otherSport).slice(0, RELATED_LIMIT);
+}
 
 export function renderRelated(currentMatch: APIMatch): void {
   const list = el('related-list');
   if (!list) return;
-  // Prefer same-sport matches, then others
-  const sameSport = state.allMatches.filter(
-    m => m.id !== currentMatch.id && m.category === currentMatch.category
-  );
-  const otherSport = state.allMatches.filter(
-    m => m.id !== currentMatch.id && m.category !== currentMatch.category
-  );
-  const related = [...sameSport, ...otherSport].slice(0, 12);
 
-  list.innerHTML = '';
+  const related = pickRelated(currentMatch);
 
   if (related.length === 0) {
     const p = document.createElement('p');
-    p.style.color = 'var(--text3)';
-    p.style.fontSize = '0.85rem';
+    p.className = 'related-empty';
     p.textContent = 'No other matches available';
-    list.appendChild(p);
+    list.replaceChildren(p);
     return;
   }
 
@@ -54,7 +66,9 @@ export function renderRelated(currentMatch: APIMatch): void {
     if (live) {
       const liveSpan = document.createElement('span');
       liveSpan.className = 'related-live';
-      liveSpan.innerHTML = '<span class="live-dot"></span> LIVE';
+      const dot = document.createElement('span');
+      dot.className = 'live-dot';
+      liveSpan.append(dot, ' LIVE');
       meta.appendChild(liveSpan);
     }
 
@@ -67,36 +81,14 @@ export function renderRelated(currentMatch: APIMatch): void {
     fragment.appendChild(card);
   });
 
-  list.appendChild(fragment);
+  list.replaceChildren(fragment);
 
-  if (!list.dataset.eventsBound) {
-    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
-    const clickHandler = (card: HTMLElement) => {
-      const match = state.allMatches.find(m => m.id === card.dataset.matchId);
-      if (match) {
-        // Dynamic import to avoid circular dependency with player.ts
-        import('./player').then(m => m.openPlayer(match));
-      }
-    };
-
-    list.addEventListener('click', (e) => {
-      const card = (e.target as HTMLElement).closest('.related-card') as HTMLElement;
-      if (card && list.contains(card)) {
-        clickHandler(card);
-      }
-    });
-
-    list.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        const card = (e.target as HTMLElement).closest('.related-card') as HTMLElement;
-        if (card && list.contains(card)) {
-          event.preventDefault(); // Prevent page scroll for space
-          clickHandler(card);
-        }
-      }
-    });
-
-    list.dataset.eventsBound = 'true';
-  }
+  bindListDelegation(list, '.related-card', card => {
+    const match = getMatchById(card.dataset.matchId);
+    if (!match) return;
+    // Dynamic import to avoid a circular dependency with player.ts
+    import('./player')
+      .then(m => m.openPlayer(match))
+      .catch(err => log('error', 'Failed to open player:', err));
+  });
 }

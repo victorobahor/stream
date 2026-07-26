@@ -1,40 +1,70 @@
 import type { Category } from './types';
 import { state } from './state';
-import { el, filterMatchesWithSources, filterMatchesBySearch, log } from './helpers';
-import { isEPLMatch, getSportEmoji, capitalize } from './format';
+import { el, filterMatchesWithSources, filterMatchesBySearch, sortMatchesForDisplay, log } from './helpers';
+import { getSportEmoji, capitalize } from './format';
+import { syncSportChips, ALL_SPORTS } from './chips';
 import { renderMatches } from './cards';
-import { showHome } from './ui';
+import { showHome, showSkeleton, hideError, showError } from './ui';
 import { loadMatches } from './api';
-import { applyMultiviewSidebarFilters } from './multiview/sidebar';
 
-export function filterCategory(cat: string): void {
-  state.currentCategory = cat as Category;
-  state.currentSport = 'all';
-  state.searchQuery = '';
-  const searchInput = el('search-input') as HTMLInputElement;
-  if (searchInput) searchInput.value = '';
-  document.querySelectorAll('.sport-chip').forEach(c => c.classList.remove('active'));
-  const firstChip = document.querySelector('.sport-chip');
-  if (firstChip) firstChip.classList.add('active');
-  showHome();
-  loadMatches().then(() => {
-    applyFilters();
-    applyMultiviewSidebarFilters();
-  }).catch(err => {
-    log('error', 'Failed to load matches:', err);
-  });
+/**
+ * Refresh the multiview sidebar, but only when it is actually on screen — this
+ * also keeps the multiview chunk out of the home view's critical path.
+ */
+function refreshMultiviewSidebar(): void {
+  const view = document.getElementById('multiview-view');
+  if (!view || view.classList.contains('hidden')) return;
+  import('./multiview/sidebar')
+    .then(m => m.applyMultiviewSidebarFilters())
+    .catch(err => log('error', 'Failed to refresh multiview sidebar:', err));
 }
 
-export function filterSport(sportId: string, chipEl?: HTMLElement): void {
-  state.currentSport = sportId;
-  document.querySelectorAll('.sport-chip').forEach(c => c.classList.remove('active'));
-  if (chipEl) chipEl.classList.add('active');
-  loadMatches().then(() => {
+const CATEGORIES: readonly Category[] = ['live', 'all', 'today', 'popular'];
+
+export function isCategory(value: string): value is Category {
+  return (CATEGORIES as readonly string[]).includes(value);
+}
+
+/**
+ * The single load-and-refilter path: fetch matches, refresh every view that
+ * derives from them, and surface progress/errors in the UI.
+ */
+export async function loadMatchesWithUI(options: { skeleton?: boolean } = {}): Promise<void> {
+  const { skeleton = true } = options;
+  if (skeleton) showSkeleton(true);
+  hideError();
+  try {
+    await loadMatches();
     applyFilters();
-    applyMultiviewSidebarFilters();
-  }).catch(err => {
+    refreshMultiviewSidebar();
+    if (skeleton) showSkeleton(false);
+    updateSectionTitle();
+  } catch (err) {
+    if (skeleton) showSkeleton(false);
+    showError(`Could not load matches: ${err instanceof Error ? err.message : String(err)}`);
     log('error', 'Failed to load matches:', err);
-  });
+  }
+}
+
+export function filterCategory(cat: string): void {
+  if (!isCategory(cat)) {
+    log('warn', `Ignoring unknown category "${cat}"`);
+    return;
+  }
+  state.currentCategory = cat;
+  state.currentSport = ALL_SPORTS;
+  state.searchQuery = '';
+  const searchInput = el('search-input') as HTMLInputElement | null;
+  if (searchInput) searchInput.value = '';
+  syncSportChips(el('sports-bar'), ALL_SPORTS);
+  showHome();
+  void loadMatchesWithUI();
+}
+
+export function filterSport(sportId: string): void {
+  state.currentSport = sportId;
+  syncSportChips(el('sports-bar'), sportId);
+  void loadMatchesWithUI();
 }
 
 export function handleSearch(query: string): void {
@@ -49,16 +79,7 @@ export function applyFilters(): void {
     matches = filterMatchesBySearch(matches, state.searchQuery);
   }
 
-  matches.sort((a, b) => {
-    const aEpl = isEPLMatch(a);
-    const bEpl = isEPLMatch(b);
-    if (aEpl && !bEpl) return -1;
-    if (!aEpl && bEpl) return 1;
-    return 0;
-  });
-
-  state.filteredMatches = matches;
-  renderMatches(matches);
+  renderMatches(sortMatchesForDisplay(matches));
 }
 
 export function updateSectionTitle(): void {
@@ -69,7 +90,7 @@ export function updateSectionTitle(): void {
     popular: '🔥 Popular Matches',
   };
   let title = titles[state.currentCategory] || 'Matches';
-  if (state.currentSport !== 'all') {
+  if (state.currentSport !== ALL_SPORTS) {
     title = `${getSportEmoji(state.currentSport)} ${capitalize(state.currentSport)} — ${title}`;
   }
   const titleEl = el('section-title');

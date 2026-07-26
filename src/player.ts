@@ -1,8 +1,7 @@
 import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
-import { el, escapeHtml, sanitizeUrl, applySandboxedSrcdoc, clearSandboxedSrcdoc } from './helpers';
+import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
-import { getImgUrl } from './state';
 import { loadStreams as fetchStreams } from './api';
 
 // ── Module level state for caching active elements ──
@@ -49,9 +48,6 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
     }
 
     tab.onclick = () => {
-      if (activeStreamTab) activeStreamTab.classList.remove('active');
-      tab.classList.add('active');
-      activeStreamTab = tab;
       selectStream(stream, tab);
     };
     fragment.appendChild(tab);
@@ -79,7 +75,7 @@ export function renderSourceButtons(sources: StreamSource[]): void {
       if (i === state.activeSourceIndex) return;
       state.activeSourceIndex = i;
       updateSourceBarActive(i);
-      loadAndDisplayStreams(src.source, src.id);
+      void loadAndDisplayStreams(src.source, src.id);
     };
     fragment.appendChild(btn);
   });
@@ -139,6 +135,18 @@ async function loadAndDisplayStreams(source: string, id: string): Promise<void> 
 
 // ── Select stream ──
 
+const EMBED_LOAD_TIMEOUT_MS = 5000;
+
+/** Live timer for the current embed's load fallback — one at a time. */
+let embedLoadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearEmbedLoadTimer(): void {
+  if (embedLoadTimer !== null) {
+    clearTimeout(embedLoadTimer);
+    embedLoadTimer = null;
+  }
+}
+
 export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   if (!stream?.embedUrl) {
     showToast('No embed URL available for this stream.', 'error');
@@ -157,24 +165,28 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
 
   if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
   if (playerLoading) playerLoading.classList.remove('hidden');
-  if (iframe) iframe.classList.add('hidden');
 
   if (iframe) {
-    iframe.onload = () => {
-      if (playerLoading) playerLoading.classList.add('hidden');
+    iframe.classList.add('hidden');
+    clearEmbedLoadTimer();
+
+    const reveal = () => {
+      clearEmbedLoadTimer();
+      playerLoading?.classList.add('hidden');
       iframe.classList.remove('hidden');
     };
-    applySandboxedSrcdoc(iframe, stream.embedUrl);
-    // Fallback: if onload never fires (embed server issue), hide loading after timeout
-    setTimeout(() => {
-      if (playerLoading && !playerLoading.classList.contains('hidden')) {
-        playerLoading.classList.add('hidden');
-        iframe.classList.remove('hidden');
-      }
-    }, 5000);
+
+    // Meaningful again now that the iframe navigates to the embed directly:
+    // with srcdoc this fired as soon as the wrapper document parsed.
+    iframe.onload = reveal;
+    applyEmbed(iframe, stream.embedUrl);
+    // Fallback: some embed hosts never fire load.
+    embedLoadTimer = setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS);
   }
+
+  const streamLabel = stream.streamNo ?? '';
   showToast(
-    `Stream ${escapeHtml(String(stream.streamNo)) || ''} — ${escapeHtml(stream.language) || ''} ${stream.hd ? '(HD)' : '(SD)'}`,
+    `Stream ${streamLabel} — ${stream.language || 'Unknown'} ${stream.hd ? '(HD)' : '(SD)'}`,
     'success'
   );
 }
@@ -189,7 +201,7 @@ function tryNextSource(): boolean {
   state.activeSourceIndex = next;
   updateSourceBarActive(next);
   showToast(`Trying ${capitalize(match.sources[next].source)}\u2026`, 'error');
-  loadAndDisplayStreams(match.sources[next].source, match.sources[next].id);
+  void loadAndDisplayStreams(match.sources[next].source, match.sources[next].id);
   return true;
 }
 
@@ -212,7 +224,8 @@ export function openPlayer(match: APIMatch): void {
   // Reset player
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
   if (iframe) {
-    clearSandboxedSrcdoc(iframe);
+    clearEmbedLoadTimer();
+    clearEmbed(iframe); // also nulls onload, so the about:blank load is not mistaken for the embed
     iframe.classList.add('hidden');
   }
   el('player-placeholder')?.classList.remove('hidden');
@@ -225,14 +238,16 @@ export function openPlayer(match: APIMatch): void {
 
   if (match.sources && match.sources.length > 0) {
     renderSourceButtons(match.sources);
-    loadAndDisplayStreams(match.sources[0].source, match.sources[0].id);
+    void loadAndDisplayStreams(match.sources[0].source, match.sources[0].id);
   } else {
     el('source-bar')?.classList.add('hidden');
     el('no-streams')?.classList.remove('hidden');
   }
 
   // Render related (lazy import to avoid circular deps)
-  import('./related').then(m => m.renderRelated(match));
+  import('./related')
+    .then(m => m.renderRelated(match))
+    .catch(err => log('error', 'Failed to render related matches:', err));
 }
 
 // ── Player info ──
@@ -245,8 +260,7 @@ export function renderPlayerInfo(match: APIMatch): void {
 
   const posterEl = el('player-poster-bg');
   if (posterEl) {
-    const safePoster = posterUrl ? sanitizeUrl(posterUrl) : '';
-    const finalPoster = safePoster.replace(/['"\\]/g, '');
+    const finalPoster = cssUrl(posterUrl);
     posterEl.style.backgroundImage = finalPoster ? `url('${finalPoster}')` : 'none';
     posterEl.style.display = finalPoster ? '' : 'none';
   }
@@ -263,9 +277,10 @@ export function renderPlayerInfo(match: APIMatch): void {
       badge.className = 'player-badge';
       if (team?.badge) {
         const img = document.createElement('img');
-        img.src = getImgUrl('/badge/' + team.badge + '.webp');
         img.alt = team.name || '';
         img.loading = 'lazy';
+        img.decoding = 'async';
+        setHostImage(img, `/badge/${team.badge}.webp`, () => img.remove());
         badge.appendChild(img);
       }
       const name = document.createElement('span');

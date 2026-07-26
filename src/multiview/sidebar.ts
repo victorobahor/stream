@@ -1,7 +1,14 @@
 import type { APIMatch } from '../types';
 import { state } from '../state';
-import { el, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport, sortMatchesByLive } from '../helpers';
+import {
+  el,
+  filterMatchesWithSources,
+  filterMatchesBySearch,
+  filterMatchesBySport,
+  sortMatchesForDisplay,
+} from '../helpers';
 import { capitalize, getSportEmoji, isMatchLive } from '../format';
+import { renderSportChips, ALL_SPORTS } from '../chips';
 import { loadMatchStreamsIntoActiveSlot } from './slots';
 
 // ── Sidebar search ──
@@ -11,67 +18,41 @@ export function handleMultiviewSearch(query: string): void {
   applyMultiviewSidebarFilters();
 }
 
+function isMultiviewVisible(): boolean {
+  const view = document.getElementById('multiview-view');
+  return !!view && !view.classList.contains('hidden');
+}
+
 export function applyMultiviewSidebarFilters(): void {
+  // Rebuilding a list nobody can see is pure waste; `renderMultiviewSidebar`
+  // re-runs this when the view is opened.
+  if (!isMultiviewVisible()) return;
+
   let matches = filterMatchesWithSources(state.allMatches);
 
   if (state.multiviewSearchQuery) {
     matches = filterMatchesBySearch(matches, state.multiviewSearchQuery);
   }
 
-  if (state.multiviewSportFilter !== 'all') {
+  if (state.multiviewSportFilter !== ALL_SPORTS) {
     matches = filterMatchesBySport(matches, state.multiviewSportFilter);
   }
 
-  matches = sortMatchesByLive(matches);
-
-  renderMultiviewSidebarList(matches);
+  renderMultiviewSidebarList(sortMatchesForDisplay(matches));
 }
 
 // ── Render sidebar ──
 
 export function renderMultiviewSidebar(): void {
-  const bar = el('multiview-sports-filter');
-  if (!bar) return;
-  bar.innerHTML = '';
-
-  const fragment = document.createDocumentFragment();
-
-  let activeChip: HTMLElement | null = null;
-
-  const allChip = document.createElement('button');
-  allChip.className = 'mini-sport-chip' + (state.multiviewSportFilter === 'all' ? ' active' : '');
-  if (state.multiviewSportFilter === 'all') activeChip = allChip;
-  allChip.textContent = 'All';
-  allChip.onclick = () => {
-    state.multiviewSportFilter = 'all';
-    if (activeChip) activeChip.classList.remove('active');
-    allChip.classList.add('active');
-    activeChip = allChip;
-    applyMultiviewSidebarFilters();
-  };
-  fragment.appendChild(allChip);
-
-  const seen = new Set<string>();
-  state.sports.forEach(sport => {
-    const id = sport.id || sport.name || (sport as unknown as string);
-    if (seen.has(id)) return;
-    seen.add(id);
-    const name = sport.name || sport.id || (sport as unknown as string);
-    const chip = document.createElement('button');
-    chip.className = 'mini-sport-chip' + (state.multiviewSportFilter === id ? ' active' : '');
-    if (state.multiviewSportFilter === id) activeChip = chip;
-    chip.textContent = capitalize(name);
-    chip.onclick = () => {
+  renderSportChips(el('multiview-sports-filter'), {
+    chipClass: 'mini-sport-chip',
+    allLabel: 'All',
+    activeId: state.multiviewSportFilter,
+    onSelect: id => {
       state.multiviewSportFilter = id;
-      if (activeChip) activeChip.classList.remove('active');
-      chip.classList.add('active');
-      activeChip = chip;
       applyMultiviewSidebarFilters();
-    };
-    fragment.appendChild(chip);
+    },
   });
-
-  bar.appendChild(fragment);
 
   applyMultiviewSidebarFilters();
 }
@@ -79,13 +60,15 @@ export function renderMultiviewSidebar(): void {
 export function renderMultiviewSidebarList(matches: APIMatch[]): void {
   const container = el('multiview-match-list');
   if (!container) return;
+
   if (matches.length === 0) {
-    container.innerHTML =
-      '<p style="color:var(--text3);font-size:0.75rem;text-align:center;padding:12px;">No matches found</p>';
+    const empty = document.createElement('p');
+    empty.className = 'sidebar-empty';
+    empty.textContent = 'No matches found';
+    container.replaceChildren(empty);
     return;
   }
 
-  container.innerHTML = '';
   const fragment = document.createDocumentFragment();
 
   matches.forEach(match => {
@@ -113,7 +96,9 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     if (live) {
       const liveSpan = document.createElement('span');
       liveSpan.className = 'mv-card-live';
-      liveSpan.innerHTML = '<span class="live-dot"></span> LIVE';
+      const dot = document.createElement('span');
+      dot.className = 'live-dot';
+      liveSpan.append(dot, ' LIVE');
       meta.appendChild(liveSpan);
     }
 
@@ -126,7 +111,6 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
 
     const btn = document.createElement('button');
     btn.className = 'mv-stream-mini-btn';
-    btn.dataset.loadMatchId = match.id;
     btn.textContent = 'Load Stream';
     streams.appendChild(btn);
 
@@ -134,50 +118,46 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     fragment.appendChild(card);
   });
 
-  container.appendChild(fragment);
+  container.replaceChildren(fragment);
 
   if (!container.dataset.eventsBound) {
-    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
-    container.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('.mv-stream-mini-btn') as HTMLElement;
-      if (btn && container.contains(btn)) {
-        e.stopPropagation();
-        loadMatchStreamsIntoActiveSlot(btn.dataset.loadMatchId!);
-      }
-    });
-
-    container.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        const card = (e.target as HTMLElement).closest('.sidebar-match-card') as HTMLElement;
-        if (card && container.contains(card)) {
-          event.preventDefault();
-          const btn = card.querySelector('.mv-stream-mini-btn');
-          if (btn) (btn as HTMLElement).click();
-        }
-      }
-    });
-
-    container.addEventListener('dragstart', (e) => {
-      const card = (e.target as HTMLElement).closest('.sidebar-match-card') as HTMLElement;
-      if (card && container.contains(card)) {
-        const de = e as DragEvent;
-        const id = card.dataset.id;
-        if (!id || !de.dataTransfer) return;
-        de.dataTransfer.setData('text/plain', id);
-        card.classList.add('dragging');
-        document.querySelectorAll('.mv-slot').forEach(s => s.classList.add('active-target'));
-      }
-    });
-
-    container.addEventListener('dragend', (e) => {
-      const card = (e.target as HTMLElement).closest('.sidebar-match-card') as HTMLElement;
-      if (card && container.contains(card)) {
-        card.classList.remove('dragging');
-        document.querySelectorAll('.mv-slot').forEach(s => s.classList.remove('active-target'));
-      }
-    });
-
     container.dataset.eventsBound = 'true';
+
+    const activate = (card: HTMLElement) => {
+      if (card.dataset.id) loadMatchStreamsIntoActiveSlot(card.dataset.id);
+    };
+
+    container.addEventListener('click', e => {
+      const card = (e.target as HTMLElement).closest<HTMLElement>('.sidebar-match-card');
+      if (card) activate(card);
+    });
+
+    container.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = (e.target as HTMLElement).closest<HTMLElement>('.sidebar-match-card');
+      if (!card) return;
+      e.preventDefault();
+      activate(card);
+    });
+
+    container.addEventListener('dragstart', e => {
+      const card = (e.target as HTMLElement).closest<HTMLElement>('.sidebar-match-card');
+      const de = e as DragEvent;
+      if (!card?.dataset.id || !de.dataTransfer) return;
+      de.dataTransfer.setData('text/plain', card.dataset.id);
+      card.classList.add('dragging');
+      document.querySelectorAll('.mv-slot').forEach(s => s.classList.add('active-target'));
+    });
+
+    container.addEventListener('dragend', e => {
+      const card = (e.target as HTMLElement).closest<HTMLElement>('.sidebar-match-card');
+      if (!card) return;
+      card.classList.remove('dragging');
+      // Restore the real active-slot highlight rather than clearing all of them.
+      const activeSelector = `.mv-slot[data-index="${state.multiviewActiveSlot}"]`;
+      document.querySelectorAll('.mv-slot').forEach(s => {
+        s.classList.toggle('active-target', s.matches(activeSelector));
+      });
+    });
   }
 }

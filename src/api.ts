@@ -88,7 +88,25 @@ export async function loadMatches(): Promise<APIMatch[]> {
   }
 
   state.allMatches = matches;
+  indexMatches(matches);
   return matches;
+}
+
+// ── Match lookup ──
+
+const matchIndex = new Map<string, APIMatch>();
+
+function indexMatches(matches: APIMatch[]): void {
+  matchIndex.clear();
+  for (const m of matches) {
+    if (m.id) matchIndex.set(m.id, m);
+  }
+}
+
+/** O(1) replacement for the `state.allMatches.find(m => m.id === id)` sweeps. */
+export function getMatchById(id: string | undefined | null): APIMatch | undefined {
+  if (!id) return undefined;
+  return matchIndex.get(id);
 }
 
 // ── Streams ──

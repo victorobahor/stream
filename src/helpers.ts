@@ -1,19 +1,9 @@
 import type { APIMatch } from './types';
-import { LOG_LEVEL } from './state';
+import { LOG_LEVEL, API_HOSTS, getActiveHostIndex, imageUrlForHost } from './state';
+import { isEPLMatch, isMatchLive } from './format';
 
 export function el(id: string): HTMLElement | null {
   return document.getElementById(id);
-}
-
-export function escapeHtml(str: unknown): string {
-  if (!str) return '';
-  const s = String(str);
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 const BLOCKED_PROTOCOLS = ['javascript:', 'data:', 'vbscript:', 'blob:'];
@@ -41,6 +31,16 @@ export function sanitizeUrl(url: unknown): string {
   }
 }
 
+/**
+ * Sanitize a URL for use inside a CSS `url('…')` literal. Quotes and
+ * backslashes are stripped so the value cannot break out of the literal.
+ */
+export function cssUrl(url: unknown): string {
+  const safe = sanitizeUrl(url);
+  if (!safe || safe === 'about:blank') return '';
+  return safe.replace(/['"\\()]/g, '');
+}
+
 export function log(level: string, ...args: unknown[]): void {
   const levels: Record<string, number> = { debug: 0, warn: 1, error: 2, none: 9 };
   if ((levels[level] || 0) >= (levels[LOG_LEVEL] || 0)) {
@@ -52,8 +52,31 @@ export function log(level: string, ...args: unknown[]): void {
   }
 }
 
+// ── Images ──
+
+/**
+ * Point an <img> at an API-hosted image path, retrying the remaining mirror
+ * hosts on error. Without this an image rendered before `rotateActiveHost()`
+ * keeps pointing at the dead host forever.
+ */
+export function setHostImage(img: HTMLImageElement, path: string, onExhausted?: () => void): void {
+  let attempt = 0;
+  img.onerror = () => {
+    attempt++;
+    if (attempt >= API_HOSTS.length) {
+      img.onerror = null;
+      onExhausted?.();
+      return;
+    }
+    img.src = imageUrlForHost(path, getActiveHostIndex() + attempt);
+  };
+  img.src = imageUrlForHost(path, getActiveHostIndex());
+}
+
+// ── Match filtering / sorting ──
+
 export function matchTextIncludes(match: APIMatch, query: string): boolean {
-  // ⚡ Bolt Optimization: Use early returns to short-circuit expensive string operations
+  // Early returns short-circuit the remaining lowercase conversions.
   if ((match.title || '').toLowerCase().includes(query)) return true;
   if ((match.teams?.home?.name || '').toLowerCase().includes(query)) return true;
   if ((match.teams?.away?.name || '').toLowerCase().includes(query)) return true;
@@ -63,7 +86,6 @@ export function matchTextIncludes(match: APIMatch, query: string): boolean {
 
 export function filterMatchesBySport(matches: APIMatch[], sportFilter: string): APIMatch[] {
   if (sportFilter === 'all') return matches;
-  // ⚡ Bolt Optimization: Extract sportFilter.toLowerCase() to avoid O(N) evaluations inside the loop.
   const lowerFilter = sportFilter.toLowerCase();
   return matches.filter(
     m => (m.category || '').toLowerCase() === lowerFilter
@@ -79,20 +101,26 @@ export function filterMatchesWithSources(matches: APIMatch[]): APIMatch[] {
   return matches.filter(m => m.sources && m.sources.length > 0);
 }
 
-export function sortMatchesByLive(matches: APIMatch[], liveMatchIds?: Set<string>): APIMatch[] {
+/**
+ * The one ordering every match list uses: live first, then EPL, then soonest.
+ * Returns a new array — callers must not rely on the input being sorted.
+ */
+export function sortMatchesForDisplay(matches: APIMatch[]): APIMatch[] {
   return [...matches].sort((a, b) => {
-    const aLive = liveMatchIds?.has(a.id) ? 1 : 0;
-    const bLive = liveMatchIds?.has(b.id) ? 1 : 0;
-    return bLive - aLive;
+    const liveDelta = Number(isMatchLive(b)) - Number(isMatchLive(a));
+    if (liveDelta !== 0) return liveDelta;
+    const eplDelta = Number(isEPLMatch(b)) - Number(isEPLMatch(a));
+    if (eplDelta !== 0) return eplDelta;
+    return (a.date || 0) - (b.date || 0);
   });
 }
 
-export function debounce<T extends (...args: unknown[]) => void>(
-  func: T,
+export function debounce<A extends unknown[]>(
+  func: (...args: A) => void,
   wait: number
-): (...args: Parameters<T>) => void {
+): (...args: A) => void {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  return (...args: Parameters<T>) => {
+  return (...args: A) => {
     if (timeoutId) clearTimeout(timeoutId);
     timeoutId = setTimeout(() => {
       func(...args);
@@ -100,48 +128,89 @@ export function debounce<T extends (...args: unknown[]) => void>(
   };
 }
 
-const SANDBOX_CSP = "sandbox allow-scripts allow-same-origin";
+// ── List delegation ──
 
-export function buildSandboxedSrcdoc(embedUrl: string): string {
-  const safeUrl = escapeHtml(sanitizeUrl(embedUrl));
-  return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}"><style>body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src="${safeUrl}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="no-referrer"></iframe></body></html>`;
+/**
+ * Bind click + Enter/Space activation for `selector` items to their container,
+ * once. The listener lives on the container, so re-rendering the list does not
+ * need to rebind anything.
+ */
+export function bindListDelegation(
+  container: HTMLElement,
+  selector: string,
+  onActivate: (item: HTMLElement) => void
+): void {
+  if (container.dataset.eventsBound) return;
+  container.dataset.eventsBound = 'true';
+
+  container.addEventListener('click', e => {
+    const item = (e.target as HTMLElement).closest<HTMLElement>(selector);
+    if (item) onActivate(item);
+  });
+
+  container.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const item = (e.target as HTMLElement).closest<HTMLElement>(selector);
+    if (!item) return;
+    e.preventDefault(); // Space would otherwise scroll the page
+    onActivate(item);
+  });
 }
 
-export function buildSandboxedSrcdocAttr(embedUrl: string): string {
-  const safeUrl = escapeHtml(sanitizeUrl(embedUrl));
-  const csp = escapeHtml(SANDBOX_CSP);
-  return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}"><style>body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src=&quot;${safeUrl}&quot; allowfullscreen allow=&quot;autoplay; encrypted-media; picture-in-picture&quot; referrerpolicy=&quot;no-referrer&quot;></iframe></body></html>`;
-}
+// ── Embeds ──
 
-export function applySandboxedSrcdoc(iframe: HTMLIFrameElement, embedUrl: string): void {
-  iframe.removeAttribute('src');
-  iframe.removeAttribute('sandbox');
-  iframe.setAttribute('srcdoc', buildSandboxedSrcdoc(embedUrl));
-}
+export const EMBED_ALLOW = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
 
-export function clearSandboxedSrcdoc(iframe: HTMLIFrameElement): void {
+/**
+ * Navigate an iframe to a stream embed. No `sandbox` attribute is applied.
+ *
+ * This is a deliberate trade, and it was settled empirically:
+ *
+ * - Sandboxed *without* `allow-popups`, the players refuse to start and show
+ *   their own "sandbox detected" notice. They monetise through the popunder
+ *   that fires on the first click, so they gate playback on being able to open
+ *   it — the same gate behind the "disable your ad blocker" hint in index.html.
+ *   Keeping `allow-same-origin` does not avoid this; the check is deliberate,
+ *   not an incidental storage error.
+ * - Sandboxed *with* `allow-popups`, the players start but the ad window opens
+ *   anyway, so the sandbox buys nothing against the actual complaint.
+ *
+ * Since `window.open` inside a cross-origin frame cannot be intercepted from
+ * this page, there is no client-side configuration that both plays and
+ * suppresses the ad. Blocking it needs a server-side proxy that strips the ad
+ * scripts and reserves the embed from our own origin (see REVIEW.md, Part 1).
+ *
+ * Middle ground if tab-hijacking is a concern and the popup is tolerable:
+ *   iframe.setAttribute('sandbox',
+ *     'allow-scripts allow-same-origin allow-forms allow-modals ' +
+ *     'allow-presentation allow-popups');
+ * That keeps players working and still blocks top-level navigation, forced
+ * downloads, and lets the popup inherit the sandbox rather than escape it.
+ */
+export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
+  const safe = sanitizeUrl(embedUrl);
+  if (!safe || safe === 'about:blank') return;
   iframe.removeAttribute('srcdoc');
+  // Cleared explicitly: an attribute left over from earlier markup or a prior
+  // navigation would silently keep restricting the frame.
   iframe.removeAttribute('sandbox');
-  iframe.removeAttribute('src');
+  iframe.setAttribute('allow', EMBED_ALLOW);
+  iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+  iframe.setAttribute('src', safe);
+}
+
+export function clearEmbed(iframe: HTMLIFrameElement): void {
+  iframe.onload = null;
+  iframe.removeAttribute('srcdoc');
+  // Navigating to about:blank is what actually stops playback; removing the
+  // src attribute leaves the current document running.
+  iframe.setAttribute('src', 'about:blank');
 }
 
 export function stopAllIframes(): void {
   const mainIframe = document.getElementById('stream-iframe') as HTMLIFrameElement | null;
-  if (mainIframe) clearSandboxedSrcdoc(mainIframe);
+  if (mainIframe) clearEmbed(mainIframe);
   document.querySelectorAll<HTMLIFrameElement>('.mv-iframe').forEach(iframe => {
-    clearSandboxedSrcdoc(iframe);
+    clearEmbed(iframe);
   });
-}
-
-export function debounceString<T extends (arg: string) => void>(
-  func: T,
-  wait: number
-): (arg: string) => void {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  return (arg: string) => {
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => {
-      func(arg);
-    }, wait);
-  };
 }

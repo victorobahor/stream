@@ -8,10 +8,20 @@
   <meta property="og:title" content="StreamZone — Live Sports Streaming">
   <meta property="og:description" content="Free live sports streaming powered by Streamed API">
   <meta name="keywords" content="live sports streaming, football live, basketball live, free sports stream">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://streamed.pk https://strmd.link data:; frame-src https://streamed.pk https://strmd.link https://embed.st https://www.youtube.com; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self';">
+  <!--
+    frame-src/img-src are intentionally broad: embed and poster URLs come from
+    the API and are not confined to the two mirror hosts, so an allowlist
+    silently renders a blank player for any stream on another host.
+
+    Embeds are NOT sandboxed — the players detect it and refuse to start (see
+    applyEmbed in src/helpers.ts), so nothing here restrains a framed player:
+    its ad popup is unblocked by design. script-src stays locked to 'self',
+    which is what keeps our own page safe from the embed.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; frame-src https:; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none';">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -149,7 +159,8 @@
               </div>
               <p>Select a stream below to start watching</p>
             </div>
-            <iframe id="stream-iframe" class="hidden" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" frameborder="0" scrolling="no" referrerpolicy="no-referrer"></iframe>
+            <!-- allow/referrerpolicy/src are set together by applyEmbed(); no sandbox by design -->
+            <iframe id="stream-iframe" class="hidden" title="Stream player" allowfullscreen scrolling="no"></iframe>
             <div class="player-loading hidden" id="player-loading">
               <div class="spinner"></div>
               <p>Loading stream…</p>

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { capitalize, isEPLMatch, getSportEmoji, isMatchLive, formatDate } from './format';
+import { capitalize, isEPLMatch, getSportEmoji, isMatchLive, formatDate, getPosterUrl, LIVE_WINDOW_MS } from './format';
 import { state } from './state';
 import type { APIMatch } from './types';
 
@@ -69,6 +69,21 @@ describe('isEPLMatch', () => {
     };
     expect(isEPLMatch(match)).toBe(false);
   });
+
+  it('should not write its result back onto the API object', () => {
+    const match: APIMatch = {
+      id: '1',
+      title: 'Premier League: Arsenal vs Chelsea',
+      category: 'football',
+      date: Date.now(),
+      popular: false,
+      sources: [],
+    };
+    const before = JSON.stringify(match);
+    expect(isEPLMatch(match)).toBe(true);
+    expect(isEPLMatch(match)).toBe(true); // cached path
+    expect(JSON.stringify(match)).toBe(before);
+  });
 });
 
 describe('getSportEmoji', () => {
@@ -103,16 +118,16 @@ describe('isMatchLive', () => {
     expect(isMatchLive(match)).toBe(true);
   });
 
-  it('should return true if match started less than 45 minutes ago', () => {
+  it('should return true for a match still inside the live window', () => {
     const match: APIMatch = {
-      id: 'm1', title: 'T', category: 'c', date: Date.now() - 1_800_000, popular: false, sources: [],
+      id: 'm1', title: 'T', category: 'c', date: Date.now() - LIVE_WINDOW_MS / 2, popular: false, sources: [],
     };
     expect(isMatchLive(match)).toBe(true);
   });
 
-  it('should return false if match started more than 45 minutes ago', () => {
+  it('should return false once the live window has passed', () => {
     const match: APIMatch = {
-      id: 'm1', title: 'T', category: 'c', date: Date.now() - 3_000_000, popular: false, sources: [],
+      id: 'm1', title: 'T', category: 'c', date: Date.now() - LIVE_WINDOW_MS - 60_000, popular: false, sources: [],
     };
     expect(isMatchLive(match)).toBe(false);
   });
@@ -131,10 +146,54 @@ describe('isMatchLive', () => {
   });
 });
 
+describe('getPosterUrl', () => {
+  const withPoster = (poster: string): APIMatch =>
+    ({ id: '1', title: 'T', category: 'football', date: 0, popular: false, sources: [], poster });
+
+  it('should pass absolute poster URLs through', () => {
+    expect(getPosterUrl(withPoster('https://cdn.example/p.webp'))).toBe('https://cdn.example/p.webp');
+  });
+
+  it('should not double the .webp extension on a proxied poster', () => {
+    const url = getPosterUrl(withPoster('/api/images/proxy/abc123.webp'));
+    expect(url).not.toContain('.webp.webp');
+    expect(url).toMatch(/\/api\/images\/proxy\/abc123\.webp$/);
+  });
+
+  it('should add the extension when the poster id has none', () => {
+    expect(getPosterUrl(withPoster('abc123'))).toMatch(/\/api\/images\/proxy\/abc123\.webp$/);
+  });
+
+  it('should fall back to the team badge pair', () => {
+    const match: APIMatch = {
+      id: '1', title: 'T', category: 'football', date: 0, popular: false, sources: [],
+      teams: { home: { name: 'H', badge: 'h1' }, away: { name: 'A', badge: 'a1' } },
+    };
+    expect(getPosterUrl(match)).toMatch(/\/api\/images\/poster\/h1\/a1\.webp$/);
+  });
+
+  it('should return null when there is nothing to show', () => {
+    expect(getPosterUrl({ id: '1', title: 'T', category: 'c', date: 0, popular: false, sources: [] })).toBeNull();
+  });
+});
+
 describe('formatDate', () => {
-  it('should return "Live now" for matches within 5 hours in the past', () => {
+  it('should return "Live now" for a match inside the live window', () => {
     const ts = Date.now() - 1_000_000;
     expect(formatDate(ts)).toBe('🔴 Live now');
+  });
+
+  it('should agree with isMatchLive about where the live window ends', () => {
+    const justInside = Date.now() - (LIVE_WINDOW_MS - 60_000);
+    const justOutside = Date.now() - (LIVE_WINDOW_MS + 60_000);
+    const asMatch = (date: number): APIMatch =>
+      ({ id: 'x', title: 'T', category: 'c', date, popular: false, sources: [] });
+
+    expect(formatDate(justInside)).toBe('🔴 Live now');
+    expect(isMatchLive(asMatch(justInside))).toBe(true);
+
+    expect(formatDate(justOutside)).not.toBe('🔴 Live now');
+    expect(isMatchLive(asMatch(justOutside))).toBe(false);
   });
 
   it('should return relative time for matches within 1 hour in the future', () => {

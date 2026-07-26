@@ -33,8 +33,6 @@ export interface APIMatch {
   popular: boolean;
   teams?: MatchTeams;
   sources: StreamSource[];
-  // Runtime augmentation (not from API):
-  isEPL?: boolean;
 }
 
 export interface Stream {
@@ -65,7 +63,6 @@ export interface AppState {
   currentCategory: Category;
   currentSport: string;
   allMatches: APIMatch[];
-  filteredMatches: APIMatch[];
   sports: Sport[];
   searchQuery: string;
   currentMatch: APIMatch | null;

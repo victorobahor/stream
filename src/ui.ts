@@ -1,8 +1,7 @@
 import { state } from './state';
-import { el, log, stopAllIframes } from './helpers';
-import { capitalize, getSportEmoji } from './format';
-import { loadMatches } from './api';
-import { applyFilters } from './filters';
+import { el, stopAllIframes } from './helpers';
+import { renderSportChips, ALL_SPORTS } from './chips';
+import { filterSport, loadMatchesWithUI } from './filters';
 
 // ── View switching ──
 
@@ -38,33 +37,17 @@ export function showError(msg: string): void {
 }
 
 export function retryLoad(): void {
-  hideError();
-  showSkeleton(true);
-  loadMatches().then(() => applyFilters()).catch(err => {
-    log('error', 'Retry failed:', err);
-    showSkeleton(false);
-    showError('Failed to load matches. Please try again.');
-  });
+  void loadMatchesWithUI();
 }
 
 // ── Navigation ──
 
-let activeNavLink: HTMLElement | null = null;
-
 export function setActiveNav(linkEl: HTMLElement | null): void {
-  if (activeNavLink) {
-    activeNavLink.classList.remove('active');
-  } else if (!activeNavLink) {
-    // initial page load edge case, clean up existing active classes if any
-    document.querySelectorAll('.nav-link.active').forEach(l => l.classList.remove('active'));
-  }
-
-  if (linkEl) {
-    linkEl.classList.add('active');
-    activeNavLink = linkEl;
-  } else {
-    activeNavLink = null;
-  }
+  // Cleared by query rather than from a cached reference: the mobile nav can be
+  // rebuilt, and a retained node would both miss the live link and leak the
+  // detached one.
+  document.querySelectorAll('.nav-link.active').forEach(l => l.classList.remove('active'));
+  if (linkEl) linkEl.classList.add('active');
 }
 
 export function toggleMobileMenu(): void {
@@ -78,31 +61,11 @@ export function closeMobileMenu(): void {
 // ── Sports bar rendering ──
 
 export function renderSportsBar(): void {
-  const bar = el('sports-bar');
-  if (!bar) return;
-  const allChip = bar.querySelector('.sport-chip');
-  if (!allChip) return;
-  bar.innerHTML = '';
-  bar.appendChild(allChip);
-
-  const seen = new Set<string>();
-  const fragment = document.createDocumentFragment();
-  state.sports.forEach(sport => {
-    const isString = typeof sport === 'string';
-    const id = isString ? sport : (sport.id || sport.name);
-    if (seen.has(id)) return;
-    seen.add(id);
-    const name = isString ? sport : (sport.name || sport.id);
-    const chip = document.createElement('button');
-    chip.className = 'sport-chip';
-    chip.dataset.id = id;
-    chip.textContent = `${getSportEmoji(name)} ${capitalize(name)}`;
-    chip.onclick = () => {
-      document.querySelectorAll('.sport-chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      import('./filters').then(m => m.filterSport(id, chip));
-    };
-    fragment.appendChild(chip);
+  renderSportChips(el('sports-bar'), {
+    chipClass: 'sport-chip',
+    allLabel: 'All Sports',
+    withEmoji: true,
+    activeId: state.currentSport || ALL_SPORTS,
+    onSelect: filterSport,
   });
-  bar.appendChild(fragment);
 }

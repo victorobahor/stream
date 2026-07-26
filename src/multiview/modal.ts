@@ -1,21 +1,32 @@
-import type { Stream } from '../types';
 import { state } from '../state';
-import { el, filterMatchesWithSources, filterMatchesBySearch, filterMatchesBySport } from '../helpers';
-import { capitalize, getSportEmoji, isEPLMatch } from '../format';
-import { fetchJSON } from '../api';
+import {
+  el,
+  bindListDelegation,
+  filterMatchesWithSources,
+  filterMatchesBySearch,
+  filterMatchesBySport,
+  sortMatchesForDisplay,
+  log,
+} from '../helpers';
+import { capitalize, getSportEmoji } from '../format';
+import { renderSportChips, ALL_SPORTS } from '../chips';
+import { loadStreams, getMatchById } from '../api';
 import { loadMultiviewSlotStream } from './slots';
 
 // ── Modal lifecycle ──
 
 let previousActiveElement: HTMLElement | null = null;
 
+/** Newest stream-list request; older responses are discarded. */
+let streamsRequestId = 0;
+
 export function openMvModal(slotIndex: number): void {
   previousActiveElement = document.activeElement as HTMLElement | null;
   state.mvModalActiveSlot = slotIndex;
   state.mvModalSearchQuery = '';
-  state.mvModalSportFilter = 'all';
+  state.mvModalSportFilter = ALL_SPORTS;
 
-  const input = el('mv-modal-search') as HTMLInputElement;
+  const input = el('mv-modal-search') as HTMLInputElement | null;
   if (input) input.value = '';
   el('mv-modal')?.classList.remove('hidden');
 
@@ -29,6 +40,9 @@ export function openMvModal(slotIndex: number): void {
 export function closeMvModal(): void {
   el('mv-modal')?.classList.add('hidden');
   state.mvModalActiveSlot = null;
+  // Abandon any stream list still in flight so it cannot render into a
+  // reopened modal showing a different match.
+  streamsRequestId++;
   if (previousActiveElement) {
     previousActiveElement.focus();
     previousActiveElement = null;
@@ -43,49 +57,15 @@ export function showMvModalMatchesView(): void {
 // ── Modal sports filter ──
 
 function renderMvModalSports(): void {
-  const container = el('mv-modal-sports');
-  if (!container) return;
-  container.innerHTML = '';
-
-  // ⚡ Bolt Optimization: Batch DOM insertions using DocumentFragment to avoid layout thrashing.
-  // Cache active element to eliminate O(N) querySelectorAll on every click.
-  const fragment = document.createDocumentFragment();
-  let activeChip: HTMLElement | null = null;
-
-  const allChip = document.createElement('button');
-  allChip.className = 'mini-sport-chip' + (state.mvModalSportFilter === 'all' ? ' active' : '');
-  if (state.mvModalSportFilter === 'all') activeChip = allChip;
-  allChip.textContent = 'All';
-  allChip.onclick = () => {
-    state.mvModalSportFilter = 'all';
-    if (activeChip) activeChip.classList.remove('active');
-    allChip.classList.add('active');
-    activeChip = allChip;
-    filterMvModalMatches(state.mvModalSearchQuery);
-  };
-  fragment.appendChild(allChip);
-
-  const seen = new Set<string>();
-  state.sports.forEach(sport => {
-    const id = sport.id || sport.name || (sport as unknown as string);
-    if (seen.has(id)) return;
-    seen.add(id);
-    const name = sport.name || sport.id || (sport as unknown as string);
-    const chip = document.createElement('button');
-    chip.className = 'mini-sport-chip' + (state.mvModalSportFilter === id ? ' active' : '');
-    if (state.mvModalSportFilter === id) activeChip = chip;
-    chip.textContent = capitalize(name);
-    chip.onclick = () => {
+  renderSportChips(el('mv-modal-sports'), {
+    chipClass: 'mini-sport-chip',
+    allLabel: 'All',
+    activeId: state.mvModalSportFilter,
+    onSelect: id => {
       state.mvModalSportFilter = id;
-      if (activeChip) activeChip.classList.remove('active');
-      chip.classList.add('active');
-      activeChip = chip;
       filterMvModalMatches(state.mvModalSearchQuery);
-    };
-    fragment.appendChild(chip);
+    },
   });
-
-  container.appendChild(fragment);
 }
 
 // ── Modal match filtering ──
@@ -101,25 +81,20 @@ export function filterMvModalMatches(query: string): void {
     matches = filterMatchesBySearch(matches, state.mvModalSearchQuery);
   }
 
-  if (state.mvModalSportFilter !== 'all') {
+  if (state.mvModalSportFilter !== ALL_SPORTS) {
     matches = filterMatchesBySport(matches, state.mvModalSportFilter);
   }
 
-  matches.sort((a, b) => {
-    const aEpl = isEPLMatch(a);
-    const bEpl = isEPLMatch(b);
-    if (aEpl && !bEpl) return -1;
-    if (!aEpl && bEpl) return 1;
-    return 0;
-  });
+  matches = sortMatchesForDisplay(matches);
 
   if (matches.length === 0) {
-    container.innerHTML =
-      '<p style="color:var(--text3);font-size:0.85rem;text-align:center;padding:20px 0;">No matches found</p>';
+    const empty = document.createElement('p');
+    empty.className = 'mv-modal-empty';
+    empty.textContent = 'No matches found';
+    container.replaceChildren(empty);
     return;
   }
 
-  container.innerHTML = '';
   const frag = document.createDocumentFragment();
   matches.forEach(match => {
     const title =
@@ -148,47 +123,33 @@ export function filterMvModalMatches(query: string): void {
 
     const arrow = document.createElement('div');
     arrow.className = 'mv-modal-match-arrow';
-    arrow.innerHTML = '&rarr;';
+    arrow.textContent = '→';
 
     item.appendChild(info);
     item.appendChild(arrow);
     frag.appendChild(item);
   });
-  container.appendChild(frag);
+  container.replaceChildren(frag);
 
-  if (!container.dataset.eventsBound) {
-    // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
-    const clickHandler = (item: HTMLElement) => {
-      selectMvModalMatch(item.dataset.matchId!);
-    };
-
-    container.addEventListener('click', (e) => {
-      const item = (e.target as HTMLElement).closest('.mv-modal-match-item') as HTMLElement;
-      if (item && container.contains(item)) {
-        clickHandler(item);
-      }
-    });
-
-    container.addEventListener('keydown', (e) => {
-      const event = e as KeyboardEvent;
-      if (event.key === 'Enter' || event.key === ' ') {
-        const item = (e.target as HTMLElement).closest('.mv-modal-match-item') as HTMLElement;
-        if (item && container.contains(item)) {
-          event.preventDefault();
-          clickHandler(item);
-        }
-      }
-    });
-
-    container.dataset.eventsBound = 'true';
-  }
+  bindListDelegation(container, '.mv-modal-match-item', item => {
+    void selectMvModalMatch(item.dataset.matchId!);
+  });
 }
 
 // ── Modal stream selection ──
 
+function setStreamsMessage(container: HTMLElement, text: string, isError = false): void {
+  const p = document.createElement('p');
+  p.className = isError ? 'mv-modal-streams-error' : 'mv-modal-empty';
+  p.textContent = text;
+  container.replaceChildren(p);
+}
+
 export async function selectMvModalMatch(matchId: string): Promise<void> {
-  const match = state.allMatches.find(m => m.id === matchId);
+  const match = getMatchById(matchId);
   if (!match) return;
+
+  const requestId = ++streamsRequestId;
 
   const nameEl = el('mv-modal-match-name');
   if (nameEl) nameEl.textContent =
@@ -197,28 +158,33 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
   el('mv-modal-matches-view')?.classList.add('hidden');
   el('mv-modal-streams-view')?.classList.remove('hidden');
 
-  const listContainer = el('mv-modal-streams-list')!;
-  listContainer.innerHTML =
-    '<div class="mv-streams-loading"><div class="spinner sm"></div> Loading streams...</div>';
+  const listContainer = el('mv-modal-streams-list');
+  if (!listContainer) return;
+
+  const loading = document.createElement('div');
+  loading.className = 'mv-streams-loading';
+  const spinner = document.createElement('div');
+  spinner.className = 'spinner sm';
+  loading.append(spinner, ' Loading streams…');
+  listContainer.replaceChildren(loading);
 
   if (!match.sources || match.sources.length === 0) {
-    listContainer.innerHTML =
-      '<p style="color:var(--text3);font-size:0.85rem;">No streams available.</p>';
+    setStreamsMessage(listContainer, 'No streams available.');
     return;
   }
 
+  const src = match.sources[0];
+
   try {
-    const src = match.sources[0];
-    const data = await fetchJSON<Stream[]>(`/api/stream/${src.source}/${src.id}`);
-    const streams = Array.isArray(data) ? data : [];
+    const streams = await loadStreams(src.source, src.id);
+    // A second match may have been clicked while this was in flight.
+    if (requestId !== streamsRequestId) return;
 
     if (streams.length === 0) {
-      listContainer.innerHTML =
-        '<p style="color:var(--text3);font-size:0.85rem;">No working streams found.</p>';
+      setStreamsMessage(listContainer, 'No working streams found.');
       return;
     }
 
-    listContainer.innerHTML = '';
     const streamsFrag = document.createDocumentFragment();
     streams.forEach((stream, idx) => {
       const btn = document.createElement('button');
@@ -228,7 +194,7 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
       btn.dataset.streamIdx = String(idx);
 
       const span = document.createElement('span');
-      span.textContent = `Stream ${String(stream.streamNo) || idx + 1} (${stream.language || 'English'})`;
+      span.textContent = `Stream ${stream.streamNo ?? idx + 1} (${stream.language || 'English'})`;
       btn.appendChild(span);
 
       if (stream.hd) {
@@ -240,36 +206,30 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
 
       streamsFrag.appendChild(btn);
     });
-    listContainer.appendChild(streamsFrag);
+    listContainer.replaceChildren(streamsFrag);
 
-    if (!listContainer.dataset.eventsBound) {
-      // ⚡ Bolt Optimization: Use event delegation for list items to reduce DOM memory and CPU overhead.
-      listContainer.addEventListener('click', (e) => {
-        const btn = (e.target as HTMLElement).closest('.mv-modal-stream-btn') as HTMLElement;
-        if (btn && listContainer.contains(btn)) {
-          selectMvModalStream(
-            btn.dataset.matchId!,
-            btn.dataset.source!,
-            parseInt(btn.dataset.streamIdx!, 10)
-          );
-        }
-      });
-      listContainer.dataset.eventsBound = 'true';
-    }
+    bindListDelegation(listContainer, '.mv-modal-stream-btn', btn => {
+      selectMvModalStream(
+        btn.dataset.matchId!,
+        btn.dataset.source!,
+        parseInt(btn.dataset.streamIdx!, 10)
+      );
+    });
   } catch (e) {
-    listContainer.innerHTML = '';
-    const p = document.createElement('p');
-    p.style.color = 'var(--live)';
-    p.style.fontSize = '0.85rem';
-    p.textContent = `Failed to load: ${e instanceof Error ? e.message : String(e)}`;
-    listContainer.appendChild(p);
+    if (requestId !== streamsRequestId) return;
+    log('error', 'Failed to load streams for modal:', e);
+    setStreamsMessage(
+      listContainer,
+      `Failed to load: ${e instanceof Error ? e.message : String(e)}`,
+      true
+    );
   }
 }
 
 function selectMvModalStream(matchId: string, sourceName: string, streamIndex: number): void {
-  const match = state.allMatches.find(m => m.id === matchId);
+  const match = getMatchById(matchId);
   if (match && state.mvModalActiveSlot !== null) {
-    loadMultiviewSlotStream(state.mvModalActiveSlot, match, sourceName, streamIndex);
+    void loadMultiviewSlotStream(state.mvModalActiveSlot, match, sourceName, streamIndex);
     closeMvModal();
   }
 }

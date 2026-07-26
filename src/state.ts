@@ -21,7 +21,6 @@ export const state: AppState = {
   currentCategory: 'live',
   currentSport: 'all',
   allMatches: [],
-  filteredMatches: [],
   sports: [],
   searchQuery: '',
   currentMatch: null,
@@ -41,6 +40,10 @@ export const state: AppState = {
   mvModalSportFilter: 'all',
 };
 
+export function imageUrlForHost(path: string, index: number): string {
+  return `${API_HOSTS[index % API_HOSTS.length]}/api/images${path}`;
+}
+
 export function getImgUrl(path: string): string {
-  return `${API_HOSTS[hostIndex.current]}/api/images${path}`;
+  return imageUrlForHost(path, hostIndex.current);
 }

@@ -57,10 +57,16 @@ img { display: block; max-width: 100%; }
 /* ---------- Animated Orb Background ---------- */
 .bg-orbs {
   position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  /* Isolate the orbs so their repaints never invalidate page content. */
+  contain: strict;
 }
 .orb {
-  position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.35;
+  /* The radial gradient already fades to transparent, so a large runtime blur
+     bought almost nothing visually while costing a full-layer filter pass per
+     frame — the single most expensive thing on the page. */
+  position: absolute; border-radius: 50%; filter: blur(40px); opacity: 0.4;
   animation: orbFloat 20s ease-in-out infinite;
+  will-change: transform;
 }
 .orb-1 {
   width: 500px; height: 500px;
@@ -282,10 +288,12 @@ img { display: block; max-width: 100%; }
 }
 .match-card:hover::before { opacity: 1; }
 
-/* Card poster background */
+/* Card poster — an <img> so it participates in lazy loading */
 .card-poster {
   position: absolute; inset: 0;
-  background-size: cover; background-position: center;
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center;
+  max-width: none;
   opacity: 0.08;
   transition: opacity var(--transition);
   pointer-events: none;
@@ -304,15 +312,23 @@ img { display: block; max-width: 100%; }
   background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2);
 }
 .live-badge {
+  position: relative;
   font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em;
   color: #fff; background: var(--live);
   padding: 3px 10px; border-radius: 100px;
   box-shadow: 0 0 12px var(--live-glow);
+}
+/* Animating opacity on an overlay stays on the compositor; animating the badge's
+   own box-shadow repainted every badge in the grid, every frame. */
+.live-badge::after {
+  content: ''; position: absolute; inset: 0;
+  border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 24px var(--live-glow);
   animation: livePulse 2s ease-in-out infinite;
 }
 @keyframes livePulse {
-  0%, 100% { box-shadow: 0 0 12px var(--live-glow); }
-  50% { box-shadow: 0 0 24px var(--live-glow); }
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 .popular-badge {
   font-size: 0.68rem; font-weight: 700;
@@ -1584,3 +1600,65 @@ body.multiview-active .multiview-grid-container.layout-2x2 {
   }
 }
 
+
+/* ---------- Utility classes replacing inline styles ---------- */
+.card-badges { display: flex; gap: 6px; }
+.card-sources-wrap { display: flex; align-items: center; gap: 8px; }
+
+.related-empty,
+.mv-modal-empty {
+  color: var(--text3);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 20px 0;
+}
+.related-empty { text-align: left; padding: 0; }
+.sidebar-empty {
+  color: var(--text3);
+  font-size: 0.75rem;
+  text-align: center;
+  padding: 12px;
+}
+.mv-modal-streams-error {
+  color: var(--live);
+  font-size: 0.85rem;
+}
+
+/* ---------- Motion ---------- */
+/* Paused by app.ts while the tab is hidden — an offscreen tab has no reason to
+   keep compositing a full-viewport blurred background. */
+body.bg-paused .orb,
+body.bg-paused .live-badge::after,
+body.bg-paused .live-dot {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+
+  /* Stop everything that loops forever; one-shot transitions are collapsed
+     rather than removed so state changes stay legible. */
+  .orb,
+  .live-badge::after,
+  .live-dot,
+  .skeleton-card,
+  .spinner,
+  .play-icon-large,
+  .mv-modal-content,
+  #multiview-view {
+    animation: none !important;
+  }
+
+  .orb { opacity: 0.25; }
+  .live-badge::after { opacity: 0.6; }
+
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .spinner {
+    /* The spinner is the one place where motion carries the meaning. */
+    animation: spin 1.6s linear infinite !important;
+  }
+}

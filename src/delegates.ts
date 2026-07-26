@@ -1,42 +1,78 @@
-import type { Category, MultiviewLayout } from './types';
+import type { MultiviewLayout } from './types';
 import { state } from './state';
 import { filterCategory, filterSport, handleSearch } from './filters';
-import { showHome, retryLoad, toggleMobileMenu, closeMobileMenu } from './ui';
-import { showMultiview, changeMultiviewLayout } from './multiview/grid';
-import { clearAllMultiviewSlots, toggleMultiviewSidebar } from './multiview/slots';
-import { handleMultiviewSearch } from './multiview/sidebar';
-import { closeMvModal, showMvModalMatchesView, filterMvModalMatches } from './multiview/modal';
-import { debounceString } from './helpers';
-import { setActiveNav } from './ui';
+import { showHome, retryLoad, toggleMobileMenu, closeMobileMenu, setActiveNav } from './ui';
+import { debounce, log } from './helpers';
 
 type ActionHandler = (target: HTMLElement, value?: string) => void;
 
+const VALID_LAYOUTS: readonly MultiviewLayout[] = ['1x2', '2x2'];
+
+// Multiview is a separate chunk; importing it on demand keeps it off the
+// critical path for visitors who only ever use the home and player views.
+function withGrid(run: (mod: typeof import('./multiview/grid')) => void): void {
+  import('./multiview/grid').then(run).catch(err => log('error', 'Failed to load multiview:', err));
+}
+function withSlots(run: (mod: typeof import('./multiview/slots')) => void): void {
+  import('./multiview/slots').then(run).catch(err => log('error', 'Failed to load multiview:', err));
+}
+function withModal(run: (mod: typeof import('./multiview/modal')) => void): void {
+  import('./multiview/modal').then(run).catch(err => log('error', 'Failed to load stream picker:', err));
+}
+
 const ACTION_MAP: Record<string, ActionHandler> = {
   filterCategory: (_, value) => {
-    if (value) filterCategory(value as Category);
+    if (value) filterCategory(value);
   },
   showHome: () => showHome(),
-  showMultiview: () => showMultiview(),
+  showMultiview: () => withGrid(m => m.showMultiview()),
   toggleMobileMenu: () => toggleMobileMenu(),
   closeMobileMenu: () => closeMobileMenu(),
   retryLoad: () => retryLoad(),
-  filterSport: (target, value) => {
-    if (value) filterSport(value, target);
+  filterSport: (_, value) => {
+    if (value) filterSport(value);
   },
   changeMultiviewLayout: (_, value) => {
-    if (value) changeMultiviewLayout(value as MultiviewLayout);
+    if (!value) return;
+    if (!(VALID_LAYOUTS as readonly string[]).includes(value)) {
+      log('warn', `Ignoring unknown multiview layout "${value}"`);
+      return;
+    }
+    withGrid(m => m.changeMultiviewLayout(value as MultiviewLayout));
   },
-  clearAllMultiviewSlots: () => clearAllMultiviewSlots(),
-  toggleMultiviewSidebar: () => toggleMultiviewSidebar(),
-  closeMvModal: () => closeMvModal(),
-  showMvModalMatchesView: () => showMvModalMatchesView(),
+  clearAllMultiviewSlots: () => withSlots(m => m.clearAllMultiviewSlots()),
+  toggleMultiviewSidebar: () => withSlots(m => m.toggleMultiviewSidebar()),
+  closeMvModal: () => withModal(m => m.closeMvModal()),
+  showMvModalMatchesView: () => withModal(m => m.showMvModalMatchesView()),
 };
 
-const debouncedSearch = debounceString((query: string) => handleSearch(query), 300);
-const debouncedMultiviewSearch = debounceString((query: string) => handleMultiviewSearch(query), 300);
-const debouncedModalSearch = debounceString((query: string) => filterMvModalMatches(query), 300);
+const SEARCH_HANDLERS: Record<string, (query: string) => void> = {
+  'search-input': debounce(handleSearch, 300),
+  // Both multiview inputs only exist once the chunk that renders them is loaded.
+  'multiview-search': debounce((query: string) => {
+    import('./multiview/sidebar')
+      .then(m => m.handleMultiviewSearch(query))
+      .catch(err => log('error', 'Failed to search multiview matches:', err));
+  }, 300),
+  'mv-modal-search': debounce((query: string) => {
+    withModal(m => m.filterMvModalMatches(query));
+  }, 300),
+};
+
+/** Typing in a text field should not be captured by the `/` hotkey. */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true;
+}
+
+let delegatesAttached = false;
 
 export function attachGlobalDelegates(): void {
+  // Every action would fire twice on a second call.
+  if (delegatesAttached) return;
+  delegatesAttached = true;
+
   // Click delegation for all data-action elements
   document.addEventListener('click', e => {
     const target = (e.target as HTMLElement).closest('[data-action]') as HTMLElement | null;
@@ -78,22 +114,12 @@ export function attachGlobalDelegates(): void {
   // Input delegation
   document.addEventListener('input', e => {
     const target = e.target as HTMLInputElement;
-    switch (target.id) {
-      case 'search-input':
-        debouncedSearch(target.value);
-        break;
-      case 'multiview-search':
-        debouncedMultiviewSearch(target.value);
-        break;
-      case 'mv-modal-search':
-        debouncedModalSearch(target.value);
-        break;
-    }
+    SEARCH_HANDLERS[target.id]?.(target.value);
   });
 
   // Keyboard: Escape to close modal or go home, / to search
   document.addEventListener('keydown', e => {
-    if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+    if (e.key === '/' && !isTextEntryTarget(e.target)) {
       e.preventDefault();
       const modal = document.getElementById('mv-modal');
       const isModalOpen = modal && !modal.classList.contains('hidden');
@@ -116,7 +142,7 @@ export function attachGlobalDelegates(): void {
     } else if (e.key === 'Escape') {
       const modal = document.getElementById('mv-modal');
       if (modal && !modal.classList.contains('hidden')) {
-        closeMvModal();
+        withModal(m => m.closeMvModal());
       } else if (state.currentMatch) {
         showHome();
       }

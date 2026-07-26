@@ -1,30 +1,19 @@
-import { describe, it, expect } from 'vitest';
-import { escapeHtml, sanitizeUrl, buildSandboxedSrcdoc, matchTextIncludes, filterMatchesBySport, debounce, debounceString, filterMatchesWithSources, filterMatchesBySearch } from './helpers';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  sanitizeUrl,
+  cssUrl,
+  matchTextIncludes,
+  filterMatchesBySport,
+  debounce,
+  filterMatchesWithSources,
+  filterMatchesBySearch,
+  sortMatchesForDisplay,
+  applyEmbed,
+  clearEmbed,
+  EMBED_ALLOW,
+} from './helpers';
+import { state } from './state';
 import type { APIMatch } from './types';
-
-describe('escapeHtml', () => {
-  it('should escape HTML special characters', () => {
-    expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
-  });
-
-  it('should escape ampersands', () => {
-    expect(escapeHtml('foo & bar')).toBe('foo &amp; bar');
-  });
-
-  it('should escape single quotes', () => {
-    expect(escapeHtml("it's")).toBe('it&#39;s');
-  });
-
-  it('should return empty string for falsy values', () => {
-    expect(escapeHtml('')).toBe('');
-    expect(escapeHtml(null)).toBe('');
-    expect(escapeHtml(undefined)).toBe('');
-  });
-
-  it('should convert non-string values to string', () => {
-    expect(escapeHtml(123)).toBe('123');
-  });
-});
 
 describe('sanitizeUrl', () => {
   it('should allow https URLs', () => {
@@ -65,12 +54,93 @@ describe('sanitizeUrl', () => {
   });
 });
 
-describe('buildSandboxedSrcdoc', () => {
-  it('should escape HTML tags and quotes in the URL to prevent XSS', () => {
-    const maliciousUrl = 'https://example.com"></iframe><script>alert(1)</script>';
-    const srcdoc = buildSandboxedSrcdoc(maliciousUrl);
-    expect(srcdoc).not.toContain('"></iframe><script>');
-    expect(srcdoc).toContain('&quot;&gt;&lt;/iframe&gt;&lt;script&gt;');
+describe('cssUrl', () => {
+  it('should strip quotes, backslashes and parentheses so it cannot break out of url()', () => {
+    const escaped = cssUrl("https://example.com/a'); background: red; x: url(\"b\\");
+    expect(escaped).not.toMatch(/['"\\()]/);
+    expect(escaped).toBe('https://example.com/a; background: red; x: urlb');
+  });
+
+  it('should pass a plain URL through unchanged', () => {
+    expect(cssUrl('https://example.com/poster.webp')).toBe('https://example.com/poster.webp');
+  });
+
+  it('should return an empty string for blocked and missing URLs', () => {
+    expect(cssUrl('javascript:alert(1)')).toBe('');
+    expect(cssUrl(null)).toBe('');
+    expect(cssUrl('')).toBe('');
+  });
+});
+
+// Minimal stand-in: these tests run without a DOM, and all we care about is
+// which attributes end up set on the element.
+function fakeIframe() {
+  const attrs = new Map<string, string>();
+  return {
+    onload: (() => undefined) as (() => void) | null,
+    setAttribute(name: string, value: string) {
+      attrs.set(name, value);
+    },
+    removeAttribute(name: string) {
+      attrs.delete(name);
+    },
+    getAttribute(name: string) {
+      return attrs.get(name) ?? null;
+    },
+  };
+}
+
+describe('applyEmbed', () => {
+  it('should navigate to the embed URL', () => {
+    const iframe = fakeIframe();
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    expect(iframe.getAttribute('src')).toBe('https://embed.example/stream/1');
+  });
+
+  it('should not sandbox the embed', () => {
+    // The players detect a sandbox that withholds allow-popups and refuse to
+    // start, so embeds are run unrestricted. See applyEmbed's comment.
+    const iframe = fakeIframe();
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    expect(iframe.getAttribute('sandbox')).toBeNull();
+  });
+
+  it('should clear a sandbox left over from markup or a prior navigation', () => {
+    const iframe = fakeIframe();
+    iframe.setAttribute('sandbox', 'allow-scripts');
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    expect(iframe.getAttribute('sandbox')).toBeNull();
+  });
+
+  it('should grant the playback permissions the players need', () => {
+    const iframe = fakeIframe();
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    expect(iframe.getAttribute('allow')).toBe(EMBED_ALLOW);
+  });
+
+  it('should set a referrer policy', () => {
+    const iframe = fakeIframe();
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    expect(iframe.getAttribute('referrerpolicy')).toBe('strict-origin-when-cross-origin');
+  });
+
+  it('should refuse to navigate to a blocked URL', () => {
+    const iframe = fakeIframe();
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'javascript:alert(1)');
+    expect(iframe.getAttribute('src')).toBeNull();
+    expect(iframe.getAttribute('allow')).toBeNull();
+  });
+});
+
+describe('clearEmbed', () => {
+  it('should navigate to about:blank and drop the load handler', () => {
+    const iframe = fakeIframe();
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    clearEmbed(iframe as unknown as HTMLIFrameElement);
+
+    // Removing the src attribute would leave the document — and its audio — running.
+    expect(iframe.getAttribute('src')).toBe('about:blank');
+    expect(iframe.onload).toBeNull();
   });
 });
 
@@ -240,10 +310,10 @@ describe('debounce', () => {
   });
 });
 
-describe('debounceString', () => {
-  it('should debounce string function calls', async () => {
+describe('debounce', () => {
+  it('should forward the arguments of the last call', async () => {
     let lastArg = '';
-    const fn = debounceString((arg: string) => { lastArg = arg; }, 100);
+    const fn = debounce((arg: string) => { lastArg = arg; }, 100);
 
     fn('a');
     fn('b');
@@ -253,6 +323,48 @@ describe('debounceString', () => {
 
     await new Promise(resolve => setTimeout(resolve, 150));
     expect(lastArg).toBe('c');
+  });
+});
+
+describe('sortMatchesForDisplay', () => {
+  const HOUR = 3_600_000;
+
+  const build = (id: string, over: Partial<APIMatch> = {}): APIMatch => ({
+    id,
+    title: `Match ${id}`,
+    category: 'football',
+    date: Date.now() + 24 * HOUR,
+    popular: false,
+    sources: [],
+    ...over,
+  });
+
+  afterEach(() => {
+    state.liveMatchIds.clear();
+  });
+
+  it('should put live matches first', () => {
+    const upcoming = build('upcoming');
+    const live = build('live', { date: Date.now() - HOUR });
+    expect(sortMatchesForDisplay([upcoming, live]).map(m => m.id)).toEqual(['live', 'upcoming']);
+  });
+
+  it('should rank EPL above other matches at the same liveness', () => {
+    const other = build('other', { title: 'Barcelona vs Real Madrid' });
+    const epl = build('epl', { title: 'Premier League: Arsenal vs Chelsea' });
+    expect(sortMatchesForDisplay([other, epl]).map(m => m.id)).toEqual(['epl', 'other']);
+  });
+
+  it('should fall back to the soonest kickoff', () => {
+    const later = build('later', { date: Date.now() + 48 * HOUR });
+    const sooner = build('sooner', { date: Date.now() + 2 * HOUR });
+    expect(sortMatchesForDisplay([later, sooner]).map(m => m.id)).toEqual(['sooner', 'later']);
+  });
+
+  it('should not mutate the input array', () => {
+    const input = [build('b', { date: Date.now() + 48 * HOUR }), build('a', { date: Date.now() + 2 * HOUR })];
+    sortMatchesForDisplay(input);
+    expect(input.map(m => m.id)).toEqual(['b', 'a']);
   });
 });
 
