@@ -19,3 +19,7 @@
 **Vulnerability:** Constructing DOM elements by concatenating dynamic user or API data into HTML strings (e.g., via template literals assigned to `innerHTML`) allows XSS payloads to execute via attribute breakout, even if partially escaped. This was prevalent in `src/multiview/grid.ts`.
 **Learning:** Using `<template>` elements with dynamic string interpolation still poses an XSS risk because the browser parses the malicious payload as soon as the string is assigned to `innerHTML`.
 **Prevention:** Always construct DOM elements statically and apply dynamic data exclusively through direct DOM APIs (`document.createElement`, `element.textContent`, `element.setAttribute`, etc.).
+## 2025-02-28 - SSRF / Path Traversal via Unencoded URL Parameters
+**Vulnerability:** Constructing API endpoints by directly interpolating unencoded variables (`sport`, `source`, `id`) into URL paths (e.g., `/api/matches/${sport}`) allowed for potential path traversal or SSRF if the inputs contained characters like `../` or special control characters.
+**Learning:** Client-side routing or API fetching logic that constructs paths using variables without URL encoding is vulnerable to manipulation. An attacker could potentially access unintended backend endpoints or exploit downstream systems.
+**Prevention:** Always apply `encodeURIComponent` to any variable being injected into a URL path before construction.
