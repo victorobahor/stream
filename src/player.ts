@@ -184,7 +184,7 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
     embedLoadTimer = setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS);
   }
 
-  const streamLabel = stream.streamNo ?? '';
+  const streamLabel = stream.streamNo ?? 1;
   showToast(
     `Stream ${streamLabel} — ${stream.language || 'Unknown'} ${stream.hd ? '(HD)' : '(SD)'}`,
     'success'
@@ -214,6 +214,7 @@ export function openPlayer(match: APIMatch): void {
   state.activeSourceIndex = 0;
 
   document.body.classList.remove('multiview-active');
+  document.body.classList.add('player-active', 'bg-paused');
   el('home-view')?.classList.add('hidden');
   el('multiview-view')?.classList.add('hidden');
   el('player-view')?.classList.remove('hidden');

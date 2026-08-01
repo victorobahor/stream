@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   sanitizeUrl,
   cssUrl,
@@ -11,6 +11,7 @@ import {
   applyEmbed,
   clearEmbed,
   EMBED_ALLOW,
+  toProxiedEmbedUrl,
 } from './helpers';
 import { state } from './state';
 import type { APIMatch } from './types';
@@ -129,6 +130,41 @@ describe('applyEmbed', () => {
     applyEmbed(iframe as unknown as HTMLIFrameElement, 'javascript:alert(1)');
     expect(iframe.getAttribute('src')).toBeNull();
     expect(iframe.getAttribute('allow')).toBeNull();
+  });
+
+  it('should load embed.st directly by default (proxy breaks origin checks)', () => {
+    const iframe = fakeIframe();
+    applyEmbed(
+      iframe as unknown as HTMLIFrameElement,
+      'https://embed.st/embed/admin/ppv-test/1',
+    );
+    expect(iframe.getAttribute('src')).toBe('https://embed.st/embed/admin/ppv-test/1');
+    expect(iframe.getAttribute('sandbox')).toBeNull();
+  });
+
+  it('should route embed.st through /__embed when VITE_EMBED_PROXY=1', () => {
+    vi.stubEnv('VITE_EMBED_PROXY', '1');
+    const iframe = fakeIframe();
+    applyEmbed(
+      iframe as unknown as HTMLIFrameElement,
+      'https://embed.st/embed/admin/ppv-test/1',
+    );
+    const src = iframe.getAttribute('src') || '';
+    expect(src.startsWith('/__embed?u=')).toBe(true);
+    expect(decodeURIComponent(src)).toContain('https://embed.st/embed/admin/ppv-test/1');
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('toProxiedEmbedUrl', () => {
+  it('should build a proxy URL for embed.st', () => {
+    expect(toProxiedEmbedUrl('https://embed.st/embed/x/1')).toBe(
+      '/__embed?u=' + encodeURIComponent('https://embed.st/embed/x/1'),
+    );
+  });
+
+  it('should return null for non-allowlisted hosts', () => {
+    expect(toProxiedEmbedUrl('https://embed.example/stream/1')).toBeNull();
   });
 });
 

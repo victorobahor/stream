@@ -15,8 +15,8 @@ describe('Content Security Policy', () => {
     expect(csp).not.toContain('frame-src *');
   });
 
-  it('should restrict frames to https', () => {
-    expect(csp).toContain('frame-src https:');
+  it('should allow same-origin proxy frames plus https embeds', () => {
+    expect(csp).toContain("frame-src 'self' https:");
   });
 
   it('should keep script-src locked to self', () => {

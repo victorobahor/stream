@@ -193,6 +193,9 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
   return card;
 }
 
+/** Cap DOM size for large catalogs — search still filters the full set first. */
+export const MATCH_GRID_RENDER_LIMIT = 48;
+
 // ── Render grid ──
 
 export function renderMatches(matches: APIMatch[]): void {
@@ -203,6 +206,9 @@ export function renderMatches(matches: APIMatch[]): void {
   if (!grid || !empty) return;
 
   if (!matches || matches.length === 0) {
+    // Clear stale cards — hiding alone left the previous filter's DOM in place,
+    // and any later un-hide showed them stacked above the empty state.
+    grid.replaceChildren();
     grid.classList.add('hidden');
     empty.classList.remove('hidden');
     if (matchCount) matchCount.textContent = '0 matches';
@@ -210,10 +216,18 @@ export function renderMatches(matches: APIMatch[]): void {
   }
   empty.classList.add('hidden');
   grid.classList.remove('hidden');
-  if (matchCount) matchCount.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
+
+  const total = matches.length;
+  const visible = matches.slice(0, MATCH_GRID_RENDER_LIMIT);
+  if (matchCount) {
+    matchCount.textContent =
+      total > MATCH_GRID_RENDER_LIMIT
+        ? `Showing ${visible.length} of ${total}`
+        : `${total} match${total !== 1 ? 'es' : ''}`;
+  }
 
   const frag = document.createDocumentFragment();
-  for (const m of matches) {
+  for (const m of visible) {
     frag.appendChild(buildMatchCard(m));
   }
   grid.replaceChildren(frag);

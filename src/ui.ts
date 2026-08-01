@@ -6,7 +6,9 @@ import { filterSport, loadMatchesWithUI } from './filters';
 // ── View switching ──
 
 export function showHome(): void {
-  document.body.classList.remove('multiview-active');
+  document.body.classList.remove('multiview-active', 'player-active');
+  // Resume orb animation only when the tab itself is visible.
+  document.body.classList.toggle('bg-paused', document.hidden);
   el('player-view')?.classList.add('hidden');
   el('multiview-view')?.classList.add('hidden');
   el('home-view')?.classList.remove('hidden');
@@ -19,8 +21,13 @@ export function showHome(): void {
 
 export function showSkeleton(show: boolean): void {
   el('skeleton-grid')?.classList.toggle('hidden', !show);
-  el('matches-grid')?.classList.toggle('hidden', show);
-  if (show) el('empty-state')?.classList.add('hidden');
+  if (show) {
+    // Loading replaces both outcomes; do not toggle the grid visible again when
+    // the skeleton hides — renderMatches owns grid vs empty-state visibility.
+    // Toggling the grid here re-showed stale cards under "No matches found".
+    el('matches-grid')?.classList.add('hidden');
+    el('empty-state')?.classList.add('hidden');
+  }
 }
 
 export function hideError(): void {

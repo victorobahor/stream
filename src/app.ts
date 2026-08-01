@@ -84,8 +84,12 @@ async function init(): Promise<void> {
   startAutoRefresh();
 
   document.addEventListener('visibilitychange', () => {
-    // Pause the (expensive) background animation while nobody is watching.
-    document.body.classList.toggle('bg-paused', document.hidden);
+    // Pause orbs while the tab is hidden, or while player/multiview already
+    // asked for a quieter background.
+    const viewPaused =
+      document.body.classList.contains('player-active') ||
+      document.body.classList.contains('multiview-active');
+    document.body.classList.toggle('bg-paused', document.hidden || viewPaused);
     if (!document.hidden && refreshPending) refreshMatches();
   });
 

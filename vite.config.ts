@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
+import { embedProxyPlugin } from './embed-proxy/vitePlugin';
 
 export default defineConfig(({ mode }) => ({
+  plugins: [embedProxyPlugin()],
   build: {
     target: 'es2020',
     minify: 'esbuild',
@@ -19,5 +21,10 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 3000,
     open: true,
+    headers: {
+      // Match prod: block embed PopUnder without sandboxing the player iframe.
+      'Permissions-Policy':
+        'camera=(), microphone=(), geolocation=(), interest-cohort=(), popup=()',
+    },
   },
 }));

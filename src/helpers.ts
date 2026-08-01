@@ -162,41 +162,56 @@ export function bindListDelegation(
 export const EMBED_ALLOW = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
 
 /**
- * Navigate an iframe to a stream embed. No `sandbox` attribute is applied.
+ * When true, embeds are loaded through the same-origin rewrite proxy
+ * (`/__embed?u=…`). That changes the document origin away from `embed.st`,
+ * which these players reject — playback stays black. Keep this off unless
+ * you are experimenting; ad popunders are sunk via `Permissions-Policy:
+ * popup=()` on the parent page instead.
  *
- * This is a deliberate trade, and it was settled empirically:
- *
- * - Sandboxed *without* `allow-popups`, the players refuse to start and show
- *   their own "sandbox detected" notice. They monetise through the popunder
- *   that fires on the first click, so they gate playback on being able to open
- *   it — the same gate behind the "disable your ad blocker" hint in index.html.
- *   Keeping `allow-same-origin` does not avoid this; the check is deliberate,
- *   not an incidental storage error.
- * - Sandboxed *with* `allow-popups`, the players start but the ad window opens
- *   anyway, so the sandbox buys nothing against the actual complaint.
- *
- * Since `window.open` inside a cross-origin frame cannot be intercepted from
- * this page, there is no client-side configuration that both plays and
- * suppresses the ad. Blocking it needs a server-side proxy that strips the ad
- * scripts and reserves the embed from our own origin (see REVIEW.md, Part 1).
- *
- * Middle ground if tab-hijacking is a concern and the popup is tolerable:
- *   iframe.setAttribute('sandbox',
- *     'allow-scripts allow-same-origin allow-forms allow-modals ' +
- *     'allow-presentation allow-popups');
- * That keeps players working and still blocks top-level navigation, forced
- * downloads, and lets the popup inherit the sandbox rather than escape it.
+ * Opt in with `VITE_EMBED_PROXY=1`. Off by default in dev and production.
+ */
+export function isEmbedProxyEnabled(): boolean {
+  const flag = import.meta.env.VITE_EMBED_PROXY;
+  return flag === '1' || flag === 'true';
+}
+
+/** Same-origin proxy URL for an upstream embed, or null if not proxyable. */
+export function toProxiedEmbedUrl(embedUrl: string): string | null {
+  const safe = sanitizeUrl(embedUrl);
+  if (!safe || safe === 'about:blank') return null;
+  try {
+    const host = new URL(safe).hostname;
+    if (host !== 'embed.st' && host !== 'www.embed.st') return null;
+  } catch {
+    return null;
+  }
+  return `/__embed?u=${encodeURIComponent(safe)}`;
+}
+
+/**
+ * Navigate an iframe to a stream embed. No `sandbox` attribute — the players
+ * check for it explicitly and refuse to start. PopUnder ads are blocked with
+ * `Permissions-Policy: popup=()` on the parent page (see `index.html` / server
+ * headers), not via iframe sandbox or the optional `/__embed` rewrite.
  */
 export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
   const safe = sanitizeUrl(embedUrl);
   if (!safe || safe === 'about:blank') return;
+  const src =
+    isEmbedProxyEnabled() ? (toProxiedEmbedUrl(safe) ?? safe) : safe;
+  const proxied = src.startsWith('/');
   iframe.removeAttribute('srcdoc');
-  // Cleared explicitly: an attribute left over from earlier markup or a prior
-  // navigation would silently keep restricting the frame.
+  // Cleared explicitly: leftover sandbox from markup/prior nav would trip the
+  // player's detector and refuse playback.
   iframe.removeAttribute('sandbox');
   iframe.setAttribute('allow', EMBED_ALLOW);
-  iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-  iframe.setAttribute('src', safe);
+  // Direct embeds need a normal referrer for CDN/token checks. Proxied docs are
+  // same-origin to us; no-referrer avoids leaking the app URL if proxy is on.
+  iframe.setAttribute(
+    'referrerpolicy',
+    proxied ? 'no-referrer' : 'strict-origin-when-cross-origin',
+  );
+  iframe.setAttribute('src', src);
 }
 
 export function clearEmbed(iframe: HTMLIFrameElement): void {

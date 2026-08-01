@@ -173,15 +173,37 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
     return;
   }
 
-  const src = match.sources[0];
-
   try {
-    const streams = await loadStreams(src.source, src.id);
-    // A second match may have been clicked while this was in flight.
+    let workingSource = match.sources[0];
+    let streams: Awaited<ReturnType<typeof loadStreams>> = [];
+    let lastError: unknown = null;
+
+    for (const src of match.sources) {
+      try {
+        streams = await loadStreams(src.source, src.id);
+        if (requestId !== streamsRequestId) return;
+        if (streams.length > 0) {
+          workingSource = src;
+          break;
+        }
+      } catch (e) {
+        lastError = e;
+        if (requestId !== streamsRequestId) return;
+      }
+    }
+
     if (requestId !== streamsRequestId) return;
 
     if (streams.length === 0) {
-      setStreamsMessage(listContainer, 'No working streams found.');
+      if (lastError) {
+        setStreamsMessage(
+          listContainer,
+          `Failed to load: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+          true,
+        );
+      } else {
+        setStreamsMessage(listContainer, 'No working streams found.');
+      }
       return;
     }
 
@@ -190,7 +212,7 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
       const btn = document.createElement('button');
       btn.className = 'mv-modal-stream-btn';
       btn.dataset.matchId = match.id;
-      btn.dataset.source = src.source;
+      btn.dataset.source = workingSource.source;
       btn.dataset.streamIdx = String(idx);
 
       const span = document.createElement('span');

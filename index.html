@@ -9,16 +9,13 @@
   <meta property="og:description" content="Free live sports streaming powered by Streamed API">
   <meta name="keywords" content="live sports streaming, football live, basketball live, free sports stream">
   <!--
-    frame-src/img-src are intentionally broad: embed and poster URLs come from
-    the API and are not confined to the two mirror hosts, so an allowlist
-    silently renders a blank player for any stream on another host.
-
-    Embeds are NOT sandboxed — the players detect it and refuse to start (see
-    applyEmbed in src/helpers.ts), so nothing here restrains a framed player:
-    its ad popup is unblocked by design. script-src stays locked to 'self',
-    which is what keeps our own page safe from the embed.
+    popup=() blocks PopUnder window.open from cross-origin embeds without
+    sandboxing the iframe (sandbox trips the player's detector). frame-src
+    keeps 'self' for the optional /__embed rewrite proxy. script-src stays
+    locked to 'self' on the parent page.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; frame-src https:; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none';">
+  <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), interest-cohort=(), popup=()">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; frame-src 'self' https:; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none';">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">

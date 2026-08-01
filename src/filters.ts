@@ -25,21 +25,30 @@ export function isCategory(value: string): value is Category {
   return (CATEGORIES as readonly string[]).includes(value);
 }
 
+/** Bumps on every UI load so a slow sport/category click cannot paint over a newer one. */
+let loadMatchesUiId = 0;
+
 /**
  * The single load-and-refilter path: fetch matches, refresh every view that
  * derives from them, and surface progress/errors in the UI.
  */
 export async function loadMatchesWithUI(options: { skeleton?: boolean } = {}): Promise<void> {
   const { skeleton = true } = options;
+  const uiId = ++loadMatchesUiId;
   if (skeleton) showSkeleton(true);
   hideError();
+  // Title tracks the chip/nav immediately — don't wait on the probe.
+  updateSectionTitle();
   try {
+    // Wait for playable probing before paint — a preliminary source-only paint
+    // flashed dead cards (and wrong filters) until the prune finished.
     await loadMatches();
+    if (uiId !== loadMatchesUiId) return;
+    if (skeleton) showSkeleton(false);
     applyFilters();
     refreshMultiviewSidebar();
-    if (skeleton) showSkeleton(false);
-    updateSectionTitle();
   } catch (err) {
+    if (uiId !== loadMatchesUiId) return;
     if (skeleton) showSkeleton(false);
     showError(`Could not load matches: ${err instanceof Error ? err.message : String(err)}`);
     log('error', 'Failed to load matches:', err);

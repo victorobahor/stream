@@ -298,7 +298,8 @@ export function renderMultiviewGrid(): void {
 // ── Show multiview ──
 
 export function showMultiview(): void {
-  document.body.classList.add('multiview-active');
+  document.body.classList.add('multiview-active', 'bg-paused');
+  document.body.classList.remove('player-active');
   el('home-view')?.classList.add('hidden');
   el('player-view')?.classList.add('hidden');
   el('multiview-view')?.classList.remove('hidden');

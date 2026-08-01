@@ -1,4 +1,4 @@
-import type { APIMatch, Stream, Sport } from './types';
+import type { APIMatch, Stream, StreamSource, Sport } from './types';
 import type { Category } from './types';
 import { state, API_HOSTS, getActiveHostIndex, rotateActiveHost } from './state';
 import { log } from './helpers';
@@ -6,6 +6,19 @@ import { log } from './helpers';
 // ── Request tracking for race condition prevention ──
 
 let loadMatchesRequestId = 0;
+
+// ── Host failover coalesce ──
+
+const HOST_ROTATE_COOLDOWN_MS = 1000;
+let lastHostRotateAt = 0;
+
+/** Rotate the active API host at most once per cooldown window across parallel probes. */
+function rotateActiveHostCoalesced(): void {
+  const now = Date.now();
+  if (now - lastHostRotateAt < HOST_ROTATE_COOLDOWN_MS) return;
+  lastHostRotateAt = now;
+  rotateActiveHost();
+}
 
 // ── Generic fetcher ──
 
@@ -21,7 +34,7 @@ export async function fetchJSON<T>(urlPath: string): Promise<T> {
     } catch (e) {
       log('warn', `Host ${host} failed for ${urlPath}:`, e);
       attempts++;
-      rotateActiveHost();
+      rotateActiveHostCoalesced();
     }
   }
   throw new Error('All API mirror domains failed to respond.');
@@ -62,6 +75,83 @@ export function resolveMatchesEndpoint(cat: Category, sport: string): { endpoint
   return { endpoint, clientSportFilter };
 }
 
+/** Run `fn` over `items` with at most `concurrency` in flight. */
+export async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Math.min(Math.max(1, concurrency), items.length);
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
+}
+
+const STREAM_PROBE_CONCURRENCY = 8;
+
+/**
+ * Ask `/api/stream/{source}/{id}` which listed sources actually have embeds.
+ * Dedupes by `source:id` so shared sources across matches are probed once.
+ * Drops matches with no working source, and rewrites `sources` to only the
+ * ones that returned streams. Uses `loadStreams`, so results warm the cache.
+ */
+export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIMatch[]> {
+  const uniqueSources = new Map<string, StreamSource>();
+  for (const match of matches) {
+    for (const source of match.sources || []) {
+      if (!source?.source || !source?.id) continue;
+      const key = `${source.source}:${source.id}`;
+      if (!uniqueSources.has(key)) uniqueSources.set(key, source);
+    }
+  }
+
+  const uniqueEntries = [...uniqueSources.entries()];
+  const probeHits = await mapPool(uniqueEntries, STREAM_PROBE_CONCURRENCY, async ([key, source]) => {
+    try {
+      const streams = await loadStreams(source.source, source.id);
+      return streams.length > 0 ? key : null;
+    } catch (e) {
+      log('warn', `Stream probe failed for ${source.source}/${source.id}:`, e);
+      return null;
+    }
+  });
+
+  const workingKeys = new Set<string>();
+  for (const key of probeHits) {
+    if (key) workingKeys.add(key);
+  }
+
+  const playable: APIMatch[] = [];
+  for (const match of matches) {
+    const sources = (match.sources || []).filter(s => workingKeys.has(`${s.source}:${s.id}`));
+    if (sources.length === 0) continue;
+    playable.push({ ...match, sources });
+  }
+  return playable;
+}
+
+function commitMatches(matches: APIMatch[]): void {
+  // Always clear first so All/Today/Popular never inherit a sticky LIVE set.
+  state.liveMatchIds.clear();
+  if (state.currentCategory === 'live') {
+    matches.forEach(m => {
+      if (m.id) state.liveMatchIds.add(m.id);
+    });
+  }
+  state.allMatches = matches;
+  indexMatches(matches);
+}
+
 export async function loadMatches(): Promise<APIMatch[]> {
   const requestId = ++loadMatchesRequestId;
   const { endpoint, clientSportFilter } = resolveMatchesEndpoint(state.currentCategory, state.currentSport);
@@ -71,11 +161,6 @@ export async function loadMatches(): Promise<APIMatch[]> {
   if (requestId !== loadMatchesRequestId) return state.allMatches;
 
   let matches: APIMatch[] = Array.isArray(data) ? data : [];
-
-  if (state.currentCategory === 'live') {
-    state.liveMatchIds.clear();
-    matches.forEach(m => state.liveMatchIds.add(m.id));
-  }
 
   // Client-side filter: "today" endpoint may include non-today matches from the API
   if (state.currentCategory === 'today') {
@@ -87,8 +172,13 @@ export async function loadMatches(): Promise<APIMatch[]> {
     matches = matches.filter(m => (m.category || '').toLowerCase() === state.currentSport.toLowerCase());
   }
 
-  state.allMatches = matches;
-  indexMatches(matches);
+  // Probe before committing — avoids flashing non-playable cards into the grid
+  // (and into filter switches) while streams are still being checked.
+  const withSources = matches.filter(m => m.sources && m.sources.length > 0);
+  matches = await filterToPlayableMatches(withSources);
+  if (requestId !== loadMatchesRequestId) return state.allMatches;
+
+  commitMatches(matches);
   return matches;
 }
 
@@ -126,9 +216,8 @@ export async function loadStreams(source: string, id: string): Promise<Stream[]>
   }
   const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
   const streams = Array.isArray(data) ? data : [];
-  // Only cache non-empty results so retries can fetch fresh data
-  if (streams.length > 0) {
-    streamsCache.set(cacheKey, { data: streams, ts: Date.now() });
-  }
+  // Cache empties too — the match-list probe would otherwise re-hit every
+  // dead source on each refresh, and a short TTL still lets streams appear later.
+  streamsCache.set(cacheKey, { data: streams, ts: Date.now() });
   return streams;
 }

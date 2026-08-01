@@ -57,6 +57,9 @@ export function renderMultiviewSidebar(): void {
   applyMultiviewSidebarFilters();
 }
 
+/** Keep the sidebar list light — same window as the home grid. */
+export const SIDEBAR_RENDER_LIMIT = 48;
+
 export function renderMultiviewSidebarList(matches: APIMatch[]): void {
   const container = el('multiview-match-list');
   if (!container) return;
@@ -69,9 +72,17 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
     return;
   }
 
+  const visible = matches.slice(0, SIDEBAR_RENDER_LIMIT);
   const fragment = document.createDocumentFragment();
 
-  matches.forEach(match => {
+  if (matches.length > SIDEBAR_RENDER_LIMIT) {
+    const note = document.createElement('p');
+    note.className = 'sidebar-empty';
+    note.textContent = `Showing ${visible.length} of ${matches.length} — refine search to narrow.`;
+    fragment.appendChild(note);
+  }
+
+  visible.forEach(match => {
     const live = isMatchLive(match);
     const title =
       match.title || (match.teams ? `${match.teams.home?.name ?? ''} vs ${match.teams.away?.name ?? ''}` : 'Match');

@@ -3,28 +3,29 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source files
-COPY tsconfig.json vite.config.ts ./
+COPY tsconfig.json vitest.config.ts vite.config.ts eslint.config.js ./
 COPY src/ src/
-COPY style.css ./
-COPY index.html ./
+COPY embed-proxy/ embed-proxy/
+COPY style.css index.html ./
 
-# Build the app (typecheck + vite build)
+# Do not set VITE_EMBED_PROXY=1 — rewriting embeds onto our origin breaks playback.
 RUN npm run build
 
-# Stage 2: Serve with nginx
-FROM nginx:alpine
+# Stage 2: Node static server + embed rewrite proxy
+FROM node:20-alpine
 
-# Copy built assets from builder stage
-COPY --from=builder /app/dist/ /usr/share/nginx/html/
+WORKDIR /app
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+ENV NODE_ENV=production
+ENV PORT=80
+ENV DIST_DIR=/app/dist
+
+COPY --from=builder /app/dist/ /app/dist/
+COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs /app/embed-proxy/
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "embed-proxy/server.mjs"]

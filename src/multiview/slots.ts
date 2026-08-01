@@ -276,13 +276,24 @@ export function loadMultiviewState(): void {
     // them individually instead of rebuilding the grid once per saved slot.
     renderMultiviewGrid();
     if (data.slots && Array.isArray(data.slots)) {
+      let missing = 0;
       data.slots.forEach((s: SavedSlotData | null, idx: number) => {
         if (!s || !s.matchId) return;
         const match = getMatchById(s.matchId);
         if (match) {
           void loadMultiviewSlotStream(idx, match, s.sourceName, s.streamIndex);
+        } else {
+          missing++;
         }
       });
+      if (missing > 0) {
+        showToast(
+          missing === 1
+            ? 'A saved multiview match is no longer available.'
+            : `${missing} saved multiview matches are no longer available.`,
+          'error',
+        );
+      }
     }
   } catch (e) {
     log('warn', 'Failed to load multiview state:', e);
