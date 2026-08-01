@@ -3,6 +3,8 @@ services:
     build: .
     image: v1kt0r2020/streamzone:latest
     container_name: streamzone_app
+    # Pin the process: old containers still had nginx's /docker-entrypoint.sh.
+    entrypoint: ["node", "embed-proxy/server.mjs"]
     ports:
       - "8080:80"
     restart: unless-stopped

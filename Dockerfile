@@ -28,4 +28,7 @@ COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs /app/embed-proxy/
 
 EXPOSE 80
 
-CMD ["node", "embed-proxy/server.mjs"]
+# Explicit entrypoint so a stale nginx-era `/docker-entrypoint.sh` on an old
+# container config cannot shadow the Node image (that path does not exist here).
+ENTRYPOINT ["node"]
+CMD ["embed-proxy/server.mjs"]
