@@ -22,9 +22,7 @@ export default defineConfig(({ mode }) => ({
     port: 3000,
     open: true,
     headers: {
-      // Match prod: block embed PopUnder without sandboxing the player iframe.
-      'Permissions-Policy':
-        'camera=(), microphone=(), geolocation=(), interest-cohort=(), popup=()',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
     },
   },
 }));

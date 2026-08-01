@@ -9,12 +9,12 @@
   <meta property="og:description" content="Free live sports streaming powered by Streamed API">
   <meta name="keywords" content="live sports streaming, football live, basketball live, free sports stream">
   <!--
-    popup=() blocks PopUnder window.open from cross-origin embeds without
-    sandboxing the iframe (sandbox trips the player's detector). frame-src
-    keeps 'self' for the optional /__embed rewrite proxy. script-src stays
-    locked to 'self' on the parent page.
+    PopUnder ads cannot be blocked with Permissions-Policy (Chrome rejects
+    `popup`) or iframe sandbox (players detect it). See src/adShield.ts for
+    the click-gate + blur shield. frame-src keeps 'self' for the optional
+    /__embed rewrite proxy. script-src stays locked to 'self' on the parent.
   -->
-  <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), interest-cohort=(), popup=()">
+  <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), interest-cohort=()">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; frame-src 'self' https:; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none';">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

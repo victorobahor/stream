@@ -5,6 +5,7 @@ import { renderSportsBar } from './ui';
 import { attachGlobalDelegates } from './delegates';
 import { MULTIVIEW_STORAGE_KEY } from './multiview/storageKey';
 import { log, stopAllIframes } from './helpers';
+import { installAdShield } from './adShield';
 
 // ── Sports load with UI ──
 
@@ -74,6 +75,9 @@ async function init(): Promise<void> {
   document.addEventListener('securitypolicyviolation', e => {
     log('warn', 'CSP blocked', e.blockedURI, e.violatedDirective);
   });
+
+  // Parent-page PopUnder shield (click gate is mounted per player/slot).
+  installAdShield();
 
   attachGlobalDelegates();
 

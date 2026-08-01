@@ -1,6 +1,7 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
 import { el, sanitizeUrl, applyEmbed, clearEmbed, log } from '../helpers';
+import { mountPlayGate } from '../adShield';
 import { getMatchById, loadMatches } from '../api';
 import { setActiveNav } from '../ui';
 import { applyFilters } from '../filters';
@@ -230,6 +231,7 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
     const reveal = () => {
       clearSlotLoadTimer(i);
       overlayEl.remove();
+      mountPlayGate(slotEl, { message: 'Click to start' });
     };
     iframe.onload = reveal;
 

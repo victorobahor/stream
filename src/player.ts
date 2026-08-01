@@ -3,6 +3,7 @@ import { state } from './state';
 import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import { loadStreams as fetchStreams } from './api';
+import { mountPlayGate } from './adShield';
 
 // ── Module level state for caching active elements ──
 let activeStreamTab: HTMLElement | null = null;
@@ -169,11 +170,15 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   if (iframe) {
     iframe.classList.add('hidden');
     clearEmbedLoadTimer();
+    const container = el('player-container');
+    container?.querySelectorAll('.player-gate').forEach(g => g.remove());
 
     const reveal = () => {
       clearEmbedLoadTimer();
       playerLoading?.classList.add('hidden');
       iframe.classList.remove('hidden');
+      // Gate sits above the iframe so the embed's first PopUnder gesture is ours.
+      if (container) mountPlayGate(container);
     };
 
     // Meaningful again now that the iframe navigates to the embed directly:

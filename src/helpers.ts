@@ -164,9 +164,8 @@ export const EMBED_ALLOW = 'autoplay; encrypted-media; fullscreen; picture-in-pi
 /**
  * When true, embeds are loaded through the same-origin rewrite proxy
  * (`/__embed?u=…`). That changes the document origin away from `embed.st`,
- * which these players reject — playback stays black. Keep this off unless
- * you are experimenting; ad popunders are sunk via `Permissions-Policy:
- * popup=()` on the parent page instead.
+ * which trips their WASM lock — playback stays black. Keep off unless
+ * experimenting. PopUnder mitigation lives in `adShield.ts` instead.
  *
  * Opt in with `VITE_EMBED_PROXY=1`. Off by default in dev and production.
  */
@@ -190,9 +189,8 @@ export function toProxiedEmbedUrl(embedUrl: string): string | null {
 
 /**
  * Navigate an iframe to a stream embed. No `sandbox` attribute — the players
- * check for it explicitly and refuse to start. PopUnder ads are blocked with
- * `Permissions-Policy: popup=()` on the parent page (see `index.html` / server
- * headers), not via iframe sandbox or the optional `/__embed` rewrite.
+ * check for it explicitly and refuse to start. PopUnder mitigation is handled
+ * by `adShield.ts` (click-to-start gate + blur→focus), not sandbox / proxy.
  */
 export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
   const safe = sanitizeUrl(embedUrl);
