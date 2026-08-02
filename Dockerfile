@@ -33,10 +33,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist/ /app/dist/
 COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs /app/embed-proxy/
 
-# Non-root (port 80 needs cap; compose maps host 8080 → container 8080).
-ENV PORT=8080
-USER node
-EXPOSE 8080
+EXPOSE 80
 
 ENTRYPOINT ["node"]
 CMD ["embed-proxy/server.mjs"]
