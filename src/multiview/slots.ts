@@ -2,9 +2,46 @@ import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData } fr
 import { state } from '../state';
 import { el, log } from '../helpers';
 import { showToast } from '../format';
-import { loadStreams, getMatchById } from '../api';
+import { loadStreams, getMatchById, fetchJSON } from '../api';
 import { renderMultiviewGrid, renderMultiviewSlot, getNumSlotsForLayout } from './grid';
 import { MULTIVIEW_STORAGE_KEY } from './storageKey';
+
+/**
+ * Home/live loads only the active category, so a saved multiview match may be
+ * absent from `state.allMatches` after refresh even though it still exists.
+ * Probe a few broad endpoints once for any missing ids.
+ */
+async function lookupMatchesByIds(ids: string[]): Promise<Map<string, APIMatch>> {
+  const found = new Map<string, APIMatch>();
+  const want = new Set<string>();
+
+  for (const id of ids) {
+    if (!id) continue;
+    const local = getMatchById(id);
+    if (local) found.set(id, local);
+    else want.add(id);
+  }
+  if (want.size === 0) return found;
+
+  const endpoints = ['/api/matches/live', '/api/matches/all-today', '/api/matches/all'];
+  await Promise.all(
+    endpoints.map(async endpoint => {
+      if (want.size === 0) return;
+      try {
+        const data = await fetchJSON<APIMatch[]>(endpoint);
+        for (const match of Array.isArray(data) ? data : []) {
+          if (match?.id && want.has(match.id)) {
+            found.set(match.id, match);
+            want.delete(match.id);
+          }
+        }
+      } catch (e) {
+        log('warn', `Multiview restore lookup failed for ${endpoint}:`, e);
+      }
+    }),
+  );
+  return found;
+}
 
 const VALID_LAYOUTS: MultiviewLayout[] = ['1x2', '2x2'];
 
@@ -257,7 +294,7 @@ export function saveMultiviewState(): void {
   }
 }
 
-export function loadMultiviewState(): void {
+export async function loadMultiviewState(): Promise<void> {
   try {
     const saved = localStorage.getItem(MULTIVIEW_STORAGE_KEY);
     if (!saved) return;
@@ -275,25 +312,32 @@ export function loadMultiviewState(): void {
     // Build the slot elements up front so the restores below can paint into
     // them individually instead of rebuilding the grid once per saved slot.
     renderMultiviewGrid();
-    if (data.slots && Array.isArray(data.slots)) {
-      let missing = 0;
-      data.slots.forEach((s: SavedSlotData | null, idx: number) => {
-        if (!s || !s.matchId) return;
-        const match = getMatchById(s.matchId);
-        if (match) {
-          void loadMultiviewSlotStream(idx, match, s.sourceName, s.streamIndex);
-        } else {
-          missing++;
-        }
-      });
-      if (missing > 0) {
-        showToast(
-          missing === 1
-            ? 'A saved multiview match is no longer available.'
-            : `${missing} saved multiview matches are no longer available.`,
-          'error',
-        );
+    if (!data.slots || !Array.isArray(data.slots)) return;
+
+    const ids = data.slots
+      .map(s => s?.matchId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const matches = await lookupMatchesByIds(ids);
+
+    let missing = 0;
+    data.slots.forEach((s: SavedSlotData | null, idx: number) => {
+      if (!s || !s.matchId) return;
+      const match = matches.get(s.matchId);
+      if (match) {
+        void loadMultiviewSlotStream(idx, match, s.sourceName, s.streamIndex);
+      } else {
+        missing++;
+        state.multiviewSlots[idx] = null;
+        renderMultiviewSlot(idx);
       }
+    });
+
+    // Drop dead ids from storage quietly — do not toast on every page refresh.
+    // Matches often fall out of the Live grid while still restorable via lookup;
+    // only truly gone events are pruned here.
+    if (missing > 0) {
+      saveMultiviewState();
+      log('warn', `Pruned ${missing} unavailable multiview slot(s) from saved state`);
     }
   } catch (e) {
     log('warn', 'Failed to load multiview state:', e);
