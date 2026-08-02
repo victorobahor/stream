@@ -23,8 +23,8 @@ ENV NODE_ENV=production
 ENV PORT=80
 ENV DIST_DIR=/app/dist
 
-COPY --from=builder /app/dist/ /app/dist/
-COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs /app/embed-proxy/
+COPY --from=builder /app/embed-proxy/ /app/embed-proxy/
+#COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs /app/embed-proxy/
 
 EXPOSE 80
 
