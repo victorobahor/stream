@@ -104,15 +104,30 @@ export function filterMatchesWithSources(matches: APIMatch[]): APIMatch[] {
 /**
  * The one ordering every match list uses: live first, then EPL, then soonest.
  * Returns a new array — callers must not rely on the input being sorted.
+ *
+ * Optimized: Uses a Schwartzian transform to precompute expensive functions
+ * (`isMatchLive` and `isEPLMatch`) and date checks outside the sort loop.
  */
 export function sortMatchesForDisplay(matches: APIMatch[]): APIMatch[] {
-  return [...matches].sort((a, b) => {
-    const liveDelta = Number(isMatchLive(b)) - Number(isMatchLive(a));
+  // Decorate: Precompute sort keys
+  const decorated = matches.map(match => ({
+    match,
+    isLive: isMatchLive(match) ? 1 : 0,
+    isEpl: isEPLMatch(match) ? 1 : 0,
+    date: match.date || 0
+  }));
+
+  // Sort: Use precomputed keys
+  decorated.sort((a, b) => {
+    const liveDelta = b.isLive - a.isLive;
     if (liveDelta !== 0) return liveDelta;
-    const eplDelta = Number(isEPLMatch(b)) - Number(isEPLMatch(a));
+    const eplDelta = b.isEpl - a.isEpl;
     if (eplDelta !== 0) return eplDelta;
-    return (a.date || 0) - (b.date || 0);
+    return a.date - b.date;
   });
+
+  // Undecorate: Extract original matches
+  return decorated.map(item => item.match);
 }
 
 export function debounce<A extends unknown[]>(
