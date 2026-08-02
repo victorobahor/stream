@@ -8,7 +8,7 @@ import {
   sortMatchesForDisplay,
   log,
 } from '../helpers';
-import { capitalize, getSportEmoji } from '../format';
+import { capitalize, formatSportLabel, getSportEmoji } from '../format';
 import { renderSportChips, ALL_SPORTS } from '../chips';
 import { loadStreams, getMatchById } from '../api';
 import { loadMultiviewSlotStream } from './slots';
@@ -116,7 +116,7 @@ export function filterMvModalMatches(query: string): void {
 
     const sportSpan = document.createElement('span');
     sportSpan.className = 'mv-modal-match-sport';
-    sportSpan.textContent = `${getSportEmoji(match.category)} ${capitalize(match.category)}`;
+    sportSpan.textContent = `${getSportEmoji(match.category)} ${formatSportLabel(match.category)}`;
 
     info.appendChild(titleSpan);
     info.appendChild(sportSpan);

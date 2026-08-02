@@ -1,6 +1,6 @@
 import type { APIMatch } from './types';
 import { el, bindListDelegation, setHostImage } from './helpers';
-import { capitalize, getSportEmoji, isMatchLive, isEPLMatch, getPosterUrl, formatDate } from './format';
+import { formatSportLabel, getSportEmoji, isMatchLive, isEPLMatch, getPosterUrl, formatDate } from './format';
 import { getMatchById } from './api';
 
 // ── Icon templates ──
@@ -68,7 +68,7 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
   sportTag.className = 'card-sport-tag';
   const sportLabel = document.createElement('span');
   sportLabel.className = 'sport-label';
-  sportLabel.textContent = `${sportEmoji} ${capitalize(match.category || 'Sport')}`;
+  sportLabel.textContent = `${sportEmoji} ${formatSportLabel(match.category || 'Sport')}`;
   sportTag.appendChild(sportLabel);
 
   if (live || match.popular || isEPL) {

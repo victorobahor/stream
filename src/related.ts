@@ -1,7 +1,7 @@
 import type { APIMatch } from './types';
 import { state } from './state';
 import { el, bindListDelegation, log } from './helpers';
-import { capitalize, getSportEmoji, isMatchLive } from './format';
+import { formatSportLabel, getSportEmoji, isMatchLive } from './format';
 import { getMatchById } from './api';
 
 const RELATED_LIMIT = 12;
@@ -60,7 +60,7 @@ export function renderRelated(currentMatch: APIMatch): void {
 
     const sport = document.createElement('span');
     sport.className = 'related-sport';
-    sport.textContent = `${getSportEmoji(m.category)} ${capitalize(m.category)}`;
+    sport.textContent = `${getSportEmoji(m.category)} ${formatSportLabel(m.category)}`;
     meta.appendChild(sport);
 
     if (live) {

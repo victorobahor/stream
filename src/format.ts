@@ -35,6 +35,25 @@ export function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+/**
+ * Human label for a sport id or raw category (`american-football` → `American Football`).
+ * Prefers the API sports list name when available.
+ */
+export function formatSportLabel(sport: string): string {
+  const raw = (sport || '').trim();
+  if (!raw) return 'Sport';
+  const key = raw.toLowerCase();
+  const fromApi = state.sports.find(
+    s => (s.id || '').toLowerCase() === key || (s.name || '').toLowerCase() === key,
+  );
+  if (fromApi?.name) return fromApi.name;
+  return raw
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
 // ── Match utilities ──
 
 export function isMatchLive(match: APIMatch): boolean {

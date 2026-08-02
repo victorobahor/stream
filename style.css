@@ -208,7 +208,8 @@ img { display: block; max-width: 100%; }
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
-  padding: 10px 24px;
+  /* Extra vertical padding so active chip glow is not clipped by overflow-x. */
+  padding: 12px 24px 14px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -217,6 +218,7 @@ img { display: block; max-width: 100%; }
   display: flex; align-items: center; gap: 8px;
   max-width: 1440px; margin: 0 auto;
   width: max-content;
+  padding: 2px;
 }
 .sport-chip {
   padding: 6px 18px; border-radius: 100px;
@@ -225,6 +227,7 @@ img { display: block; max-width: 100%; }
   color: var(--text2); background: var(--surface);
   transition: all var(--transition);
   white-space: nowrap; text-transform: capitalize;
+  flex-shrink: 0;
 }
 .sport-chip:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface-hover); }
 .sport-chip.active {
@@ -292,24 +295,47 @@ img { display: block; max-width: 100%; }
 .card-poster {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
-  object-fit: cover; object-position: center;
+  object-fit: cover; object-position: center 30%;
   max-width: none;
-  opacity: 0.08;
+  opacity: 0.14;
   transition: opacity var(--transition);
   pointer-events: none;
+  z-index: 0;
 }
-.match-card.has-poster:hover .card-poster { opacity: 0.15; }
+/* Scrim so watermarked posters (common for American football) do not fight
+   team names / footer controls. */
+.match-card.has-poster::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(8, 12, 20, 0.35) 0%,
+    rgba(8, 12, 20, 0.72) 52%,
+    rgba(8, 12, 20, 0.94) 100%
+  );
+}
+.match-card.has-poster:hover .card-poster { opacity: 0.2; }
 .match-card > *:not(.card-poster) { position: relative; z-index: 1; }
 
 /* Card top strip */
 .card-sport-tag {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.card-badges {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
 }
 .sport-label {
-  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--accent2);
   padding: 3px 10px; border-radius: 100px;
   background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .live-badge {
   position: relative;
@@ -386,7 +412,7 @@ img { display: block; max-width: 100%; }
 .card-footer {
   display: flex; align-items: center; justify-content: space-between;
   padding-top: 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .card-time {
   font-size: 0.78rem; color: var(--text3);
@@ -1678,7 +1704,6 @@ body.multiview-active .multiview-grid-container.layout-2x2 {
 
 
 /* ---------- Utility classes replacing inline styles ---------- */
-.card-badges { display: flex; gap: 6px; }
 .card-sources-wrap { display: flex; align-items: center; gap: 8px; }
 
 .related-empty,

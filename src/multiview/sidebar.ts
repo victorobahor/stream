@@ -7,7 +7,7 @@ import {
   filterMatchesBySport,
   sortMatchesForDisplay,
 } from '../helpers';
-import { capitalize, getSportEmoji, isMatchLive } from '../format';
+import { capitalize, formatSportLabel, getSportEmoji, isMatchLive } from '../format';
 import { renderSportChips, ALL_SPORTS } from '../chips';
 import { loadMatchStreamsIntoActiveSlot } from './slots';
 
@@ -101,7 +101,7 @@ export function renderMultiviewSidebarList(matches: APIMatch[]): void {
 
     const sportSpan = document.createElement('span');
     sportSpan.className = 'mv-card-sport';
-    sportSpan.textContent = `${sportEmoji} ${capitalize(match.category || '')}`;
+    sportSpan.textContent = `${sportEmoji} ${formatSportLabel(match.category || '')}`;
     meta.appendChild(sportSpan);
 
     if (live) {

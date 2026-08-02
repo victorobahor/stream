@@ -1,7 +1,7 @@
 import type { Category } from './types';
 import { state } from './state';
 import { el, filterMatchesWithSources, filterMatchesBySearch, sortMatchesForDisplay, log } from './helpers';
-import { getSportEmoji, capitalize } from './format';
+import { getSportEmoji, formatSportLabel } from './format';
 import { syncSportChips, ALL_SPORTS } from './chips';
 import { renderMatches } from './cards';
 import { showHome, showSkeleton, hideError, showError } from './ui';
@@ -100,7 +100,7 @@ export function updateSectionTitle(): void {
   };
   let title = titles[state.currentCategory] || 'Matches';
   if (state.currentSport !== ALL_SPORTS) {
-    title = `${getSportEmoji(state.currentSport)} ${capitalize(state.currentSport)} — ${title}`;
+    title = `${getSportEmoji(state.currentSport)} ${formatSportLabel(state.currentSport)} — ${title}`;
   }
   const titleEl = el('section-title');
   if (titleEl) titleEl.textContent = title;

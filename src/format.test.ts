@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { capitalize, isEPLMatch, getSportEmoji, isMatchLive, formatDate, getPosterUrl, LIVE_WINDOW_MS } from './format';
+import { capitalize, formatSportLabel, isEPLMatch, getSportEmoji, isMatchLive, formatDate, getPosterUrl, LIVE_WINDOW_MS } from './format';
 import { state } from './state';
 import type { APIMatch } from './types';
 
@@ -14,6 +14,25 @@ describe('capitalize', () => {
 
   it('should handle already capitalized', () => {
     expect(capitalize('Football')).toBe('Football');
+  });
+});
+
+describe('formatSportLabel', () => {
+  afterEach(() => {
+    state.sports = [];
+  });
+
+  it('should title-case kebab sport ids', () => {
+    expect(formatSportLabel('american-football')).toBe('American Football');
+  });
+
+  it('should prefer the API sports list name', () => {
+    state.sports = [{ id: 'american-football', name: 'American Football' }];
+    expect(formatSportLabel('american-football')).toBe('American Football');
+  });
+
+  it('should handle empty input', () => {
+    expect(formatSportLabel('')).toBe('Sport');
   });
 });
 

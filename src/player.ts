@@ -1,7 +1,7 @@
 import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
 import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers';
-import { capitalize, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
+import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import { loadStreams as fetchStreams } from './api';
 import { mountPlayGate } from './adShield';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
@@ -371,7 +371,9 @@ export function renderPlayerInfo(match: APIMatch): void {
   }
 
   const sportBadge = el('player-sport-badge');
-  if (sportBadge) sportBadge.textContent = `${getSportEmoji(match.category)} ${capitalize(match.category || 'Sport')}`;
+  if (sportBadge) {
+    sportBadge.textContent = `${getSportEmoji(match.category)} ${formatSportLabel(match.category || 'Sport')}`;
+  }
   const liveBadge = el('player-live-badge');
   if (liveBadge) {
     const live = isMatchLive(match);
