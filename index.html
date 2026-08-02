@@ -15,7 +15,7 @@
     /__embed rewrite proxy. script-src stays locked to 'self' on the parent.
   -->
   <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), interest-cohort=()">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; frame-src 'self' https:; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' https:; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none';">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -156,6 +156,8 @@
               </div>
               <p>Select a stream below to start watching</p>
             </div>
+            <!-- Native HLS (experiment): same-origin proxy + hls.js. Iframe is the fallback. -->
+            <video id="stream-video" class="hidden" controls playsinline></video>
             <!-- allow/referrerpolicy/src are set together by applyEmbed(); no sandbox by design -->
             <iframe id="stream-iframe" class="hidden" title="Stream player" allowfullscreen scrolling="no"></iframe>
             <div class="player-loading hidden" id="player-loading">

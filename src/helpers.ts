@@ -1,6 +1,7 @@
 import type { APIMatch } from './types';
 import { LOG_LEVEL, API_HOSTS, getActiveHostIndex, imageUrlForHost } from './state';
 import { isEPLMatch, isMatchLive } from './format';
+import { stopNativePlayback } from './mediaStop';
 
 export function el(id: string): HTMLElement | null {
   return document.getElementById(id);
@@ -221,6 +222,7 @@ export function clearEmbed(iframe: HTMLIFrameElement): void {
 }
 
 export function stopAllIframes(): void {
+  stopNativePlayback();
   const mainIframe = document.getElementById('stream-iframe') as HTMLIFrameElement | null;
   if (mainIframe) clearEmbed(mainIframe);
   document.querySelectorAll<HTMLIFrameElement>('.mv-iframe').forEach(iframe => {

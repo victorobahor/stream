@@ -4,6 +4,7 @@ import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers
 import { capitalize, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import { loadStreams as fetchStreams } from './api';
 import { mountPlayGate } from './adShield';
+import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
 
 // ── Module level state for caching active elements ──
 let activeStreamTab: HTMLElement | null = null;
@@ -148,6 +149,29 @@ function clearEmbedLoadTimer(): void {
   }
 }
 
+function playViaIframe(embedUrl: string): void {
+  const iframe = el('stream-iframe') as HTMLIFrameElement | null;
+  const playerLoading = el('player-loading');
+  if (!iframe) return;
+
+  iframe.classList.add('hidden');
+  clearEmbedLoadTimer();
+  const container = el('player-container');
+  container?.querySelectorAll('.player-gate').forEach(g => g.remove());
+
+  const reveal = () => {
+    clearEmbedLoadTimer();
+    playerLoading?.classList.add('hidden');
+    iframe.classList.remove('hidden');
+    // Gate sits above the iframe so the embed's first PopUnder gesture is ours.
+    if (container) mountPlayGate(container);
+  };
+
+  iframe.onload = reveal;
+  applyEmbed(iframe, embedUrl);
+  embedLoadTimer = setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS);
+}
+
 export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   if (!stream?.embedUrl) {
     showToast('No embed URL available for this stream.', 'error');
@@ -167,33 +191,37 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
   if (playerLoading) playerLoading.classList.remove('hidden');
 
+  // Prefer native HLS (no iframe ads). Fall back to embed iframe + click-gate.
+  stopNativeHls(MAIN_PLAYER_KEY);
   if (iframe) {
-    iframe.classList.add('hidden');
     clearEmbedLoadTimer();
-    const container = el('player-container');
-    container?.querySelectorAll('.player-gate').forEach(g => g.remove());
-
-    const reveal = () => {
-      clearEmbedLoadTimer();
-      playerLoading?.classList.add('hidden');
-      iframe.classList.remove('hidden');
-      // Gate sits above the iframe so the embed's first PopUnder gesture is ours.
-      if (container) mountPlayGate(container);
-    };
-
-    // Meaningful again now that the iframe navigates to the embed directly:
-    // with srcdoc this fired as soon as the wrapper document parsed.
-    iframe.onload = reveal;
-    applyEmbed(iframe, stream.embedUrl);
-    // Fallback: some embed hosts never fire load.
-    embedLoadTimer = setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS);
+    iframe.onload = null;
+    clearEmbed(iframe);
+    iframe.classList.add('hidden');
   }
+  el('player-container')?.querySelectorAll('.player-gate').forEach(g => g.remove());
 
   const streamLabel = stream.streamNo ?? 1;
-  showToast(
-    `Stream ${streamLabel} — ${stream.language || 'Unknown'} ${stream.hd ? '(HD)' : '(SD)'}`,
-    'success'
-  );
+  const toast = `Stream ${streamLabel} — ${stream.language || 'Unknown'} ${stream.hd ? '(HD)' : '(SD)'}`;
+  const video = el('stream-video') as HTMLVideoElement | null;
+
+  void (async () => {
+    const nativeOk = !!video && (await playNativeHls(stream.embedUrl, {
+      key: MAIN_PLAYER_KEY,
+      video,
+      onReady: () => {
+        el('player-container')?.querySelectorAll('.player-gate').forEach(g => g.remove());
+      },
+    }));
+    if (state.selectedStream !== stream) return;
+    if (nativeOk) {
+      playerLoading?.classList.add('hidden');
+      showToast(`${toast} · native`, 'success');
+      return;
+    }
+    playViaIframe(stream.embedUrl);
+    showToast(toast, 'success');
+  })();
 }
 
 // ── Try next source ──
@@ -228,6 +256,7 @@ export function openPlayer(match: APIMatch): void {
   renderPlayerInfo(match);
 
   // Reset player
+  stopNativeHls(MAIN_PLAYER_KEY);
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
   if (iframe) {
     clearEmbedLoadTimer();
