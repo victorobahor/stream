@@ -15,8 +15,12 @@ describe('Content Security Policy', () => {
     expect(csp).not.toContain('frame-src *');
   });
 
-  it('should allow same-origin proxy frames plus https embeds', () => {
-    expect(csp).toContain("frame-src 'self' https:");
+  it('should allow same-origin proxy frames plus embed.st only', () => {
+    expect(csp).toContain("frame-src 'self' https://embed.st https://www.embed.st");
+    expect(csp).not.toContain('frame-src *');
+    // Reject the old broad "any https" token (exact directive value).
+    const frameSrc = csp.split(';').map(s => s.trim()).find(s => s.startsWith('frame-src'));
+    expect(frameSrc).toBe("frame-src 'self' https://embed.st https://www.embed.st");
   });
 
   it('should keep script-src locked to self', () => {

@@ -2,7 +2,6 @@ import type { APIMatch } from './types';
 import { el, bindListDelegation, setHostImage } from './helpers';
 import { capitalize, getSportEmoji, isMatchLive, isEPLMatch, getPosterUrl, formatDate } from './format';
 import { getMatchById } from './api';
-import { openPlayer } from './player';
 
 // ── Icon templates ──
 // Parsed once at module load instead of once per icon per card.
@@ -234,6 +233,8 @@ export function renderMatches(matches: APIMatch[]): void {
 
   bindListDelegation(grid, '.match-card', card => {
     const match = getMatchById(card.dataset.id);
-    if (match) openPlayer(match);
+    if (!match) return;
+    // Lazy-load player (+ hls.js) only when a match is opened.
+    void import('./player').then(m => m.openPlayer(match));
   });
 }

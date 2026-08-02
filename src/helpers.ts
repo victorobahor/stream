@@ -188,16 +188,31 @@ export function toProxiedEmbedUrl(embedUrl: string): string | null {
   return `/__embed?u=${encodeURIComponent(safe)}`;
 }
 
+/** True when the URL is an https://embed.st|/www.embed.st embed path. */
+export function isAllowedEmbedHost(embedUrl: string): boolean {
+  try {
+    const u = new URL(embedUrl);
+    if (u.protocol !== 'https:') return false;
+    if (u.hostname !== 'embed.st' && u.hostname !== 'www.embed.st') return false;
+    return u.pathname.startsWith('/embed/');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Navigate an iframe to a stream embed. No `sandbox` attribute — the players
  * check for it explicitly and refuse to start. PopUnder mitigation is handled
  * by `adShield.ts` (click-to-start gate + blur→focus), not sandbox / proxy.
+ * Only allowlisted embed.st hosts are accepted (OWASP A03 — untrusted frame-src).
  */
 export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
   const safe = sanitizeUrl(embedUrl);
   if (!safe || safe === 'about:blank') return;
+  if (!isAllowedEmbedHost(safe) && !safe.startsWith('/__embed?')) return;
   const src =
     isEmbedProxyEnabled() ? (toProxiedEmbedUrl(safe) ?? safe) : safe;
+  if (!src.startsWith('/') && !isAllowedEmbedHost(src)) return;
   const proxied = src.startsWith('/');
   iframe.removeAttribute('srcdoc');
   // Cleared explicitly: leftover sandbox from markup/prior nav would trip the

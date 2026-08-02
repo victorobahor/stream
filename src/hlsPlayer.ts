@@ -1,11 +1,10 @@
-import Hls from 'hls.js';
 import { log } from './helpers';
 import { registerNativeStop } from './mediaStop';
 
 export const MAIN_PLAYER_KEY = 'main';
 
 interface NativeInstance {
-  hls: Hls | null;
+  hls: { destroy: () => void } | null;
   sessionId: string | null;
   generation: number;
   video: HTMLVideoElement;
@@ -28,10 +27,25 @@ function bumpGeneration(key: string): number {
   return next;
 }
 
+function closeRemoteSession(sessionId: string | null): void {
+  if (!sessionId) return;
+  const url = `/api/hls/${sessionId}/close`;
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      navigator.sendBeacon(url);
+      return;
+    }
+  } catch {
+    /* fall through */
+  }
+  void fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+}
+
 function destroyKey(key: string): void {
   bumpGeneration(key);
   const inst = instances.get(key);
   if (!inst) return;
+  const sessionId = inst.sessionId;
   if (inst.hls) {
     inst.hls.destroy();
     inst.hls = null;
@@ -47,6 +61,7 @@ function destroyKey(key: string): void {
     }
   }
   instances.delete(key);
+  closeRemoteSession(sessionId);
 }
 
 /** Stop one native player (`main`, `mv-0`, …) or every instance when omitted. */
@@ -75,18 +90,23 @@ export type PlayNativeOptions = {
  */
 export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): Promise<boolean> {
   if (!isHlsNativeEnabled()) return false;
+
+  // Lazy-load hls.js so the home grid does not pay for it on first paint.
+  const { default: Hls } = await import('hls.js');
   if (!Hls.isSupported()) return false;
 
   const { video, key, onReady } = opts;
   if (!video || !key) return false;
 
-  // Tear down any current instance, then claim a fresh generation for this open.
   const prev = instances.get(key);
   if (prev?.hls) {
     prev.hls.destroy();
     prev.hls = null;
   }
-  if (prev) instances.delete(key);
+  if (prev) {
+    closeRemoteSession(prev.sessionId);
+    instances.delete(key);
+  }
 
   const generation = bumpGeneration(key);
   const inst: NativeInstance = {

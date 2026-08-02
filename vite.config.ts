@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => ({
     open: true,
     headers: {
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' https://embed.st https://www.embed.st; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'",
     },
   },
 }));
