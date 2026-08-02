@@ -91,37 +91,39 @@ function fakeIframe() {
   };
 }
 
+const ALLOWED_EMBED = 'https://embed.st/embed/admin/ppv-test/1';
+
 describe('applyEmbed', () => {
   it('should navigate to the embed URL', () => {
     const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
-    expect(iframe.getAttribute('src')).toBe('https://embed.example/stream/1');
+    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
+    expect(iframe.getAttribute('src')).toBe(ALLOWED_EMBED);
   });
 
   it('should not sandbox the embed', () => {
     // The players detect a sandbox that withholds allow-popups and refuse to
     // start, so embeds are run unrestricted. See applyEmbed's comment.
     const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
     expect(iframe.getAttribute('sandbox')).toBeNull();
   });
 
   it('should clear a sandbox left over from markup or a prior navigation', () => {
     const iframe = fakeIframe();
     iframe.setAttribute('sandbox', 'allow-scripts');
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
     expect(iframe.getAttribute('sandbox')).toBeNull();
   });
 
   it('should grant the playback permissions the players need', () => {
     const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
     expect(iframe.getAttribute('allow')).toBe(EMBED_ALLOW);
   });
 
   it('should set a referrer policy', () => {
     const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
     expect(iframe.getAttribute('referrerpolicy')).toBe('strict-origin-when-cross-origin');
   });
 
@@ -130,6 +132,12 @@ describe('applyEmbed', () => {
     applyEmbed(iframe as unknown as HTMLIFrameElement, 'javascript:alert(1)');
     expect(iframe.getAttribute('src')).toBeNull();
     expect(iframe.getAttribute('allow')).toBeNull();
+  });
+
+  it('should refuse non-allowlisted embed hosts', () => {
+    const iframe = fakeIframe();
+    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://evil.example/embed/x/1');
+    expect(iframe.getAttribute('src')).toBeNull();
   });
 
   it('should load embed.st directly by default (proxy breaks origin checks)', () => {
@@ -171,7 +179,7 @@ describe('toProxiedEmbedUrl', () => {
 describe('clearEmbed', () => {
   it('should navigate to about:blank and drop the load handler', () => {
     const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://embed.example/stream/1');
+    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
     clearEmbed(iframe as unknown as HTMLIFrameElement);
 
     // Removing the src attribute would leave the document — and its audio — running.

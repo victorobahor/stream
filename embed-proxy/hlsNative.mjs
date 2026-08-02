@@ -14,7 +14,19 @@ const UA =
 
 const SESSION_TTL_MS = 3 * 60 * 1000;
 const RESOLVE_TIMEOUT_MS = 45_000;
+const MAX_SESSIONS = Math.max(1, Number(process.env.HLS_MAX_SESSIONS || 4));
+const MAX_OPENS_IN_FLIGHT = Math.max(1, Number(process.env.HLS_MAX_OPENS || 2));
+const OPEN_RATE_WINDOW_MS = 60_000;
+const OPEN_RATE_MAX = Math.max(1, Number(process.env.HLS_OPEN_RATE_MAX || 8));
 const ALLOWED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
+/** Exact suffix allowlist — never use host.includes('tiktok') (open-proxy). */
+const ALLOWED_CDN_SUFFIXES = [
+  '.tiktokcdn-eu.com',
+  '.tiktokcdn.com',
+  '.ttlivecdn.com',
+  '.tiktokv.eu',
+  '.tiktokv.com',
+];
 
 /** @typedef {{ id: string, embedUrl: string, playlistUrl: string, page: import('playwright').Page, context: import('playwright').BrowserContext, lastAccess: number, closed: boolean }} HlsSession */
 
@@ -24,8 +36,47 @@ let browser = null;
 let browserLaunching = null;
 /** @type {Map<string, HlsSession>} */
 const sessions = new Map();
+/** @type {Map<string, number[]>} */
+const openHitsByIp = new Map();
+let opensInFlight = 0;
 
 let janitor = null;
+
+export function isAllowedMediaHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return false;
+  if (host === 'strmd.st' || host.endsWith('.strmd.st')) return true;
+  return ALLOWED_CDN_SUFFIXES.some(suffix => host.endsWith(suffix) || host === suffix.slice(1));
+}
+
+function clientIp(req) {
+  const xf = req?.headers?.['x-forwarded-for'];
+  if (typeof xf === 'string' && xf.length) return xf.split(',')[0].trim();
+  return req?.socket?.remoteAddress || 'unknown';
+}
+
+function assertOpenAllowed(req) {
+  if (sessions.size >= MAX_SESSIONS) {
+    const err = new Error('Too many active HLS sessions');
+    err.statusCode = 429;
+    throw err;
+  }
+  if (opensInFlight >= MAX_OPENS_IN_FLIGHT) {
+    const err = new Error('HLS resolve busy — try again shortly');
+    err.statusCode = 429;
+    throw err;
+  }
+  const ip = clientIp(req);
+  const now = Date.now();
+  const hits = (openHitsByIp.get(ip) || []).filter(t => now - t < OPEN_RATE_WINDOW_MS);
+  if (hits.length >= OPEN_RATE_MAX) {
+    const err = new Error('HLS open rate limit exceeded');
+    err.statusCode = 429;
+    throw err;
+  }
+  hits.push(now);
+  openHitsByIp.set(ip, hits);
+}
 
 export function unwrapPngTs(buf) {
   if (
@@ -128,6 +179,17 @@ async function getBrowser() {
   }
 }
 
+/** @param {import('node:http').IncomingMessage | null} [req] */
+export async function openHlsSessionForRequest(embedUrlRaw, req = null) {
+  assertOpenAllowed(req);
+  opensInFlight++;
+  try {
+    return await openHlsSession(embedUrlRaw);
+  } finally {
+    opensInFlight--;
+  }
+}
+
 async function fetchViaPage(page, url) {
   return page.evaluate(async u => {
     const r = await fetch(u, { credentials: 'omit' });
@@ -185,7 +247,6 @@ export async function openHlsSession(embedUrlRaw) {
   const context = await b.newContext({
     viewport: { width: 1100, height: 700 },
     userAgent: UA,
-    ignoreHTTPSErrors: true,
   });
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -263,16 +324,11 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
     }
 
     const host = parsed.hostname;
-    const isStrmd = host === 'strmd.st' || host.endsWith('.strmd.st');
-    const isCdn =
-      host.endsWith('tiktokcdn-eu.com') ||
-      host.endsWith('tiktokcdn.com') ||
-      host.endsWith('ttlivecdn.com') ||
-      host.includes('tiktok');
-
-    if (!isStrmd && !isCdn) {
+    if (!isAllowedMediaHost(host)) {
       return { status: 400, type: 'text/plain; charset=utf-8', body: Buffer.from('Host not allowed') };
     }
+
+    const isStrmd = host === 'strmd.st' || host.endsWith('.strmd.st');
 
     // Use the raw target string for fetches — URL#href can re-encode query tokens.
     const mediaUrl = target;
@@ -285,7 +341,15 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
     } else {
       const r = await fetch(mediaUrl, {
         headers: { 'User-Agent': UA, Referer: 'https://embed.st/', Accept: '*/*' },
+        redirect: 'manual',
       });
+      if (r.status >= 300 && r.status < 400) {
+        return {
+          status: 400,
+          type: 'text/plain; charset=utf-8',
+          body: Buffer.from('Redirects not allowed'),
+        };
+      }
       if (!r.ok) {
         return {
           status: 502,
@@ -329,7 +393,7 @@ export async function tryHandleHlsRequest(req, res) {
     res.statusCode = status;
     res.setHeader('Content-Type', type);
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // Same-origin only — do not advertise CORS * (A01 / open proxy from other sites).
     res.end(body);
   };
 
@@ -343,7 +407,7 @@ export async function tryHandleHlsRequest(req, res) {
       }
       const embed = parsed.searchParams.get('u') || '';
       try {
-        const opened = await openHlsSession(embed);
+        const opened = await openHlsSessionForRequest(embed, req);
         send(200, 'application/json; charset=utf-8', JSON.stringify(opened));
       } catch (err) {
         const status = err?.statusCode || 503;
@@ -354,14 +418,21 @@ export async function tryHandleHlsRequest(req, res) {
       return true;
     }
 
+    const closeMatch = parsed.pathname.match(/^\/api\/hls\/([a-f0-9]+)\/close$/);
+    if (closeMatch) {
+      if (req.method !== 'GET' && req.method !== 'POST') {
+        send(405, 'text/plain; charset=utf-8', 'Method not allowed');
+        return true;
+      }
+      await closeSession(closeMatch[1]);
+      send(204, 'text/plain; charset=utf-8', '');
+      return true;
+    }
+
     const match = parsed.pathname.match(/^\/api\/hls\/([a-f0-9]+)\/(master\.m3u8|p)$/);
     if (!match) {
       send(404, 'text/plain; charset=utf-8', 'Not found');
       return true;
-    }
-
-    if (parsed.pathname.endsWith('/close') || false) {
-      /* reserved */
     }
 
     const result = await handleHlsMedia(match[1], parsed.pathname, parsed.searchParams);
@@ -369,8 +440,17 @@ export async function tryHandleHlsRequest(req, res) {
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    send(502, 'text/plain; charset=utf-8', `HLS proxy failed: ${msg}`);
+    send(502, 'text/plain; charset=utf-8', 'HLS proxy failed');
+    logSafe(msg);
     return true;
+  }
+}
+
+function logSafe(msg) {
+  try {
+    console.warn('[hls]', msg);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -379,4 +459,5 @@ export const __test = {
   rewriteM3uForProxy,
   absolutizePlaylistUri,
   isAllowedEmbedUrl,
+  isAllowedMediaHost,
 };

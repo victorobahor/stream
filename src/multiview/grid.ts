@@ -62,12 +62,15 @@ const SLOT_HEADER_TEMPLATE = template(
   '<div class="mv-slot-header"><div class="mv-slot-title"></div><div class="mv-slot-controls">' +
     '<select class="mv-source-select" data-slot-action="change-source" aria-label="Select stream source"></select>' +
     '<select class="mv-source-select" data-slot-action="change-stream" aria-label="Select stream quality"></select>' +
+    '<button class="mv-control-btn" aria-label="Toggle slot audio" data-slot-action="audio" title="Unmute this slot"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>' +
     '<button class="mv-control-btn" aria-label="Fullscreen stream" data-slot-action="fullscreen" title="Fullscreen"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>' +
     '<button class="mv-control-btn close-btn" aria-label="Close stream" data-slot-action="clear" title="Close Stream"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
     '</div></div>'
 );
 
-const LOADING_TEMPLATE = template('<div class="mv-loading"><div class="spinner"></div><span>Loading stream…</span></div>');
+const LOADING_TEMPLATE = template(
+  '<div class="mv-loading"><div class="spinner"></div><span>Opening secure stream…</span></div>',
+);
 
 // ── Slot events ──
 
@@ -117,6 +120,18 @@ function attachSlotEvents(slotEl: HTMLDivElement, i: number): void {
         case 'fullscreen':
           fullscreenMultiviewSlot(i);
           return;
+        case 'audio': {
+          const video = slotEl.querySelector<HTMLVideoElement>('.mv-video');
+          if (!video) return;
+          const enable = video.muted;
+          document.querySelectorAll<HTMLVideoElement>('.mv-video').forEach(v => {
+            v.muted = true;
+          });
+          video.muted = !enable;
+          control.title = video.muted ? 'Unmute this slot' : 'Mute this slot';
+          control.setAttribute('aria-pressed', video.muted ? 'false' : 'true');
+          return;
+        }
         case 'clear':
           clearMultiviewSlot(i);
           return;

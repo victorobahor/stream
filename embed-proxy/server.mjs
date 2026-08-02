@@ -47,11 +47,15 @@ const GZIP_TYPES = new Set([
   'text/plain; charset=utf-8',
 ]);
 
+const CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' https://embed.st https://www.embed.st; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'";
+
 const SECURITY_HEADERS = {
   'X-Frame-Options': 'SAMEORIGIN',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+  'Content-Security-Policy': CSP,
   'Cross-Origin-Embedder-Policy': 'unsafe-none',
   'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
   'Cross-Origin-Resource-Policy': 'cross-origin',
@@ -94,8 +98,10 @@ async function send(req, res, status, type, body, extraHeaders = {}) {
 
 function safeJoin(root, reqPath) {
   const decoded = decodeURIComponent(reqPath.split('?')[0]);
-  const joined = path.normalize(path.join(root, decoded));
-  if (!joined.startsWith(root)) return null;
+  const rootResolved = path.resolve(root);
+  const joined = path.resolve(rootResolved, '.' + path.normalize('/' + decoded));
+  const prefix = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
+  if (joined !== rootResolved && !joined.startsWith(prefix)) return null;
   return joined;
 }
 

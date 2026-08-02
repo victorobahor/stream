@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { __test } from './hlsNative.mjs';
 
-const { unwrapPngTs, rewriteM3uForProxy, absolutizePlaylistUri, isAllowedEmbedUrl } = __test;
+const { unwrapPngTs, rewriteM3uForProxy, absolutizePlaylistUri, isAllowedEmbedUrl, isAllowedMediaHost } = __test;
 
 describe('hlsNative helpers', () => {
   it('accepts embed.st embed URLs only', () => {
@@ -45,5 +45,14 @@ describe('hlsNative helpers', () => {
   it('leaves non-PNG buffers unchanged', () => {
     const buf = Buffer.from([0x47, 0x40, 0x00]);
     expect(unwrapPngTs(buf)).toBe(buf);
+  });
+
+  it('allows only suffix-matched CDN / strmd hosts', () => {
+    expect(isAllowedMediaHost('lb1.strmd.st')).toBe(true);
+    expect(isAllowedMediaHost('p16-common-sign.tiktokcdn-eu.com')).toBe(true);
+    expect(isAllowedMediaHost('evil-tiktok.com')).toBe(false);
+    expect(isAllowedMediaHost('nottiktok.com')).toBe(false);
+    expect(isAllowedMediaHost('127.0.0.1')).toBe(false);
+    expect(isAllowedMediaHost('example.com')).toBe(false);
   });
 });

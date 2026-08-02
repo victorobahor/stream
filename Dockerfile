@@ -24,9 +24,12 @@ ENV PORT=80
 ENV DIST_DIR=/app/dist
 
 COPY --from=builder /app/dist/ /app/dist/
-COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs /app/embed-proxy/
+COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs /app/embed-proxy/
 
-EXPOSE 80
+# Non-root (port 80 needs cap; compose maps host 8080 → container 8080).
+ENV PORT=8080
+USER node
+EXPOSE 8080
 
 # Explicit entrypoint so a stale nginx-era `/docker-entrypoint.sh` on an old
 # container config cannot shadow the Node image (that path does not exist here).

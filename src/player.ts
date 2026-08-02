@@ -149,6 +149,28 @@ function clearEmbedLoadTimer(): void {
   }
 }
 
+let loadingStageTimers: ReturnType<typeof setTimeout>[] = [];
+
+function clearLoadingStages(): void {
+  for (const t of loadingStageTimers) clearTimeout(t);
+  loadingStageTimers = [];
+}
+
+function setLoadingStage(text: string): void {
+  const p = el('player-loading-text');
+  if (p) p.textContent = text;
+}
+
+function startLoadingStages(): void {
+  clearLoadingStages();
+  setLoadingStage('Opening secure stream…');
+  loadingStageTimers.push(setTimeout(() => setLoadingStage('Resolving playlist…'), 2500));
+  loadingStageTimers.push(setTimeout(() => setLoadingStage('Buffering…'), 8000));
+  loadingStageTimers.push(
+    setTimeout(() => setLoadingStage('Still working — large streams can take a moment…'), 15000),
+  );
+}
+
 function playViaIframe(embedUrl: string): void {
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
   const playerLoading = el('player-loading');
@@ -161,7 +183,9 @@ function playViaIframe(embedUrl: string): void {
 
   const reveal = () => {
     clearEmbedLoadTimer();
+    clearLoadingStages();
     playerLoading?.classList.add('hidden');
+    setLoadingStage('Loading stream…');
     iframe.classList.remove('hidden');
     // Gate sits above the iframe so the embed's first PopUnder gesture is ours.
     if (container) mountPlayGate(container);
@@ -189,7 +213,10 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   const playerLoading = el('player-loading');
 
   if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
-  if (playerLoading) playerLoading.classList.remove('hidden');
+  if (playerLoading) {
+    playerLoading.classList.remove('hidden');
+    startLoadingStages();
+  }
 
   // Prefer native HLS (no iframe ads). Fall back to embed iframe + click-gate.
   stopNativeHls(MAIN_PLAYER_KEY);
@@ -215,10 +242,13 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
     }));
     if (state.selectedStream !== stream) return;
     if (nativeOk) {
+      clearLoadingStages();
+      setLoadingStage('Loading stream…');
       playerLoading?.classList.add('hidden');
       showToast(`${toast} · native`, 'success');
       return;
     }
+    setLoadingStage('Starting embed player…');
     playViaIframe(stream.embedUrl);
     showToast(toast, 'success');
   })();
