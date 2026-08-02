@@ -24,7 +24,9 @@ ENV PORT=80
 ENV DIST_DIR=/app/dist
 
 COPY --from=builder /app/dist/ /app/dist/
-COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs /app/embed-proxy/
+# server.mjs imports hlsNative.mjs (native HLS resolve/proxy). Omitting it
+# crashes the container at boot with ERR_MODULE_NOT_FOUND.
+COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs /app/embed-proxy/
 
 EXPOSE 80
 
