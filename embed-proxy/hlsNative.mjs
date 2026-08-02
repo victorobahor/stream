@@ -113,7 +113,13 @@ async function getBrowser() {
     browser = await playwright.chromium.launch({
       headless: true,
       executablePath,
-      args: ['--disable-blink-features=AutomationControlled', '--disable-popup-blocking'],
+      // --no-sandbox / shm: required inside typical Docker/CI containers.
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-popup-blocking',
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+      ],
     });
     browser.on('disconnected', () => {
       browser = null;
