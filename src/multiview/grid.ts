@@ -1,6 +1,7 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
 import { el, sanitizeUrl, applyEmbed, clearEmbed, log } from '../helpers';
+import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from '../hlsPlayer';
 import { mountPlayGate } from '../adShield';
 import { getMatchById, loadMatches } from '../api';
 import { setActiveNav } from '../ui';
@@ -180,20 +181,58 @@ function buildEmptySlot(slotEl: HTMLDivElement, i: number): void {
   slotEl.replaceChildren(content);
 }
 
+function mvPlayerKey(i: number): string {
+  return `mv-${i}`;
+}
+
+function clearSlotMedia(slotEl: HTMLDivElement, i: number): void {
+  clearSlotLoadTimer(i);
+  stopNativeHls(mvPlayerKey(i));
+  slotEl.querySelectorAll<HTMLIFrameElement>('.mv-iframe').forEach(clearEmbed);
+  slotEl.querySelectorAll<HTMLVideoElement>('.mv-video').forEach(v => {
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+  });
+}
+
+function mountSlotIframe(
+  slotEl: HTMLDivElement,
+  i: number,
+  desiredUrl: string,
+  overlayEl: HTMLElement,
+): void {
+  const iframe = document.createElement('iframe');
+  iframe.className = 'mv-iframe';
+  iframe.dataset.embedUrl = desiredUrl;
+  iframe.allowFullscreen = true;
+  iframe.setAttribute('scrolling', 'no');
+
+  const reveal = () => {
+    clearSlotLoadTimer(i);
+    overlayEl.remove();
+    mountPlayGate(slotEl, { message: 'Click to start' });
+  };
+  iframe.onload = reveal;
+
+  slotEl.appendChild(iframe);
+  if (!overlayEl.isConnected) slotEl.appendChild(overlayEl);
+  applyEmbed(iframe, desiredUrl);
+  slotLoadTimers.set(i, setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS));
+}
+
 /**
  * Bring one slot element in line with `state.multiviewSlots[i]`.
  *
- * A live iframe is only ever replaced when the embed URL actually changes:
- * re-inserting (or even re-parenting) an iframe discards its browsing context,
- * which is what used to restart every other stream on any grid render.
+ * Live media (native video or iframe) is only replaced when the embed URL
+ * changes — re-parenting would restart every other stream on any grid render.
  */
 function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
   const slot = state.multiviewSlots[i];
   slotEl.classList.toggle('active-target', i === state.multiviewActiveSlot);
 
   if (!slot) {
-    clearSlotLoadTimer(i);
-    slotEl.querySelectorAll<HTMLIFrameElement>('.mv-iframe').forEach(clearEmbed);
+    clearSlotMedia(slotEl, i);
     slotEl.classList.add('empty');
     buildEmptySlot(slotEl, i);
     return;
@@ -202,13 +241,29 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
   slotEl.classList.remove('empty');
 
   const desiredUrl = !slot.loading && slot.stream?.embedUrl ? sanitizeUrl(slot.stream.embedUrl) : '';
-  const existing = slotEl.querySelector<HTMLIFrameElement>('.mv-iframe');
-  const keepExisting = !!existing && !!desiredUrl && existing.dataset.embedUrl === desiredUrl;
+  const existingVideo = slotEl.querySelector<HTMLVideoElement>('.mv-video');
+  const existingIframe = slotEl.querySelector<HTMLIFrameElement>('.mv-iframe');
+  const existingMedia =
+    (existingVideo && existingVideo.dataset.embedUrl === desiredUrl && desiredUrl
+      ? existingVideo
+      : null) ||
+    (existingIframe && existingIframe.dataset.embedUrl === desiredUrl && desiredUrl
+      ? existingIframe
+      : null);
+  const keepExisting = !!existingMedia;
 
-  // Drop everything except an iframe we are keeping — it must stay attached.
+  // Drop everything except media (and its loading overlay) we are keeping.
   for (const child of Array.from(slotEl.children)) {
-    if (keepExisting && child === existing) continue;
-    if (child === existing) clearEmbed(existing);
+    if (keepExisting && child === existingMedia) continue;
+    if (
+      keepExisting &&
+      child instanceof HTMLElement &&
+      child.classList.contains('mv-loading')
+    ) {
+      continue;
+    }
+    if (child === existingIframe) clearEmbed(existingIframe);
+    if (child === existingVideo) stopNativeHls(mvPlayerKey(i));
     child.remove();
   }
 
@@ -217,28 +272,40 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
   slotEl.appendChild(buildSlotHeader(slot));
 
   if (!keepExisting && desiredUrl) {
-    const iframe = document.createElement('iframe');
-    iframe.className = 'mv-iframe';
-    iframe.dataset.embedUrl = desiredUrl;
-    iframe.allowFullscreen = true;
-    iframe.setAttribute('scrolling', 'no');
+    stopNativeHls(mvPlayerKey(i));
+    slotEl.querySelectorAll('.player-gate').forEach(g => g.remove());
 
     const overlay = LOADING_TEMPLATE.content.cloneNode(true) as DocumentFragment;
-    // The overlay is opaque and sits above the iframe, so the iframe itself
-    // stays visible in the layout — a display:none frame is a poor bet to load.
     const overlayEl = overlay.querySelector('.mv-loading') as HTMLElement;
 
-    const reveal = () => {
-      clearSlotLoadTimer(i);
-      overlayEl.remove();
-      mountPlayGate(slotEl, { message: 'Click to start' });
-    };
-    iframe.onload = reveal;
+    const video = document.createElement('video');
+    video.className = 'mv-video';
+    video.controls = true;
+    video.playsInline = true;
+    video.muted = true;
+    video.dataset.embedUrl = desiredUrl;
 
-    slotEl.appendChild(iframe);
+    slotEl.appendChild(video);
     slotEl.appendChild(overlayEl);
-    applyEmbed(iframe, desiredUrl);
-    slotLoadTimers.set(i, setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS));
+
+    const requestUrl = desiredUrl;
+    void (async () => {
+      const ok = await playNativeHls(requestUrl, {
+        key: mvPlayerKey(i),
+        video,
+        onReady: () => {
+          clearSlotLoadTimer(i);
+          overlayEl.remove();
+          slotEl.querySelectorAll('.player-gate').forEach(g => g.remove());
+        },
+      });
+      // Slot may have been cleared / switched while resolve ran.
+      if (state.multiviewSlots[i]?.stream?.embedUrl !== requestUrl) return;
+      if (ok) return;
+
+      video.remove();
+      mountSlotIframe(slotEl, i, requestUrl, overlayEl);
+    })();
   }
 
   if (slot.loading) {
@@ -283,9 +350,9 @@ export function renderMultiviewGrid(): void {
   const numSlots = getNumSlotsForLayout(state.multiviewLayout);
 
   while (container.children.length > numSlots) {
-    const last = container.lastElementChild as HTMLElement;
-    clearSlotLoadTimer(container.children.length - 1);
-    last.querySelectorAll<HTMLIFrameElement>('.mv-iframe').forEach(clearEmbed);
+    const idx = container.children.length - 1;
+    const last = container.lastElementChild as HTMLDivElement;
+    clearSlotMedia(last, idx);
     last.remove();
   }
   while (container.children.length < numSlots) {
@@ -306,6 +373,8 @@ export function showMultiview(): void {
   el('player-view')?.classList.add('hidden');
   el('multiview-view')?.classList.remove('hidden');
 
+  // Stop the main player only — multiview slots manage their own media.
+  stopNativeHls(MAIN_PLAYER_KEY);
   const mainIframe = el('stream-iframe') as HTMLIFrameElement | null;
   if (mainIframe) clearEmbed(mainIframe);
 

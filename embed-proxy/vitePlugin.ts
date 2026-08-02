@@ -7,6 +7,7 @@ import {
   ALLOWED_EMBED_HOSTS,
   AD_INJECTOR_RE,
 } from './rewrite.mjs';
+import { tryHandleHlsRequest } from './hlsNative.mjs';
 
 function send(res: Connect.ServerResponse, status: number, type: string, body: string | Buffer): void {
   res.statusCode = status;
@@ -16,9 +17,11 @@ function send(res: Connect.ServerResponse, status: number, type: string, body: s
 }
 
 /**
- * Dev-server embed rewrite proxy:
+ * Dev-server embed rewrite proxy + native HLS resolve/proxy:
  *   GET /__embed?u=<https://embed.st/...>  → HTML with window.open sunk
  *   GET /__ad_sink                         → blank sink document
+ *   GET /api/hls/open?u=…                  → { sessionId, masterUrl }
+ *   GET /api/hls/:id/master.m3u8|/p        → proxied playlist / segments
  */
 export function embedProxyPlugin(): Plugin {
   return {
@@ -26,6 +29,10 @@ export function embedProxyPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const rawUrl = req.url || '';
+        if (rawUrl.startsWith('/api/hls')) {
+          const handled = await tryHandleHlsRequest(req, res);
+          if (handled) return;
+        }
         if (!rawUrl.startsWith('/__embed') && !rawUrl.startsWith('/__ad_sink')) {
           next();
           return;

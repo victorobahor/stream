@@ -529,9 +529,15 @@ img { display: block; max-width: 100%; }
   0%, 100% { transform: scale(1); opacity: 0.8; }
   50% { transform: scale(1.05); opacity: 1; }
 }
-#stream-iframe {
+#stream-iframe,
+#stream-video {
   width: 100%; height: 100%;
   position: absolute; inset: 0;
+  background: #000;
+}
+#stream-video {
+  object-fit: contain;
+  z-index: 2;
 }
 .player-loading {
   position: absolute; inset: 0;
@@ -974,12 +980,18 @@ img { display: block; max-width: 100%; }
 }
 
 /* Slot Active States */
-.mv-iframe {
+.mv-iframe,
+.mv-video {
   width: 100%;
   height: 100%;
   position: absolute;
   inset: 0;
   border: none;
+  background: #000;
+}
+.mv-video {
+  object-fit: contain;
+  z-index: 1;
 }
 
 .mv-slot-header {

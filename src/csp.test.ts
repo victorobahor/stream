@@ -32,6 +32,10 @@ describe('Content Security Policy', () => {
     expect(csp).toContain("connect-src 'self' https://streamed.pk https://strmd.link");
   });
 
+  it('should allow blob media/workers for native HLS', () => {
+    expect(csp).toContain("media-src 'self' blob:");
+    expect(csp).toContain("worker-src 'self' blob:");
+  });
   it('should not rely on header-only directives that a meta tag ignores', () => {
     // `sandbox`, `frame-ancestors` and `report-uri` are silently dropped when
     // delivered via <meta> — putting them here is a no-op that reads as safety.

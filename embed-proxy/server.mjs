@@ -16,6 +16,7 @@ import {
   readUpstream,
   rewriteEmbedHtml,
 } from './rewrite.mjs';
+import { tryHandleHlsRequest } from './hlsNative.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 80);
@@ -172,6 +173,10 @@ async function serveStatic(req, res, url) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+    if (await tryHandleHlsRequest(req, res)) {
+      return;
+    }
 
     if (url.pathname === '/__embed' || url.pathname === '/__ad_sink') {
       await handleProxy(req, res, url);
