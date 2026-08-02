@@ -8,7 +8,7 @@ import {
   sortMatchesForDisplay,
   log,
 } from '../helpers';
-import { capitalize, formatSportLabel, getSportEmoji } from '../format';
+import { formatSportLabel, getSportEmoji } from '../format';
 import { renderSportChips, ALL_SPORTS } from '../chips';
 import { loadStreams, getMatchById } from '../api';
 import { loadMultiviewSlotStream } from './slots';

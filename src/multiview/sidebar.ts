@@ -7,7 +7,7 @@ import {
   filterMatchesBySport,
   sortMatchesForDisplay,
 } from '../helpers';
-import { capitalize, formatSportLabel, getSportEmoji, isMatchLive } from '../format';
+import { formatSportLabel, getSportEmoji, isMatchLive } from '../format';
 import { renderSportChips, ALL_SPORTS } from '../chips';
 import { loadMatchStreamsIntoActiveSlot } from './slots';
 
