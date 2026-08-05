@@ -26,6 +26,8 @@ const OPEN_RATE_MAX = Math.max(1, Number(process.env.HLS_OPEN_RATE_MAX || 48));
 const OPEN_WAIT_MS = Math.max(0, Number(process.env.HLS_OPEN_WAIT_MS || 45_000));
 /** Reuse mint cookies/playlist for the same embed across viewers (0 disables). */
 const MINT_CACHE_TTL_MS = Math.max(0, Number(process.env.HLS_MINT_CACHE_TTL_MS || 120_000));
+/** Skip reminting embeds that just timed out (lets client fall back to iframe). */
+const FAIL_CACHE_TTL_MS = Math.max(0, Number(process.env.HLS_FAIL_CACHE_TTL_MS || 60_000));
 const ALLOWED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
 /** Exact suffix allowlist — never use host.includes('tiktok') (open-proxy). */
 const ALLOWED_CDN_SUFFIXES = [
@@ -49,8 +51,10 @@ const sessions = new Map();
 const openHitsByIp = new Map();
 /** @type {Map<string, MintCacheEntry>} */
 const mintCache = new Map();
-/** @type {Map<string, Promise<MintCacheEntry>>} */
+/** @type {Map<string, Promise<MintCacheEntry | null>>} */
 const mintInFlight = new Map();
+/** @type {Map<string, number>} embedKey → fail-until timestamp */
+const failCache = new Map();
 let opensInFlight = 0;
 
 let janitor = null;
@@ -112,6 +116,54 @@ function getValidMint(embedKey) {
     return null;
   }
   return cached;
+}
+
+function assertNotRecentlyFailed(embedKey) {
+  const until = failCache.get(embedKey);
+  if (!until) return;
+  if (until <= Date.now()) {
+    failCache.delete(embedKey);
+    return;
+  }
+  const err = new Error('Recent HLS resolve failed for this embed');
+  err.statusCode = 503;
+  throw err;
+}
+
+function markResolveFailed(embedKey) {
+  if (FAIL_CACHE_TTL_MS <= 0) return;
+  failCache.set(embedKey, Date.now() + FAIL_CACHE_TTL_MS);
+}
+
+/** True when a network response is a usable HLS playlist (not an ad beacon). */
+export function isCandidatePlaylistUrl(url, status = 200) {
+  if (status !== 200) return false;
+  let host;
+  let path;
+  try {
+    const u = new URL(String(url || ''));
+    host = u.hostname.toLowerCase();
+    path = u.pathname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!path.includes('.m3u8')) return false;
+  // Never accept playlists from arbitrary hosts (open-proxy / ad beacons).
+  if (!isAllowedMediaHost(host)) return false;
+  // Classic Streamed path, or any .m3u8 on allowlisted media (Delta variants).
+  return (
+    path.includes('/playlist.m3u8') ||
+    path.endsWith('playlist.m3u8') ||
+    path.includes('master.m3u8') ||
+    path.includes('index.m3u8') ||
+    path.endsWith('.m3u8')
+  );
+}
+
+function httpError(message, statusCode) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
 }
 
 export function unwrapPngTs(buf) {
@@ -252,11 +304,32 @@ async function fetchViaPage(page, url) {
   }, url);
 }
 
+async function tryClickPlay(page) {
+  const box = page.viewportSize() || { width: 1100, height: 700 };
+  await page.mouse.click(Math.floor(box.width / 2), Math.floor(box.height / 2)).catch(() => {});
+
+  // Some Delta embeds need a real control click, not just center-screen.
+  const selectors = [
+    'button',
+    '[aria-label*="Play" i]',
+    '[class*="play" i]',
+    'video',
+    '.vjs-big-play-button',
+  ];
+  for (const sel of selectors) {
+    const handle = await page.$(sel).catch(() => null);
+    if (!handle) continue;
+    await handle.click({ timeout: 1_500 }).catch(() => {});
+    break;
+  }
+}
+
 async function resolvePlaylist(page, embedUrl) {
   let playlist = null;
   const onResponse = res => {
+    if (playlist) return;
     const u = res.url();
-    if (u.includes('/playlist.m3u8') && res.status() === 200 && !playlist) {
+    if (isCandidatePlaylistUrl(u, res.status())) {
       playlist = u;
     }
   };
@@ -265,14 +338,19 @@ async function resolvePlaylist(page, embedUrl) {
   try {
     await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.waitForTimeout(800);
-    const box = page.viewportSize() || { width: 1100, height: 700 };
-    await page.mouse.click(Math.floor(box.width / 2), Math.floor(box.height / 2));
 
     const deadline = Date.now() + RESOLVE_TIMEOUT_MS;
+    let clicks = 0;
     while (!playlist && Date.now() < deadline) {
-      await page.waitForTimeout(200);
+      if (clicks < 4) {
+        await tryClickPlay(page);
+        clicks++;
+      }
+      await page.waitForTimeout(400);
     }
-    if (!playlist) throw new Error('Timed out waiting for playlist.m3u8');
+    if (!playlist) {
+      throw httpError('Timed out waiting for playlist.m3u8', 503);
+    }
     return playlist;
   } finally {
     page.off('response', onResponse);
@@ -328,19 +406,18 @@ async function openFromMintCache(browserInstance, embedKey, mint) {
 export async function openHlsSession(embedUrlRaw) {
   const embedUrl = isAllowedEmbedUrl(embedUrlRaw);
   if (!embedUrl) {
-    const err = new Error('Invalid or disallowed embed URL');
-    err.statusCode = 400;
-    throw err;
+    throw httpError('Invalid or disallowed embed URL', 400);
   }
 
   ensureJanitor();
   const b = await getBrowser();
   const embedKey = embedUrl.toString();
+  assertNotRecentlyFailed(embedKey);
 
   // Wait for a peer mint of the same embed, then try the cache.
   const peer = mintInFlight.get(embedKey);
   if (peer) {
-    await peer.catch(() => {});
+    await peer.catch(() => null);
   }
 
   const cached = getValidMint(embedKey);
@@ -355,9 +432,11 @@ export async function openHlsSession(embedUrlRaw) {
   const context = await newStealthContext(b, null);
   const page = await context.newPage();
 
-  let settle;
-  const mintPromise = new Promise((resolve, reject) => {
-    settle = { resolve, reject };
+  /** @type {{ resolve: (v: MintCacheEntry | null) => void } | null} */
+  let settle = null;
+  /** Always resolve (never reject) so idle waiters cannot crash the process. */
+  const mintPromise = new Promise(resolve => {
+    settle = { resolve };
   });
   if (MINT_CACHE_TTL_MS > 0 && !mintInFlight.has(embedKey)) {
     mintInFlight.set(embedKey, mintPromise);
@@ -375,11 +454,16 @@ export async function openHlsSession(embedUrlRaw) {
     if (MINT_CACHE_TTL_MS > 0) {
       mintCache.set(embedKey, entry);
     }
+    failCache.delete(embedKey);
     settle?.resolve(entry);
     return registerSession(embedKey, playlistUrl, page, context);
   } catch (err) {
-    settle?.reject(err);
+    settle?.resolve(null);
+    markResolveFailed(embedKey);
     await context.close().catch(() => {});
+    if (err && typeof err === 'object' && !err.statusCode) {
+      err.statusCode = 503;
+    }
     throw err;
   } finally {
     if (mintInFlight.get(embedKey) === mintPromise) {
@@ -573,4 +657,5 @@ export const __test = {
   absolutizePlaylistUri,
   isAllowedEmbedUrl,
   isAllowedMediaHost,
+  isCandidatePlaylistUrl,
 };

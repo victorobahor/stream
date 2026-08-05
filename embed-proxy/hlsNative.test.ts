@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { __test } from './hlsNative.mjs';
 
-const { unwrapPngTs, rewriteM3uForProxy, absolutizePlaylistUri, isAllowedEmbedUrl, isAllowedMediaHost } = __test;
+const {
+  unwrapPngTs,
+  rewriteM3uForProxy,
+  absolutizePlaylistUri,
+  isAllowedEmbedUrl,
+  isAllowedMediaHost,
+  isCandidatePlaylistUrl,
+} = __test;
 
 describe('hlsNative helpers', () => {
   it('accepts embed.st embed URLs only', () => {
@@ -54,5 +61,14 @@ describe('hlsNative helpers', () => {
     expect(isAllowedMediaHost('nottiktok.com')).toBe(false);
     expect(isAllowedMediaHost('127.0.0.1')).toBe(false);
     expect(isAllowedMediaHost('example.com')).toBe(false);
+  });
+
+  it('recognizes classic and host-allowlisted playlist URLs', () => {
+    expect(isCandidatePlaylistUrl('https://lb1.strmd.st/x/playlist.m3u8', 200)).toBe(true);
+    expect(isCandidatePlaylistUrl('https://cdn.tiktokcdn-eu.com/live/index.m3u8', 200)).toBe(true);
+    expect(isCandidatePlaylistUrl('https://lb1.strmd.st/x/chunk.m3u8', 200)).toBe(true);
+    expect(isCandidatePlaylistUrl('https://evil.com/ads/playlist.m3u8', 200)).toBe(false);
+    expect(isCandidatePlaylistUrl('https://lb1.strmd.st/x/playlist.m3u8', 404)).toBe(false);
+    expect(isCandidatePlaylistUrl('https://lb1.strmd.st/seg.ts', 200)).toBe(false);
   });
 });

@@ -22,6 +22,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 80);
 const DIST = path.resolve(process.env.DIST_DIR || path.join(__dirname, '..', 'dist'));
 
+// A single failed HLS mint must never take down the whole container.
+// (Attaching a listener disables Node's default "crash on unhandledRejection".)
+process.on('unhandledRejection', reason => {
+  console.warn('[unhandledRejection]', reason instanceof Error ? reason.stack || reason.message : reason);
+});
+process.on('uncaughtException', err => {
+  console.error('[uncaughtException]', err?.stack || err);
+});
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
