@@ -125,14 +125,22 @@ function nextRequestId(slotIndex: number): number {
   return id;
 }
 
+export type LoadSlotOptions = {
+  /** Suppress toasts — used for background restore on page refresh. */
+  silent?: boolean;
+};
+
 export async function loadMultiviewSlotStream(
   slotIndex: number,
   match: APIMatch,
   sourceName: string,
-  streamIndex: number = 0
+  streamIndex: number = 0,
+  opts: LoadSlotOptions = {},
 ): Promise<void> {
+  const silent = !!opts.silent;
+
   if (!match || !match.sources || match.sources.length === 0) {
-    showToast(`No sources found for ${match?.title || 'match'}.`, 'error');
+    if (!silent) showToast(`No sources found for ${match?.title || 'match'}.`, 'error');
     return;
   }
 
@@ -154,11 +162,27 @@ export async function loadMultiviewSlotStream(
 
   const isStale = () => slotRequestIds.get(slotIndex) !== requestId;
 
+  const clearSlotQuietly = (reason: string): void => {
+    state.multiviewSlots[slotIndex] = null;
+    renderMultiviewSlot(slotIndex);
+    if (silent) {
+      saveMultiviewState();
+      log('warn', reason);
+      return;
+    }
+  };
+
   const tryNextSource = (message?: string): boolean => {
     const nextSourceIdx = match.sources.findIndex(s => s.source === activeSource) + 1;
     if (nextSourceIdx >= match.sources.length) return false;
-    if (message) showToast(message, 'info');
-    void loadMultiviewSlotStream(slotIndex, match, match.sources[nextSourceIdx].source, 0);
+    if (message && !silent) showToast(message, 'info');
+    void loadMultiviewSlotStream(
+      slotIndex,
+      match,
+      match.sources[nextSourceIdx].source,
+      0,
+      { silent },
+    );
     return true;
   };
 
@@ -168,9 +192,10 @@ export async function loadMultiviewSlotStream(
 
     if (streams.length === 0) {
       if (tryNextSource(`Source ${activeSource} failed, trying the next one…`)) return;
-      state.multiviewSlots[slotIndex] = null;
-      renderMultiviewSlot(slotIndex);
-      showToast(`No working streams found for ${match.title || 'match'}.`, 'error');
+      clearSlotQuietly(`Pruned unplayable multiview slot for ${match.title || match.id}`);
+      if (!silent) {
+        showToast(`No working streams found for ${match.title || 'match'}.`, 'error');
+      }
       return;
     }
 
@@ -190,9 +215,14 @@ export async function loadMultiviewSlotStream(
     if (isStale()) return;
     log('error', `Failed loading streams for slot ${slotIndex}:`, err);
     if (tryNextSource()) return;
-    state.multiviewSlots[slotIndex] = null;
-    renderMultiviewSlot(slotIndex);
-    showToast(`Error loading stream: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    clearSlotQuietly(
+      `Pruned failed multiview slot for ${match.title || match.id}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    if (!silent) {
+      showToast(`Error loading stream: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
   }
 }
 
@@ -362,7 +392,8 @@ export async function loadMultiviewState(): Promise<void> {
       if (!s || !s.matchId) return;
       const match = matches.get(s.matchId);
       if (match) {
-        void loadMultiviewSlotStream(idx, match, s.sourceName, s.streamIndex);
+        // Background restore must not toast on every refresh when a source is dead.
+        void loadMultiviewSlotStream(idx, match, s.sourceName, s.streamIndex, { silent: true });
       } else {
         missing++;
         state.multiviewSlots[idx] = null;
