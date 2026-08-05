@@ -2,12 +2,14 @@ import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
 import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers';
 import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
-import { loadStreams as fetchStreams } from './api';
+import { loadStreams as fetchStreams, pickPreferredStream } from './api';
 import { mountPlayGate } from './adShield';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
 
 // ── Module level state for caching active elements ──
 let activeStreamTab: HTMLElement | null = null;
+/** When true, a native HLS failure advances to the next match source before iframe. */
+let allowHlsSourceFailover = false;
 
 // ── Source bar active ──
 
@@ -50,6 +52,8 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
     }
 
     tab.onclick = () => {
+      // Manual pick: stay on this source (iframe fallback) instead of auto-advancing.
+      allowHlsSourceFailover = false;
       selectStream(stream, tab);
     };
     fragment.appendChild(tab);
@@ -77,6 +81,7 @@ export function renderSourceButtons(sources: StreamSource[]): void {
       if (i === state.activeSourceIndex) return;
       state.activeSourceIndex = i;
       updateSourceBarActive(i);
+      allowHlsSourceFailover = true;
       void loadAndDisplayStreams(src.source, src.id);
     };
     fragment.appendChild(btn);
@@ -118,9 +123,10 @@ async function loadAndDisplayStreams(source: string, id: string): Promise<void> 
     }
     renderStreamTabs(streams, source);
     if (streamCount) streamCount.textContent = `${streams.length} stream${streams.length > 1 ? 's' : ''}`;
-    const best = streams.find(s => s.hd) || streams[0];
+    const best = pickPreferredStream(streams);
     if (best) {
       const idx = streams.indexOf(best);
+      allowHlsSourceFailover = true;
       selectStream(best, streamTabs?.querySelectorAll('.stream-tab')[idx] as HTMLButtonElement);
     }
   } catch (err) {
@@ -248,6 +254,9 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
       showToast(`${toast} · native`, 'success');
       return;
     }
+    // Delta (and similar) often time out on playlist mint — try the next
+    // match source (e.g. admin) before falling back to the ads iframe.
+    if (allowHlsSourceFailover && tryNextSource()) return;
     setLoadingStage('Starting embed player…');
     playViaIframe(stream.embedUrl);
     showToast(toast, 'success');
@@ -303,6 +312,7 @@ export function openPlayer(match: APIMatch): void {
 
   if (match.sources && match.sources.length > 0) {
     renderSourceButtons(match.sources);
+    allowHlsSourceFailover = true;
     void loadAndDisplayStreams(match.sources[0].source, match.sources[0].id);
   } else {
     el('source-bar')?.classList.add('hidden');

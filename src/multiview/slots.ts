@@ -2,7 +2,7 @@ import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData } fr
 import { state } from '../state';
 import { el, log } from '../helpers';
 import { showToast } from '../format';
-import { loadStreams, getMatchById, fetchJSON } from '../api';
+import { loadStreams, getMatchById, fetchJSON, pickPreferredStream } from '../api';
 import { renderMultiviewGrid, renderMultiviewSlot, getNumSlotsForLayout } from './grid';
 import { MULTIVIEW_STORAGE_KEY } from './storageKey';
 
@@ -23,7 +23,14 @@ async function lookupMatchesByIds(ids: string[]): Promise<Map<string, APIMatch>>
   }
   if (want.size === 0) return found;
 
-  const endpoints = ['/api/matches/live', '/api/matches/all-today', '/api/matches/all'];
+  const endpoints = [
+    '/api/matches/live',
+    '/api/matches/live/popular',
+    '/api/matches/all-today',
+    '/api/matches/all-today/popular',
+    '/api/matches/all',
+    '/api/matches/all/popular',
+  ];
   await Promise.all(
     endpoints.map(async endpoint => {
       if (want.size === 0) return;
@@ -199,7 +206,8 @@ export async function loadMultiviewSlotStream(
       return;
     }
 
-    const selectedStream = streams[streamIndex] || streams[0];
+    const selectedStream =
+      streams[streamIndex] || pickPreferredStream(streams) || streams[0];
     state.multiviewSlots[slotIndex] = {
       match,
       sourceName: activeSource,

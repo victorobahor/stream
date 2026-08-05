@@ -110,6 +110,9 @@ export function sortMatchesForDisplay(matches: APIMatch[]): APIMatch[] {
   return [...matches].sort((a, b) => {
     const liveDelta = Number(isMatchLive(b)) - Number(isMatchLive(a));
     if (liveDelta !== 0) return liveDelta;
+    // Prefer API-flagged popular matches (Streamed `popular` field).
+    const popularDelta = Number(!!b.popular) - Number(!!a.popular);
+    if (popularDelta !== 0) return popularDelta;
     const eplDelta = Number(isEPLMatch(b)) - Number(isEPLMatch(a));
     if (eplDelta !== 0) return eplDelta;
     return (a.date || 0) - (b.date || 0);

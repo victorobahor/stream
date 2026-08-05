@@ -5,12 +5,16 @@ import {
   mapPool,
   filterToPlayableMatches,
   clearStreamsCache,
+  rankSources,
+  pickPreferredStream,
 } from './api';
+import type { Stream } from './types';
 
 describe('resolveMatchesEndpoint', () => {
   it('should return live endpoint for live category with all sports', () => {
     const result = resolveMatchesEndpoint('live', 'all');
     expect(result.endpoint).toBe('/api/matches/live');
+    expect(result.fallbacks).toEqual([]);
     expect(result.clientSportFilter).toBe(false);
   });
 
@@ -20,9 +24,13 @@ describe('resolveMatchesEndpoint', () => {
     expect(result.clientSportFilter).toBe(false);
   });
 
-  it('should return popular endpoint for popular category with all sports', () => {
+  it('should prefer live/popular with documented popular fallbacks', () => {
     const result = resolveMatchesEndpoint('popular', 'all');
-    expect(result.endpoint).toBe('/api/matches/all/popular');
+    expect(result.endpoint).toBe('/api/matches/live/popular');
+    expect(result.fallbacks).toEqual([
+      '/api/matches/all-today/popular',
+      '/api/matches/all/popular',
+    ]);
     expect(result.clientSportFilter).toBe(false);
   });
 
@@ -35,6 +43,7 @@ describe('resolveMatchesEndpoint', () => {
   it('should return sport-specific popular endpoint', () => {
     const result = resolveMatchesEndpoint('popular', 'football');
     expect(result.endpoint).toBe('/api/matches/football/popular');
+    expect(result.fallbacks).toEqual([]);
     expect(result.clientSportFilter).toBe(false);
   });
 
@@ -54,6 +63,39 @@ describe('resolveMatchesEndpoint', () => {
     const result = resolveMatchesEndpoint('today', 'football');
     expect(result.endpoint).toBe('/api/matches/all-today');
     expect(result.clientSportFilter).toBe(true);
+  });
+});
+
+describe('rankSources', () => {
+  it('should put admin ahead of delta', () => {
+    const ranked = rankSources([
+      { source: 'delta', id: 'd1' },
+      { source: 'admin', id: 'a1' },
+      { source: 'echo', id: 'e1' },
+    ]);
+    expect(ranked.map(s => s.source)).toEqual(['admin', 'echo', 'delta']);
+  });
+});
+
+describe('pickPreferredStream', () => {
+  const base = {
+    id: 's',
+    language: 'English',
+    embedUrl: 'https://embed.st/embed/x/1',
+    source: 'admin',
+  };
+
+  it('should prefer HD, then higher viewers', () => {
+    const streams: Stream[] = [
+      { ...base, streamNo: 1, hd: false, viewers: 500 },
+      { ...base, streamNo: 2, hd: true, viewers: 10 },
+      { ...base, streamNo: 3, hd: true, viewers: 200 },
+    ];
+    expect(pickPreferredStream(streams)?.streamNo).toBe(3);
+  });
+
+  it('should return undefined for an empty list', () => {
+    expect(pickPreferredStream([])).toBeUndefined();
   });
 });
 
@@ -136,25 +178,25 @@ describe('filterToPlayableMatches', () => {
     expect(result[0].sources).toEqual([{ source: 'admin', id: 'live' }]);
   });
 
-  it('should preserve original source order among working sources', async () => {
+  it('should rank known sources (admin before delta) among working sources', async () => {
     mockStreamResponses({
-      '/api/stream/a/1': [{ id: '1', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/1', source: 'a' }],
-      '/api/stream/b/2': [{ id: '2', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/2', source: 'b' }],
+      '/api/stream/delta/1': [{ id: '1', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/1', source: 'delta' }],
+      '/api/stream/admin/2': [{ id: '2', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/2', source: 'admin' }],
     });
     const matches: APIMatch[] = [
       {
         ...base,
         id: '1',
         sources: [
-          { source: 'b', id: '2' },
-          { source: 'a', id: '1' },
+          { source: 'delta', id: '1' },
+          { source: 'admin', id: '2' },
         ],
       },
     ];
     const result = await filterToPlayableMatches(matches);
     expect(result[0].sources).toEqual([
-      { source: 'b', id: '2' },
-      { source: 'a', id: '1' },
+      { source: 'admin', id: '2' },
+      { source: 'delta', id: '1' },
     ]);
   });
 

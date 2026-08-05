@@ -42,6 +42,8 @@ export interface Stream {
   hd: boolean;
   embedUrl: string;
   source: string;
+  /** Present on many live stream payloads from Streamed (not always documented). */
+  viewers?: number;
 }
 
 // ── App state types ──

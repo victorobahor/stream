@@ -51,8 +51,20 @@ export async function loadSports(): Promise<Sport[]> {
 
 // ── Matches ──
 
-export function resolveMatchesEndpoint(cat: Category, sport: string): { endpoint: string; clientSportFilter: boolean } {
+export type MatchesEndpointPlan = {
+  endpoint: string;
+  /** Tried in order when the primary endpoint returns an empty list. */
+  fallbacks: string[];
+  clientSportFilter: boolean;
+};
+
+/**
+ * Map UI category/sport to Streamed Matches API paths
+ * (see https://streamed.pk/docs/matches).
+ */
+export function resolveMatchesEndpoint(cat: Category, sport: string): MatchesEndpointPlan {
   let endpoint: string;
+  let fallbacks: string[] = [];
   let clientSportFilter = false;
 
   if (sport !== 'all') {
@@ -61,18 +73,64 @@ export function resolveMatchesEndpoint(cat: Category, sport: string): { endpoint
     } else if (cat === 'all') {
       endpoint = `/api/matches/${sport}`;
     } else {
+      // No /matches/{sport}/live|today — filter the global slate client-side.
       endpoint = cat === 'live' ? '/api/matches/live' : '/api/matches/all-today';
       clientSportFilter = true;
     }
   } else {
     switch (cat) {
-      case 'live': endpoint = '/api/matches/live'; break;
-      case 'today': endpoint = '/api/matches/all-today'; break;
-      case 'popular': endpoint = '/api/matches/all/popular'; break;
-      default: endpoint = '/api/matches/all'; break;
+      case 'live':
+        endpoint = '/api/matches/live';
+        break;
+      case 'today':
+        endpoint = '/api/matches/all-today';
+        break;
+      case 'popular':
+        // Hot-now first (documented live/popular), then today's popular, then all.
+        endpoint = '/api/matches/live/popular';
+        fallbacks = ['/api/matches/all-today/popular', '/api/matches/all/popular'];
+        break;
+      default:
+        endpoint = '/api/matches/all';
+        break;
     }
   }
-  return { endpoint, clientSportFilter };
+  return { endpoint, fallbacks, clientSportFilter };
+}
+
+/** Prefer stable/admin-style sources ahead of flaky embed mints (e.g. delta). */
+const SOURCE_PREF: Record<string, number> = {
+  admin: 0,
+  alpha: 1,
+  bravo: 2,
+  charlie: 3,
+  echo: 4,
+  foxtrot: 5,
+  golf: 6,
+  hotel: 7,
+  intel: 8,
+  delta: 9,
+};
+
+export function rankSources(sources: StreamSource[]): StreamSource[] {
+  return [...sources].sort((a, b) => {
+    const ra = SOURCE_PREF[String(a.source || '').toLowerCase()] ?? 5;
+    const rb = SOURCE_PREF[String(b.source || '').toLowerCase()] ?? 5;
+    if (ra !== rb) return ra - rb;
+    return String(a.source).localeCompare(String(b.source));
+  });
+}
+
+/** Pick the best stream: HD first, then viewers, then lowest streamNo. */
+export function pickPreferredStream(streams: Stream[]): Stream | undefined {
+  if (!streams.length) return undefined;
+  return [...streams].sort((a, b) => {
+    const hd = Number(!!b.hd) - Number(!!a.hd);
+    if (hd !== 0) return hd;
+    const viewers = (b.viewers ?? 0) - (a.viewers ?? 0);
+    if (viewers !== 0) return viewers;
+    return (a.streamNo ?? 0) - (b.streamNo ?? 0);
+  })[0];
 }
 
 /** Run `fn` over `items` with at most `concurrency` in flight. */
@@ -133,7 +191,9 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
 
   const playable: APIMatch[] = [];
   for (const match of matches) {
-    const sources = (match.sources || []).filter(s => workingKeys.has(`${s.source}:${s.id}`));
+    const sources = rankSources(
+      (match.sources || []).filter(s => workingKeys.has(`${s.source}:${s.id}`)),
+    );
     if (sources.length === 0) continue;
     playable.push({ ...match, sources });
   }
@@ -154,13 +214,30 @@ function commitMatches(matches: APIMatch[]): void {
 
 export async function loadMatches(): Promise<APIMatch[]> {
   const requestId = ++loadMatchesRequestId;
-  const { endpoint, clientSportFilter } = resolveMatchesEndpoint(state.currentCategory, state.currentSport);
-  const data = await fetchJSON<APIMatch[]>(endpoint);
+  const { endpoint, fallbacks, clientSportFilter } = resolveMatchesEndpoint(
+    state.currentCategory,
+    state.currentSport,
+  );
 
+  let data = await fetchJSON<APIMatch[]>(endpoint);
   // Discard stale response if a newer request has started
   if (requestId !== loadMatchesRequestId) return state.allMatches;
 
   let matches: APIMatch[] = Array.isArray(data) ? data : [];
+
+  // Popular: walk documented popular endpoints when the hot-now slate is empty
+  // (e.g. overnight with no live popular matches).
+  if (matches.length === 0 && fallbacks.length > 0) {
+    for (const fb of fallbacks) {
+      data = await fetchJSON<APIMatch[]>(fb);
+      if (requestId !== loadMatchesRequestId) return state.allMatches;
+      matches = Array.isArray(data) ? data : [];
+      if (matches.length > 0) {
+        log('debug', `Matches fallback ${fb} returned ${matches.length}`);
+        break;
+      }
+    }
+  }
 
   // Client-side filter: "today" endpoint may include non-today matches from the API
   if (state.currentCategory === 'today') {

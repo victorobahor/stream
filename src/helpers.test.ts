@@ -393,6 +393,12 @@ describe('sortMatchesForDisplay', () => {
     expect(sortMatchesForDisplay([upcoming, live]).map(m => m.id)).toEqual(['live', 'upcoming']);
   });
 
+  it('should rank popular above non-popular at the same liveness', () => {
+    const cold = build('cold', { popular: false });
+    const hot = build('hot', { popular: true });
+    expect(sortMatchesForDisplay([cold, hot]).map(m => m.id)).toEqual(['hot', 'cold']);
+  });
+
   it('should rank EPL above other matches at the same liveness', () => {
     const other = build('other', { title: 'Barcelona vs Real Madrid' });
     const epl = build('epl', { title: 'Premier League: Arsenal vs Chelsea' });
