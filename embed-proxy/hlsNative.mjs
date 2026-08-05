@@ -3,6 +3,9 @@
  * then proxy gate-kept m3u8 through that page and unwrap PNG-wrapped MPEG-TS
  * segments so the app can play with hls.js — no iframe, no PopUnder.
  *
+ * Scaling knobs (env): HLS_MAX_SESSIONS, HLS_MAX_OPENS, HLS_OPEN_RATE_MAX,
+ * HLS_OPEN_WAIT_MS (queue busy opens), HLS_MINT_CACHE_TTL_MS (share mints).
+ *
  * Requires a local Chrome (`CHROME_PATH` or /usr/bin/google-chrome) and the
  * `playwright` package. Without them, /api/hls/* returns 503 and the client
  * falls back to the iframe player.
@@ -14,10 +17,15 @@ const UA =
 
 const SESSION_TTL_MS = 3 * 60 * 1000;
 const RESOLVE_TIMEOUT_MS = 45_000;
-const MAX_SESSIONS = Math.max(1, Number(process.env.HLS_MAX_SESSIONS || 4));
-const MAX_OPENS_IN_FLIGHT = Math.max(1, Number(process.env.HLS_MAX_OPENS || 2));
+// Defaults sized for a single beefy host (not a tiny VPS). Override via env.
+const MAX_SESSIONS = Math.max(1, Number(process.env.HLS_MAX_SESSIONS || 24));
+const MAX_OPENS_IN_FLIGHT = Math.max(1, Number(process.env.HLS_MAX_OPENS || 6));
 const OPEN_RATE_WINDOW_MS = 60_000;
-const OPEN_RATE_MAX = Math.max(1, Number(process.env.HLS_OPEN_RATE_MAX || 8));
+const OPEN_RATE_MAX = Math.max(1, Number(process.env.HLS_OPEN_RATE_MAX || 48));
+/** Wait for an open slot instead of immediately 429 when resolves are busy. */
+const OPEN_WAIT_MS = Math.max(0, Number(process.env.HLS_OPEN_WAIT_MS || 45_000));
+/** Reuse mint cookies/playlist for the same embed across viewers (0 disables). */
+const MINT_CACHE_TTL_MS = Math.max(0, Number(process.env.HLS_MINT_CACHE_TTL_MS || 120_000));
 const ALLOWED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
 /** Exact suffix allowlist — never use host.includes('tiktok') (open-proxy). */
 const ALLOWED_CDN_SUFFIXES = [
@@ -29,6 +37,7 @@ const ALLOWED_CDN_SUFFIXES = [
 ];
 
 /** @typedef {{ id: string, embedUrl: string, playlistUrl: string, page: import('playwright').Page, context: import('playwright').BrowserContext, lastAccess: number, closed: boolean }} HlsSession */
+/** @typedef {{ playlistUrl: string, storageState: object, expires: number }} MintCacheEntry */
 
 /** @type {import('playwright').Browser | null} */
 let browser = null;
@@ -38,6 +47,10 @@ let browserLaunching = null;
 const sessions = new Map();
 /** @type {Map<string, number[]>} */
 const openHitsByIp = new Map();
+/** @type {Map<string, MintCacheEntry>} */
+const mintCache = new Map();
+/** @type {Map<string, Promise<MintCacheEntry>>} */
+const mintInFlight = new Map();
 let opensInFlight = 0;
 
 let janitor = null;
@@ -55,17 +68,15 @@ function clientIp(req) {
   return req?.socket?.remoteAddress || 'unknown';
 }
 
-function assertOpenAllowed(req) {
+function assertSessionCapacity() {
   if (sessions.size >= MAX_SESSIONS) {
     const err = new Error('Too many active HLS sessions');
     err.statusCode = 429;
     throw err;
   }
-  if (opensInFlight >= MAX_OPENS_IN_FLIGHT) {
-    const err = new Error('HLS resolve busy — try again shortly');
-    err.statusCode = 429;
-    throw err;
-  }
+}
+
+function assertRateLimit(req) {
   const ip = clientIp(req);
   const now = Date.now();
   const hits = (openHitsByIp.get(ip) || []).filter(t => now - t < OPEN_RATE_WINDOW_MS);
@@ -76,6 +87,31 @@ function assertOpenAllowed(req) {
   }
   hits.push(now);
   openHitsByIp.set(ip, hits);
+}
+
+/** Queue behind in-flight resolves instead of hard-rejecting under burst. */
+async function waitForOpenSlot() {
+  if (opensInFlight < MAX_OPENS_IN_FLIGHT) return;
+  const deadline = Date.now() + OPEN_WAIT_MS;
+  while (opensInFlight >= MAX_OPENS_IN_FLIGHT) {
+    if (Date.now() >= deadline) {
+      const err = new Error('HLS resolve busy — try again shortly');
+      err.statusCode = 429;
+      throw err;
+    }
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
+function getValidMint(embedKey) {
+  if (MINT_CACHE_TTL_MS <= 0) return null;
+  const cached = mintCache.get(embedKey);
+  if (!cached) return null;
+  if (cached.expires <= Date.now()) {
+    mintCache.delete(embedKey);
+    return null;
+  }
+  return cached;
 }
 
 export function unwrapPngTs(buf) {
@@ -187,7 +223,10 @@ async function getBrowser() {
 
 /** @param {import('node:http').IncomingMessage | null} [req] */
 export async function openHlsSessionForRequest(embedUrlRaw, req = null) {
-  assertOpenAllowed(req);
+  assertSessionCapacity();
+  assertRateLimit(req);
+  await waitForOpenSlot();
+  assertSessionCapacity();
   opensInFlight++;
   try {
     return await openHlsSession(embedUrlRaw);
@@ -240,6 +279,52 @@ async function resolvePlaylist(page, embedUrl) {
   }
 }
 
+async function newStealthContext(browserInstance, storageState) {
+  const opts = {
+    viewport: { width: 1100, height: 700 },
+    userAgent: UA,
+    ...(storageState ? { storageState } : {}),
+  };
+  const context = await browserInstance.newContext(opts);
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  });
+  return context;
+}
+
+function registerSession(embedKey, playlistUrl, page, context) {
+  const id = randomBytes(12).toString('hex');
+  /** @type {HlsSession} */
+  const session = {
+    id,
+    embedUrl: embedKey,
+    playlistUrl,
+    page,
+    context,
+    lastAccess: Date.now(),
+    closed: false,
+  };
+  sessions.set(id, session);
+  return {
+    sessionId: id,
+    masterUrl: `/api/hls/${id}/master.m3u8`,
+  };
+}
+
+/** Fast path: clone cookies from a recent mint and skip Chromium click-to-play. */
+async function openFromMintCache(browserInstance, embedKey, mint) {
+  const context = await newStealthContext(browserInstance, mint.storageState);
+  const page = await context.newPage();
+  try {
+    await fetchViaPage(page, mint.playlistUrl);
+    return registerSession(embedKey, mint.playlistUrl, page, context);
+  } catch (err) {
+    await context.close().catch(() => {});
+    mintCache.delete(embedKey);
+    throw err;
+  }
+}
+
 export async function openHlsSession(embedUrlRaw) {
   const embedUrl = isAllowedEmbedUrl(embedUrlRaw);
   if (!embedUrl) {
@@ -250,36 +335,56 @@ export async function openHlsSession(embedUrlRaw) {
 
   ensureJanitor();
   const b = await getBrowser();
-  const context = await b.newContext({
-    viewport: { width: 1100, height: 700 },
-    userAgent: UA,
-  });
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  });
+  const embedKey = embedUrl.toString();
+
+  // Wait for a peer mint of the same embed, then try the cache.
+  const peer = mintInFlight.get(embedKey);
+  if (peer) {
+    await peer.catch(() => {});
+  }
+
+  const cached = getValidMint(embedKey);
+  if (cached) {
+    try {
+      return await openFromMintCache(b, embedKey, cached);
+    } catch {
+      // Cache was stale — fall through to a full resolve.
+    }
+  }
+
+  const context = await newStealthContext(b, null);
   const page = await context.newPage();
 
+  let settle;
+  const mintPromise = new Promise((resolve, reject) => {
+    settle = { resolve, reject };
+  });
+  if (MINT_CACHE_TTL_MS > 0 && !mintInFlight.has(embedKey)) {
+    mintInFlight.set(embedKey, mintPromise);
+  }
+
   try {
-    const playlistUrl = await resolvePlaylist(page, embedUrl.toString());
-    const id = randomBytes(12).toString('hex');
-    /** @type {HlsSession} */
-    const session = {
-      id,
-      embedUrl: embedUrl.toString(),
+    const playlistUrl = await resolvePlaylist(page, embedKey);
+    const storageState = await context.storageState();
+    /** @type {MintCacheEntry} */
+    const entry = {
       playlistUrl,
-      page,
-      context,
-      lastAccess: Date.now(),
-      closed: false,
+      storageState,
+      expires: Date.now() + MINT_CACHE_TTL_MS,
     };
-    sessions.set(id, session);
-    return {
-      sessionId: id,
-      masterUrl: `/api/hls/${id}/master.m3u8`,
-    };
+    if (MINT_CACHE_TTL_MS > 0) {
+      mintCache.set(embedKey, entry);
+    }
+    settle?.resolve(entry);
+    return registerSession(embedKey, playlistUrl, page, context);
   } catch (err) {
+    settle?.reject(err);
     await context.close().catch(() => {});
     throw err;
+  } finally {
+    if (mintInFlight.get(embedKey) === mintPromise) {
+      mintInFlight.delete(embedKey);
+    }
   }
 }
 
@@ -414,9 +519,11 @@ export async function tryHandleHlsRequest(req, res) {
       const embed = parsed.searchParams.get('u') || '';
       try {
         const opened = await openHlsSessionForRequest(embed, req);
+        logSafe(`open ok sessions=${sessions.size}/${MAX_SESSIONS} opens=${opensInFlight}/${MAX_OPENS_IN_FLIGHT}`);
         send(200, 'application/json; charset=utf-8', JSON.stringify(opened));
       } catch (err) {
         const status = err?.statusCode || 503;
+        logSafe(`open ${status}: ${err instanceof Error ? err.message : String(err)} sessions=${sessions.size} opens=${opensInFlight}`);
         send(status, 'application/json; charset=utf-8', JSON.stringify({
           error: err instanceof Error ? err.message : String(err),
         }));

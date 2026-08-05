@@ -221,20 +221,58 @@ export function changeSlotStreamIndex(slotIndex: number, streamIndex: number): v
 
 // ── Fullscreen ──
 
-export function fullscreenMultiviewSlot(slotIndex: number): void {
-  const slotEl = document.querySelector(`.mv-slot[data-index="${slotIndex}"]`) as HTMLElement & {
-    requestFullscreen?: () => void;
-    webkitRequestFullscreen?: () => void;
-    msRequestFullscreen?: () => void;
-  };
-  if (!slotEl) return;
-  if (slotEl.requestFullscreen) {
-    slotEl.requestFullscreen();
-  } else if (slotEl.webkitRequestFullscreen) {
-    slotEl.webkitRequestFullscreen();
-  } else if (slotEl.msRequestFullscreen) {
-    slotEl.msRequestFullscreen();
+type FullscreenCapable = HTMLElement & {
+  requestFullscreen?: () => Promise<void>;
+  webkitRequestFullscreen?: () => void;
+  msRequestFullscreen?: () => void;
+};
+
+function requestElementFullscreen(target: FullscreenCapable): void {
+  const req =
+    target.requestFullscreen?.() ??
+    target.webkitRequestFullscreen?.() ??
+    target.msRequestFullscreen?.();
+  if (req && typeof (req as Promise<void>).catch === 'function') {
+    void (req as Promise<void>).catch(() => {});
   }
+}
+
+function exitElementFullscreen(): void {
+  const doc = document as Document & {
+    webkitFullscreenElement?: Element | null;
+    webkitExitFullscreen?: () => void;
+    msExitFullscreen?: () => void;
+  };
+  if (document.fullscreenElement) {
+    void document.exitFullscreen().catch(() => {});
+    return;
+  }
+  if (doc.webkitFullscreenElement) {
+    doc.webkitExitFullscreen?.();
+  }
+}
+
+function toggleElementFullscreen(target: FullscreenCapable | null): void {
+  if (!target) return;
+  const doc = document as Document & { webkitFullscreenElement?: Element | null };
+  const active = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+  if (active === target) {
+    exitElementFullscreen();
+    return;
+  }
+  requestElementFullscreen(target);
+}
+
+export function fullscreenMultiviewSlot(slotIndex: number): void {
+  const slotEl = document.querySelector(
+    `.mv-slot[data-index="${slotIndex}"]`,
+  ) as FullscreenCapable | null;
+  toggleElementFullscreen(slotEl);
+}
+
+/** Expand the whole multiview grid to fill the display. */
+export function fullscreenMultiviewGrid(): void {
+  toggleElementFullscreen(el('multiview-grid-container') as FullscreenCapable | null);
 }
 
 // ── Sidebar toggle ──

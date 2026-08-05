@@ -123,10 +123,20 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
   };
 
   try {
-    const res = await fetch(`/api/hls/open?u=${encodeURIComponent(embedUrl)}`, {
-      headers: { Accept: 'application/json' },
-    });
-    if (!isCurrent()) return false;
+    // Retry transient capacity responses — server may queue, but bursts still 429.
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!isCurrent()) return false;
+      res = await fetch(`/api/hls/open?u=${encodeURIComponent(embedUrl)}`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!isCurrent()) return false;
+      if (res.ok || res.status !== 429 || attempt === 2) break;
+      const delay = 400 * 2 ** attempt + Math.floor(Math.random() * 250);
+      log('warn', 'HLS open busy, retrying', key, res.status, `attempt ${attempt + 1}`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+    if (!res || !isCurrent()) return false;
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       log('warn', 'HLS open failed', key, res.status, body.slice(0, 200));

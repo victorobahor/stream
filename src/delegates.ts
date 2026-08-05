@@ -41,6 +41,7 @@ const ACTION_MAP: Record<string, ActionHandler> = {
     withGrid(m => m.changeMultiviewLayout(value as MultiviewLayout));
   },
   clearAllMultiviewSlots: () => withSlots(m => m.clearAllMultiviewSlots()),
+  fullscreenMultiviewGrid: () => withSlots(m => m.fullscreenMultiviewGrid()),
   toggleMultiviewSidebar: () => withSlots(m => m.toggleMultiviewSidebar()),
   closeMvModal: () => withModal(m => m.closeMvModal()),
   showMvModalMatchesView: () => withModal(m => m.showMvModalMatchesView()),
