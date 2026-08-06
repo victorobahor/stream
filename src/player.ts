@@ -4,7 +4,7 @@ import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers
 import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import { loadStreams as fetchStreams, pickPreferredStream } from './api';
 import { mountPlayGate } from './adShield';
-import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
+import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls, isHlsNativeEnabled } from './hlsPlayer';
 
 // ── Module level state for caching active elements ──
 let activeStreamTab: HTMLElement | null = null;
@@ -167,8 +167,16 @@ function setLoadingStage(text: string): void {
   if (p) p.textContent = text;
 }
 
-function startLoadingStages(): void {
+function startLoadingStages(mode: 'native' | 'iframe' = 'iframe'): void {
   clearLoadingStages();
+  if (mode === 'iframe') {
+    setLoadingStage('Opening embed player…');
+    loadingStageTimers.push(setTimeout(() => setLoadingStage('Waiting for stream…'), 2500));
+    loadingStageTimers.push(
+      setTimeout(() => setLoadingStage('Still working — click play inside the player if needed…'), 8000),
+    );
+    return;
+  }
   setLoadingStage('Opening secure stream…');
   loadingStageTimers.push(setTimeout(() => setLoadingStage('Resolving playlist…'), 2500));
   loadingStageTimers.push(setTimeout(() => setLoadingStage('Buffering…'), 8000));
@@ -221,10 +229,10 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
   if (playerLoading) {
     playerLoading.classList.remove('hidden');
-    startLoadingStages();
   }
 
-  // Prefer native HLS (no iframe ads). Fall back to embed iframe + click-gate.
+  // Prefer native HLS when enabled and the embed host supports minting.
+  // SportSRC Rapid (football77) cannot be minted — go straight to iframe.
   stopNativeHls(MAIN_PLAYER_KEY);
   if (iframe) {
     clearEmbedLoadTimer();
@@ -237,15 +245,26 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   const streamLabel = stream.streamNo ?? 1;
   const toast = `Stream ${streamLabel} — ${stream.language || 'Unknown'} ${stream.hd ? '(HD)' : '(SD)'}`;
   const video = el('stream-video') as HTMLVideoElement | null;
+  const tryNative = isHlsNativeEnabled() && !!video;
+
+  if (!tryNative) {
+    startLoadingStages('iframe');
+    setLoadingStage('Starting embed player…');
+    playViaIframe(stream.embedUrl);
+    showToast(`${toast} · embed`, 'success');
+    return;
+  }
+
+  startLoadingStages('native');
 
   void (async () => {
-    const nativeOk = !!video && (await playNativeHls(stream.embedUrl, {
+    const nativeOk = await playNativeHls(stream.embedUrl, {
       key: MAIN_PLAYER_KEY,
-      video,
+      video: video!,
       onReady: () => {
         el('player-container')?.querySelectorAll('.player-gate').forEach(g => g.remove());
       },
-    }));
+    });
     if (state.selectedStream !== stream) return;
     if (nativeOk) {
       clearLoadingStages();
@@ -255,11 +274,12 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
       return;
     }
     // Delta (and similar) often time out on playlist mint — try the next
-    // match source (e.g. admin) before falling back to the ads iframe.
+    // match source before falling back to the ads iframe.
     if (allowHlsSourceFailover && tryNextSource()) return;
+    startLoadingStages('iframe');
     setLoadingStage('Starting embed player…');
     playViaIframe(stream.embedUrl);
-    showToast(toast, 'success');
+    showToast(`${toast} · embed`, 'success');
   })();
 }
 

@@ -16,9 +16,24 @@ const generations = new Map<string, number>();
 
 export function isHlsNativeEnabled(): boolean {
   const flag = import.meta.env.VITE_HLS_NATIVE;
-  // SportSRC embeds are iframe-first (football77 / embed.sportsrc). Native HLS
-  // minting was Streamed/embed.st-specific — opt in with VITE_HLS_NATIVE=1.
+  // SportSRC Rapid embeds (football77) block headless minting — keep native
+  // HLS opt-in only. Streamed/embed.st path remains on main.
   return flag === '1' || flag === 'true';
+}
+
+/** True when this embed host can never be minted by our Playwright HLS path. */
+export function isHlsUnsupportedEmbed(embedUrl: string): boolean {
+  try {
+    const host = new URL(embedUrl).hostname.toLowerCase();
+    return (
+      host === 'football77.org' ||
+      host === 'www.football77.org' ||
+      host === 'embed.sportsrc.org' ||
+      host.endsWith('.sportsrc.org')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function bumpGeneration(key: string): number {
@@ -90,6 +105,11 @@ export type PlayNativeOptions = {
  */
 export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): Promise<boolean> {
   if (!isHlsNativeEnabled()) return false;
+  // SportSRC Rapid: ACCESS DENIED / token-bound nested iframes — never mint.
+  if (isHlsUnsupportedEmbed(embedUrl)) {
+    log('warn', 'Native HLS unsupported for SportSRC embed host', embedUrl);
+    return false;
+  }
 
   // Lazy-load hls.js so the home grid does not pay for it on first paint.
   const { default: Hls } = await import('hls.js');
