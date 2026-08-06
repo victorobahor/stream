@@ -5,6 +5,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 # Grants the runner permissions to write to your GitHub Packages tab
 permissions:
