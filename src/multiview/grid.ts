@@ -5,8 +5,8 @@ import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from '../hlsPlayer';
 import { mountPlayGate } from '../adShield';
 import { getMatchById, loadMatches } from '../api';
 import { setActiveNav } from '../ui';
-import { applyFilters } from '../filters';
-import { renderMultiviewSidebar, applyMultiviewSidebarFilters } from './sidebar';
+import { ALL_SPORTS, syncSportChips } from '../chips';
+import { renderMultiviewSidebar } from './sidebar';
 import {
   loadMultiviewSlotStream,
   changeSlotSource,
@@ -396,19 +396,27 @@ export function showMultiview(): void {
   setActiveNav(el('nav-multiview'));
 
   renderMultiviewGrid();
-  renderMultiviewSidebar();
+
+  // Match Directory has its own sport chips. Home may have narrowed
+  // `state.allMatches` to one sport — reset to all and reload so Baseball /
+  // Tennis / etc. in the directory are not empty after filtering Football.
+  state.currentSport = ALL_SPORTS;
+  syncSportChips(el('sports-bar'), ALL_SPORTS);
+  state.multiviewSportFilter = ALL_SPORTS;
+
+  const paintSidebar = (): void => {
+    renderMultiviewSidebar();
+  };
+
+  // Show whatever we have immediately, then refresh with the full slate.
+  paintSidebar();
+  void loadMatches()
+    .then(() => {
+      paintSidebar();
+    })
+    .catch(err => log('error', 'Failed to load matches for multiview:', err));
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
-
-  // If matches haven't loaded yet, fetch them and refresh all views
-  if (!state.allMatches || state.allMatches.length === 0) {
-    loadMatches()
-      .then(() => {
-        applyFilters();
-        applyMultiviewSidebarFilters();
-      })
-      .catch(err => log('error', 'Failed to load matches for multiview:', err));
-  }
 }
 
 export function changeMultiviewLayout(layout: MultiviewLayout): void {

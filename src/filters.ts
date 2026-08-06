@@ -1,6 +1,14 @@
 import type { Category } from './types';
 import { state } from './state';
-import { el, filterMatchesWithSources, filterMatchesBySearch, sortMatchesForDisplay, log } from './helpers';
+import {
+  el,
+  filterMatchesWithSources,
+  filterMatchesBySearch,
+  filterMatchesBySport,
+  filterMatchesByCategory,
+  sortMatchesForDisplay,
+  log,
+} from './helpers';
 import { getSportEmoji, formatSportLabel } from './format';
 import { syncSportChips, ALL_SPORTS } from './chips';
 import { renderMatches } from './cards';
@@ -73,6 +81,7 @@ export function filterCategory(cat: string): void {
 export function filterSport(sportId: string): void {
   state.currentSport = sportId;
   syncSportChips(el('sports-bar'), sportId);
+  showHome();
   void loadMatchesWithUI();
 }
 
@@ -81,8 +90,14 @@ export function handleSearch(query: string): void {
   applyFilters();
 }
 
+/**
+ * Client-side view filters on the merged Streamed + SportSRC catalog:
+ * sources → category (live/today/popular) → sport → search → sort.
+ */
 export function applyFilters(): void {
   let matches = filterMatchesWithSources(state.allMatches);
+  matches = filterMatchesByCategory(matches, state.currentCategory);
+  matches = filterMatchesBySport(matches, state.currentSport);
 
   if (state.searchQuery) {
     matches = filterMatchesBySearch(matches, state.searchQuery);

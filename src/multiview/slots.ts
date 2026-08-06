@@ -194,7 +194,7 @@ export async function loadMultiviewSlotStream(
   };
 
   try {
-    const streams = await loadStreams(activeSource, activeId);
+    const streams = await loadStreams(activeSource, activeId, sourceObj.category);
     if (isStale()) return;
 
     if (streams.length === 0) {

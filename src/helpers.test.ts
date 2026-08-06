@@ -4,6 +4,7 @@ import {
   cssUrl,
   matchTextIncludes,
   filterMatchesBySport,
+  filterMatchesByCategory,
   debounce,
   filterMatchesWithSources,
   filterMatchesBySearch,
@@ -12,6 +13,7 @@ import {
   clearEmbed,
   EMBED_ALLOW,
   toProxiedEmbedUrl,
+  shouldProxyEmbed,
 } from './helpers';
 import { state } from './state';
 import type { APIMatch } from './types';
@@ -176,6 +178,25 @@ describe('toProxiedEmbedUrl', () => {
   });
 });
 
+describe('shouldProxyEmbed', () => {
+  it('should always proxy streamapi wrappers', () => {
+    expect(shouldProxyEmbed('https://embed.streamapi.cc/sport/x/')).toBe(true);
+  });
+
+  it('should not proxy embed.st by default', () => {
+    expect(shouldProxyEmbed('https://embed.st/embed/admin/x/1')).toBe(false);
+  });
+
+  it('should always proxy streamapi via applyEmbed', () => {
+    const iframe = fakeIframe();
+    applyEmbed(
+      iframe as unknown as HTMLIFrameElement,
+      'https://embed.streamapi.cc/sport/test/',
+    );
+    expect(iframe.getAttribute('src') || '').toMatch(/^\/__embed\?u=/);
+  });
+});
+
 describe('clearEmbed', () => {
   it('should navigate to about:blank and drop the load handler', () => {
     const iframe = fakeIframe();
@@ -335,6 +356,67 @@ describe('filterMatchesBySport', () => {
   it('should return empty array when no matches match the filter', () => {
     const result = filterMatchesBySport(matches, 'rugby');
     expect(result).toHaveLength(0);
+  });
+});
+
+describe('filterMatchesByCategory', () => {
+  const now = Date.now();
+  const matches: APIMatch[] = [
+    {
+      id: 'live1',
+      title: 'Live',
+      category: 'football',
+      date: now - 60_000,
+      popular: true,
+      sources: [{ source: 'admin', id: '1' }],
+    },
+    {
+      id: 'ppv-motocross',
+      title: 'Long motorsport',
+      category: 'motor-sports',
+      date: now - 5 * 3_600_000,
+      popular: true,
+      sources: [{ source: 'admin', id: '2' }],
+    },
+    {
+      id: 'sportsrc:upcoming',
+      title: 'SRC only',
+      category: 'tennis',
+      date: now + 3_600_000,
+      popular: false,
+      status: undefined,
+      sources: [{ source: 'sportsrc', id: 'upcoming', category: 'tennis' }],
+    },
+    {
+      id: 'sportsrc:live-src',
+      title: 'SRC live',
+      category: 'basketball',
+      date: now - 60_000,
+      popular: true,
+      status: 'inprogress',
+      sources: [{ source: 'sportsrc', id: 'live-src', category: 'basketball' }],
+    },
+  ];
+
+  it('should keep Streamed live-slate matches even outside the 3h window', () => {
+    const result = filterMatchesByCategory(matches, 'live');
+    expect(result.map(m => m.id)).toContain('ppv-motocross');
+    expect(result.map(m => m.id)).toContain('live1');
+  });
+
+  it('should date-gate SportSRC-only live cards', () => {
+    const result = filterMatchesByCategory(matches, 'live');
+    expect(result.map(m => m.id)).not.toContain('sportsrc:upcoming');
+    expect(result.map(m => m.id)).toContain('sportsrc:live-src');
+  });
+
+  it('should keep popular-only for popular', () => {
+    const result = filterMatchesByCategory(matches, 'popular');
+    expect(result.map(m => m.id).sort()).toEqual(['live1', 'ppv-motocross', 'sportsrc:live-src'].sort());
+  });
+
+  it('should pass through for all', () => {
+    expect(filterMatchesByCategory(matches, 'all')).toHaveLength(4);
   });
 });
 

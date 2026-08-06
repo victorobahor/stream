@@ -31,7 +31,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist/ /app/dist/
-COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs /app/embed-proxy/
+COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs embed-proxy/sportsrc.mjs /app/embed-proxy/
 
 EXPOSE 80
 

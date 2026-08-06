@@ -15,12 +15,14 @@ describe('Content Security Policy', () => {
     expect(csp).not.toContain('frame-src *');
   });
 
-  it('should allow same-origin proxy frames plus embed.st only', () => {
-    expect(csp).toContain("frame-src 'self' https://embed.st https://www.embed.st");
-    expect(csp).not.toContain('frame-src *');
-    // Reject the old broad "any https" token (exact directive value).
+  it('should allow Streamed and SportSRC embed hosts', () => {
+    expect(csp).toContain(
+      "frame-src 'self' https://embed.st https://www.embed.st https://embed.streamapi.cc https://football77.org https://www.football77.org https://embed.sportsrc.org",
+    );
     const frameSrc = csp.split(';').map(s => s.trim()).find(s => s.startsWith('frame-src'));
-    expect(frameSrc).toBe("frame-src 'self' https://embed.st https://www.embed.st");
+    expect(frameSrc).toBe(
+      "frame-src 'self' https://embed.st https://www.embed.st https://embed.streamapi.cc https://football77.org https://www.football77.org https://embed.sportsrc.org",
+    );
   });
 
   it('should keep script-src locked to self', () => {

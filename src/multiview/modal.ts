@@ -5,6 +5,7 @@ import {
   filterMatchesWithSources,
   filterMatchesBySearch,
   filterMatchesBySport,
+  filterMatchesByCategory,
   sortMatchesForDisplay,
   log,
 } from '../helpers';
@@ -76,6 +77,7 @@ export function filterMvModalMatches(query: string): void {
   if (!container) return;
 
   let matches = filterMatchesWithSources(state.allMatches);
+  matches = filterMatchesByCategory(matches, state.currentCategory);
 
   if (state.mvModalSearchQuery) {
     matches = filterMatchesBySearch(matches, state.mvModalSearchQuery);
@@ -180,7 +182,7 @@ export async function selectMvModalMatch(matchId: string): Promise<void> {
 
     for (const src of match.sources) {
       try {
-        streams = await loadStreams(src.source, src.id);
+        streams = await loadStreams(src.source, src.id, src.category);
         if (requestId !== streamsRequestId) return;
         if (streams.length > 0) {
           workingSource = src;

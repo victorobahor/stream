@@ -4,10 +4,13 @@ import {
   isAllowedEmbedUrl,
   readUpstream,
   rewriteEmbedHtml,
+  stripAdJunk,
   ALLOWED_EMBED_HOSTS,
   AD_INJECTOR_RE,
+  AD_SCRIPT_HOST_RE,
 } from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
+import { tryHandleSportsrcRequest } from './sportsrc.mjs';
 
 function send(res: Connect.ServerResponse, status: number, type: string, body: string | Buffer): void {
   res.statusCode = status;
@@ -17,11 +20,11 @@ function send(res: Connect.ServerResponse, status: number, type: string, body: s
 }
 
 /**
- * Dev-server embed rewrite proxy + native HLS resolve/proxy:
- *   GET /__embed?u=<https://embed.st/...>  → HTML with window.open sunk
+ * Dev-server: SportSRC BFF + embed rewrite + native HLS:
+ *   GET /api/sportsrc/*                    → SportSRC V1
+ *   GET /__embed?u=<https://…>             → HTML with ads stripped / window.open sunk
  *   GET /__ad_sink                         → blank sink document
- *   GET /api/hls/open?u=…                  → { sessionId, masterUrl }
- *   GET /api/hls/:id/master.m3u8|/p        → proxied playlist / segments
+ *   GET /api/hls/*                         → native HLS (Streamed embed.st)
  */
 export function embedProxyPlugin(): Plugin {
   return {
@@ -31,6 +34,10 @@ export function embedProxyPlugin(): Plugin {
         const rawUrl = req.url || '';
         if (rawUrl.startsWith('/api/hls')) {
           const handled = await tryHandleHlsRequest(req, res);
+          if (handled) return;
+        }
+        if (rawUrl.startsWith('/api/sportsrc')) {
+          const handled = await tryHandleSportsrcRequest(req, res);
           if (handled) return;
         }
         if (!rawUrl.startsWith('/__embed') && !rawUrl.startsWith('/__ad_sink')) {
@@ -76,4 +83,11 @@ export function embedProxyPlugin(): Plugin {
   };
 }
 
-export const __test = { isAllowedEmbedUrl, rewriteEmbedHtml, ALLOWED_EMBED_HOSTS, AD_INJECTOR_RE };
+export const __test = {
+  isAllowedEmbedUrl,
+  rewriteEmbedHtml,
+  stripAdJunk,
+  ALLOWED_EMBED_HOSTS,
+  AD_INJECTOR_RE,
+  AD_SCRIPT_HOST_RE,
+};

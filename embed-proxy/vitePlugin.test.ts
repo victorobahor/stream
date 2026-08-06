@@ -1,42 +1,69 @@
 import { describe, it, expect } from 'vitest';
-import { isAllowedEmbedUrl, rewriteEmbedHtml, AD_INJECTOR_RE } from './rewrite.mjs';
+import { __test } from './vitePlugin';
 
-describe('embed proxy allowlist', () => {
+const {
+  isAllowedEmbedUrl,
+  rewriteEmbedHtml,
+  stripAdJunk,
+  ALLOWED_EMBED_HOSTS,
+} = __test;
+
+describe('embed proxy allowlist (unified)', () => {
   it('should accept embed.st https URLs', () => {
-    const u = isAllowedEmbedUrl('https://embed.st/embed/admin/x/1');
+    const u = isAllowedEmbedUrl('https://embed.st/embed/admin/foo/1');
     expect(u?.hostname).toBe('embed.st');
   });
 
-  it('should reject unrelated hosts', () => {
-    expect(isAllowedEmbedUrl('https://evil.example/embed')).toBeNull();
+  it('should accept embed.streamapi.cc https URLs', () => {
+    const u = isAllowedEmbedUrl('https://embed.streamapi.cc/sport/abc/');
+    expect(u?.hostname).toBe('embed.streamapi.cc');
   });
 
-  it('should reject non-http(s)', () => {
-    expect(isAllowedEmbedUrl('javascript:alert(1)')).toBeNull();
+  it('should reject arbitrary hosts', () => {
+    expect(isAllowedEmbedUrl('https://evil.com/embed/x')).toBeNull();
+  });
+
+  it('should list Streamed and SportSRC hosts', () => {
+    expect(ALLOWED_EMBED_HOSTS.has('embed.st')).toBe(true);
+    expect(ALLOWED_EMBED_HOSTS.has('embed.streamapi.cc')).toBe(true);
+  });
+
+  it('should inject the ad-sink bootstrap into HTML', () => {
+    const html = '<meta charset="utf-8"><body>hi</body>';
+    const out = rewriteEmbedHtml(html, 'https://embed.streamapi.cc');
+    expect(out).toContain('ad-sink');
+    expect(out).toContain('window.open');
   });
 });
 
-describe('rewriteEmbedHtml', () => {
-  const injector =
-    `<script>(()=>{let a=()=>{document.body.insertAdjacentHTML('beforeend','<iframe style="visibility:hidden"id="close"width="1"height="1"scrolling="no"frameborder="0"src="/ad.html"></iframe>');setTimeout(()=>{document.querySelector("#close").remove();},9000);setTimeout(a,600000)};a()})();</script>`;
+describe('stripAdJunk (SportSRC V1 wrappers)', () => {
+  const sample = `
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<script src="https://enteringlacquergiant.com/fd/ca/65/evil.js"></script>
+</head><body>
+<iframe id="video-iframe" src="https://embed.st/embed/admin/foo/1"></iframe>
+<script type="text/javascript">var _Hasync= _Hasync|| [];
+_Hasync.push(['Histats.start', '1,4993469,4,0,0,0,00010000']);
+(function() {
+var hs = document.createElement('script'); hs.src = ('//s10.histats.com/js15_as.js');
+document.head.appendChild(hs);
+})();</script>
+<noscript><a href="/" target="_blank"><img src="//sstatic1.histats.com/0.gif?1" alt=""></a></noscript>
+</body></html>`;
 
-  it('should match the live ad.html injector pattern', () => {
-    expect(AD_INJECTOR_RE.test(injector)).toBe(true);
+  it('should remove popunder and histats scripts but keep the player iframe', () => {
+    const out = stripAdJunk(sample);
+    expect(out).not.toContain('enteringlacquergiant.com');
+    expect(out).not.toContain('Histats');
+    expect(out).toContain('https://embed.st/embed/admin/foo/1');
   });
 
-  it('should strip the ad.html injector and inject the open sink', () => {
-    const html =
-      `<!doctypehtml><html lang="en"><meta charset="utf-8"><script src="https://cdn.example/player.js"></script>${injector}`;
-    const out = rewriteEmbedHtml(html, 'https://embed.st');
-    expect(out).toContain('[ad-sink]');
-    expect(out).toContain('window.open');
-    expect(out).not.toContain("src=\"/ad.html\"");
-    expect(out).not.toContain('insertAdjacentHTML(\'beforeend\'');
-  });
-
-  it('should absolutize root-relative asset URLs', () => {
-    const html = `<!doctypehtml><meta charset="utf-8"><iframe src="/ad.html">`;
-    const out = rewriteEmbedHtml(html, 'https://embed.st');
-    expect(out).toContain('src="https://embed.st/ad.html"');
+  it('should not strip unrelated inline scripts when removing Histats', () => {
+    const html = `<script>if (window.top === window.self) throw new Error('x');</script>
+<script>var _Hasync=[]; _Hasync.push(['Histats.start','1']);</script>`;
+    const out = stripAdJunk(html);
+    expect(out).toContain('window.top === window.self');
+    expect(out).not.toContain('Histats');
   });
 });

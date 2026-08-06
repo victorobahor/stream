@@ -16,9 +16,27 @@ const generations = new Map<string, number>();
 
 export function isHlsNativeEnabled(): boolean {
   const flag = import.meta.env.VITE_HLS_NATIVE;
-  // Default ON for this experiment branch; set VITE_HLS_NATIVE=0 to force iframe.
+  // Default ON for Streamed embed.st; set VITE_HLS_NATIVE=0 to force iframe.
   if (flag === '0' || flag === 'false') return false;
   return true;
+}
+
+/** True when this embed host cannot be minted by Playwright HLS (SportSRC wrappers). */
+export function isHlsUnsupportedEmbed(embedUrl: string): boolean {
+  try {
+    const host = new URL(embedUrl).hostname.toLowerCase();
+    return (
+      host === 'embed.streamapi.cc' ||
+      host === 'streamapi.cc' ||
+      host.endsWith('.streamapi.cc') ||
+      host === 'football77.org' ||
+      host === 'www.football77.org' ||
+      host === 'embed.sportsrc.org' ||
+      host.endsWith('.sportsrc.org')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function bumpGeneration(key: string): number {
@@ -90,6 +108,7 @@ export type PlayNativeOptions = {
  */
 export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): Promise<boolean> {
   if (!isHlsNativeEnabled()) return false;
+  if (isHlsUnsupportedEmbed(embedUrl)) return false;
 
   // Lazy-load hls.js so the home grid does not pay for it on first paint.
   const { default: Hls } = await import('hls.js');

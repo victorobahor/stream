@@ -7,6 +7,7 @@ import {
   clearStreamsCache,
   rankSources,
   pickPreferredStream,
+  mergeMatchLists,
 } from './api';
 import type { Stream } from './types';
 
@@ -213,5 +214,81 @@ describe('filterToPlayableMatches', () => {
     const result = await filterToPlayableMatches(matches);
     expect(result).toHaveLength(2);
     expect(vi.mocked(fetch).mock.calls.length).toBe(1);
+  });
+
+  it('should keep sportsrc stubs without probing', async () => {
+    mockStreamResponses({});
+    const matches: APIMatch[] = [
+      {
+        ...base,
+        id: 'sportsrc:x',
+        sources: [{ source: 'sportsrc', id: 'x', category: 'football' }],
+      },
+    ];
+    const result = await filterToPlayableMatches(matches);
+    expect(result).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.length).toBe(0);
+  });
+});
+
+describe('mergeMatchLists', () => {
+  const now = Date.now();
+
+  it('should prefix SportSRC-only ids and keep Streamed cards', () => {
+    const streamed: APIMatch[] = [
+      {
+        id: 's1',
+        title: 'Alpha vs Beta',
+        category: 'football',
+        date: now,
+        popular: true,
+        sources: [{ source: 'admin', id: 's1' }],
+        teams: { home: { name: 'Alpha', badge: 'a' }, away: { name: 'Beta', badge: 'b' } },
+      },
+    ];
+    const sportsrc: APIMatch[] = [
+      {
+        id: 'other-match',
+        title: 'Gamma vs Delta',
+        category: 'football',
+        date: now,
+        popular: false,
+        sources: [{ source: 'sportsrc', id: 'other-match', category: 'football' }],
+        teams: { home: { name: 'Gamma', badge: 'g' }, away: { name: 'Delta', badge: 'd' } },
+      },
+    ];
+    const merged = mergeMatchLists(streamed, sportsrc);
+    expect(merged).toHaveLength(2);
+    expect(merged.find(m => m.id === 's1')).toBeTruthy();
+    expect(merged.find(m => m.id === 'sportsrc:other-match')).toBeTruthy();
+  });
+
+  it('should dedupe fuzzy matches onto the Streamed card', () => {
+    const streamed: APIMatch[] = [
+      {
+        id: 's1',
+        title: 'Alpha vs Beta',
+        category: 'football',
+        date: now,
+        popular: true,
+        sources: [{ source: 'admin', id: 's1' }],
+        teams: { home: { name: 'Alpha', badge: 'a' }, away: { name: 'Beta', badge: 'b' } },
+      },
+    ];
+    const sportsrc: APIMatch[] = [
+      {
+        id: 'alpha-vs-beta-99',
+        title: 'Alpha vs Beta',
+        category: 'football',
+        date: now + 60_000,
+        popular: true,
+        sources: [{ source: 'sportsrc', id: 'alpha-vs-beta-99', category: 'football' }],
+        teams: { home: { name: 'Alpha', badge: 'a' }, away: { name: 'Beta', badge: 'b' } },
+      },
+    ];
+    const merged = mergeMatchLists(streamed, sportsrc);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe('s1');
+    expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
   });
 });

@@ -140,7 +140,11 @@ export function getPosterUrl(match: APIMatch): string | null {
     return getImgUrl(`/proxy/${p}${p.endsWith('.webp') ? '' : '.webp'}`);
   }
   if (match.teams?.home?.badge && match.teams?.away?.badge) {
-    return getImgUrl(`/poster/${match.teams.home.badge}/${match.teams.away.badge}.webp`);
+    const h = match.teams.home.badge;
+    const a = match.teams.away.badge;
+    // Absolute SportSRC badges cannot use Streamed composite poster paths.
+    if (/^https?:\/\//i.test(h) || /^https?:\/\//i.test(a)) return null;
+    return getImgUrl(`/poster/${h}/${a}.webp`);
   }
   return null;
 }

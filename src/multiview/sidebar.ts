@@ -5,6 +5,7 @@ import {
   filterMatchesWithSources,
   filterMatchesBySearch,
   filterMatchesBySport,
+  filterMatchesByCategory,
   sortMatchesForDisplay,
 } from '../helpers';
 import { formatSportLabel, getSportEmoji, isMatchLive } from '../format';
@@ -29,6 +30,7 @@ export function applyMultiviewSidebarFilters(): void {
   if (!isMultiviewVisible()) return;
 
   let matches = filterMatchesWithSources(state.allMatches);
+  matches = filterMatchesByCategory(matches, state.currentCategory);
 
   if (state.multiviewSearchQuery) {
     matches = filterMatchesBySearch(matches, state.multiviewSearchQuery);

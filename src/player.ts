@@ -3,6 +3,7 @@ import { state } from './state';
 import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers';
 import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import { loadStreams as fetchStreams, pickPreferredStream } from './api';
+import { badgeImagePath } from './state';
 import { mountPlayGate } from './adShield';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
 
@@ -82,7 +83,7 @@ export function renderSourceButtons(sources: StreamSource[]): void {
       state.activeSourceIndex = i;
       updateSourceBarActive(i);
       allowHlsSourceFailover = true;
-      void loadAndDisplayStreams(src.source, src.id);
+      void loadAndDisplayStreams(src);
     };
     fragment.appendChild(btn);
   });
@@ -93,7 +94,7 @@ export function renderSourceButtons(sources: StreamSource[]): void {
 
 let streamLoadRequestId = 0;
 
-async function loadAndDisplayStreams(source: string, id: string): Promise<void> {
+async function loadAndDisplayStreams(src: { source: string; id: string; category?: string }): Promise<void> {
   const requestId = ++streamLoadRequestId;
   const streamsLoading = el('streams-loading');
   const noStreams = el('no-streams');
@@ -106,7 +107,7 @@ async function loadAndDisplayStreams(source: string, id: string): Promise<void> 
   if (streamCount) streamCount.textContent = '';
 
   try {
-    const streams = await fetchStreams(source, id);
+    const streams = await fetchStreams(src.source, src.id, src.category);
 
     // Discard stale response if user navigated away
     if (requestId !== streamLoadRequestId) return;
@@ -121,7 +122,7 @@ async function loadAndDisplayStreams(source: string, id: string): Promise<void> 
       }
       return;
     }
-    renderStreamTabs(streams, source);
+    renderStreamTabs(streams, src.source);
     if (streamCount) streamCount.textContent = `${streams.length} stream${streams.length > 1 ? 's' : ''}`;
     const best = pickPreferredStream(streams);
     if (best) {
@@ -273,7 +274,7 @@ function tryNextSource(): boolean {
   state.activeSourceIndex = next;
   updateSourceBarActive(next);
   showToast(`Trying ${capitalize(match.sources[next].source)}\u2026`, 'error');
-  void loadAndDisplayStreams(match.sources[next].source, match.sources[next].id);
+  void loadAndDisplayStreams(match.sources[next]);
   return true;
 }
 
@@ -313,7 +314,7 @@ export function openPlayer(match: APIMatch): void {
   if (match.sources && match.sources.length > 0) {
     renderSourceButtons(match.sources);
     allowHlsSourceFailover = true;
-    void loadAndDisplayStreams(match.sources[0].source, match.sources[0].id);
+    void loadAndDisplayStreams(match.sources[0]);
   } else {
     el('source-bar')?.classList.add('hidden');
     el('no-streams')?.classList.remove('hidden');
@@ -355,7 +356,7 @@ export function renderPlayerInfo(match: APIMatch): void {
         img.alt = team.name || '';
         img.loading = 'lazy';
         img.decoding = 'async';
-        setHostImage(img, `/badge/${team.badge}.webp`, () => img.remove());
+        setHostImage(img, badgeImagePath(team.badge), () => img.remove());
         badge.appendChild(img);
       }
       const name = document.createElement('span');

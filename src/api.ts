@@ -2,6 +2,7 @@ import type { APIMatch, Stream, StreamSource, Sport } from './types';
 import type { Category } from './types';
 import { state, API_HOSTS, getActiveHostIndex, rotateActiveHost } from './state';
 import { log } from './helpers';
+import { isMatchLive } from './format';
 
 // ── Request tracking for race condition prevention ──
 
@@ -98,7 +99,7 @@ export function resolveMatchesEndpoint(cat: Category, sport: string): MatchesEnd
   return { endpoint, fallbacks, clientSportFilter };
 }
 
-/** Prefer stable/admin-style sources ahead of flaky embed mints (e.g. delta). */
+/** Prefer stable/admin-style sources; sportsrc after admin for dual-provider cards. */
 const SOURCE_PREF: Record<string, number> = {
   admin: 0,
   alpha: 1,
@@ -109,6 +110,7 @@ const SOURCE_PREF: Record<string, number> = {
   golf: 6,
   hotel: 7,
   intel: 8,
+  sportsrc: 8.5,
   delta: 9,
 };
 
@@ -156,18 +158,99 @@ export async function mapPool<T, R>(
 }
 
 const STREAM_PROBE_CONCURRENCY = 8;
+const SPORTSRC_ID_PREFIX = 'sportsrc:';
+const DEDUPE_WINDOW_MS = 30 * 60 * 1000;
+
+export function isSportsrcSource(source: StreamSource | string): boolean {
+  const name = typeof source === 'string' ? source : source.source;
+  return String(name || '').toLowerCase() === 'sportsrc';
+}
+
+function normalizeTitleKey(title: string): string {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/\s+vs\.?\s+/g, ' vs ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function matchDedupeKey(m: APIMatch): string {
+  const cat = (m.category || '').toLowerCase();
+  const home = m.teams?.home?.name;
+  const away = m.teams?.away?.name;
+  const title =
+    home && away
+      ? normalizeTitleKey(`${home} vs ${away}`)
+      : normalizeTitleKey(m.title);
+  const bucket = Math.floor(Number(m.date || 0) / DEDUPE_WINDOW_MS);
+  return `${cat}|${bucket}|${title}`;
+}
+
+/**
+ * Merge Streamed + SportSRC lists. Prefer Streamed cards on fuzzy match;
+ * append a sportsrc source. Prefix SportSRC-only ids with `sportsrc:`.
+ */
+export function mergeMatchLists(
+  streamed: APIMatch[],
+  sportsrc: APIMatch[],
+): APIMatch[] {
+  const byKey = new Map<string, APIMatch>();
+  const out: APIMatch[] = [];
+
+  for (const m of streamed) {
+    if (!m?.id) continue;
+    const copy: APIMatch = {
+      ...m,
+      sources: rankSources([...(m.sources || [])]),
+    };
+    byKey.set(matchDedupeKey(copy), copy);
+    out.push(copy);
+  }
+
+  for (const raw of sportsrc) {
+    if (!raw?.id) continue;
+    const category = raw.category || 'football';
+    const stub: StreamSource = {
+      source: 'sportsrc',
+      id: raw.id.replace(/^sportsrc:/, ''),
+      category,
+    };
+    const key = matchDedupeKey(raw);
+    const existing = byKey.get(key);
+    if (existing) {
+      const has = (existing.sources || []).some(
+        s => isSportsrcSource(s) && s.id === stub.id,
+      );
+      if (!has) {
+        existing.sources = rankSources([...(existing.sources || []), stub]);
+      }
+      continue;
+    }
+    const id = raw.id.startsWith(SPORTSRC_ID_PREFIX)
+      ? raw.id
+      : `${SPORTSRC_ID_PREFIX}${raw.id}`;
+    const card: APIMatch = {
+      ...raw,
+      id,
+      sources: [stub],
+    };
+    byKey.set(key, card);
+    out.push(card);
+  }
+
+  return out;
+}
 
 /**
  * Ask `/api/stream/{source}/{id}` which listed sources actually have embeds.
- * Dedupes by `source:id` so shared sources across matches are probed once.
- * Drops matches with no working source, and rewrites `sources` to only the
- * ones that returned streams. Uses `loadStreams`, so results warm the cache.
+ * SportSRC stubs are kept without mass probing (detail on open).
  */
 export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIMatch[]> {
   const uniqueSources = new Map<string, StreamSource>();
   for (const match of matches) {
     for (const source of match.sources || []) {
       if (!source?.source || !source?.id) continue;
+      if (isSportsrcSource(source)) continue;
       const key = `${source.source}:${source.id}`;
       if (!uniqueSources.has(key)) uniqueSources.set(key, source);
     }
@@ -176,7 +259,7 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
   const uniqueEntries = [...uniqueSources.entries()];
   const probeHits = await mapPool(uniqueEntries, STREAM_PROBE_CONCURRENCY, async ([key, source]) => {
     try {
-      const streams = await loadStreams(source.source, source.id);
+      const streams = await loadStreams(source.source, source.id, source.category);
       return streams.length > 0 ? key : null;
     } catch (e) {
       log('warn', `Stream probe failed for ${source.source}/${source.id}:`, e);
@@ -192,7 +275,10 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
   const playable: APIMatch[] = [];
   for (const match of matches) {
     const sources = rankSources(
-      (match.sources || []).filter(s => workingKeys.has(`${s.source}:${s.id}`)),
+      (match.sources || []).filter(s => {
+        if (isSportsrcSource(s)) return true;
+        return workingKeys.has(`${s.source}:${s.id}`);
+      }),
     );
     if (sources.length === 0) continue;
     playable.push({ ...match, sources });
@@ -219,40 +305,77 @@ export async function loadMatches(): Promise<APIMatch[]> {
     state.currentSport,
   );
 
-  let data = await fetchJSON<APIMatch[]>(endpoint);
-  // Discard stale response if a newer request has started
-  if (requestId !== loadMatchesRequestId) return state.allMatches;
+  const sportsrcPath = endpoint.replace(/^\/api\//, '/api/sportsrc/');
+  const sportsrcFallbacks = fallbacks.map(fb => fb.replace(/^\/api\//, '/api/sportsrc/'));
 
-  let matches: APIMatch[] = Array.isArray(data) ? data : [];
-
-  // Popular: walk documented popular endpoints when the hot-now slate is empty
-  // (e.g. overnight with no live popular matches).
-  if (matches.length === 0 && fallbacks.length > 0) {
-    for (const fb of fallbacks) {
-      data = await fetchJSON<APIMatch[]>(fb);
-      if (requestId !== loadMatchesRequestId) return state.allMatches;
-      matches = Array.isArray(data) ? data : [];
-      if (matches.length > 0) {
-        log('debug', `Matches fallback ${fb} returned ${matches.length}`);
-        break;
+  const streamedPromise = (async () => {
+    let data = await fetchJSON<APIMatch[]>(endpoint);
+    let matches: APIMatch[] = Array.isArray(data) ? data : [];
+    if (matches.length === 0 && fallbacks.length > 0) {
+      for (const fb of fallbacks) {
+        data = await fetchJSON<APIMatch[]>(fb);
+        matches = Array.isArray(data) ? data : [];
+        if (matches.length > 0) {
+          log('debug', `Matches fallback ${fb} returned ${matches.length}`);
+          break;
+        }
       }
     }
-  }
+    return matches;
+  })().catch(err => {
+    log('warn', 'Streamed matches failed:', err);
+    return [] as APIMatch[];
+  });
 
-  // Client-side filter: "today" endpoint may include non-today matches from the API
+  const sportsrcPromise = (async () => {
+    const tryPath = async (path: string) => {
+      const res = await fetch(path, { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`SportSRC HTTP ${res.status}`);
+      const data = await res.json();
+      return (Array.isArray(data) ? data : []) as APIMatch[];
+    };
+    let matches = await tryPath(sportsrcPath).catch(() => [] as APIMatch[]);
+    if (matches.length === 0 && sportsrcFallbacks.length > 0) {
+      for (const fb of sportsrcFallbacks) {
+        matches = await tryPath(fb).catch(() => [] as APIMatch[]);
+        if (matches.length > 0) break;
+      }
+    }
+    return matches;
+  })().catch(err => {
+    log('warn', 'SportSRC matches failed:', err);
+    return [] as APIMatch[];
+  });
+
+  const [streamedRaw, sportsrcRaw] = await Promise.all([streamedPromise, sportsrcPromise]);
+  if (requestId !== loadMatchesRequestId) return state.allMatches;
+
+  let matches = mergeMatchLists(streamedRaw, sportsrcRaw);
+
+  // Narrow merged catalog. For Live: trust Streamed's live slate (API may keep
+  // long events like motorsport past our 3h window). Only date-gate SportSRC-only
+  // rows so popular stubs cannot pollute Live.
+  matches = matches.filter(m => m.sources && m.sources.length > 0);
   if (state.currentCategory === 'today') {
     const todayStr = new Date().toDateString();
     matches = matches.filter(m => m.date && new Date(m.date).toDateString() === todayStr);
+  } else if (state.currentCategory === 'live') {
+    matches = matches.filter(m => {
+      if (!String(m.id).startsWith('sportsrc:')) return true;
+      return isMatchLive(m) || m.status === 'inprogress';
+    });
+  } else if (state.currentCategory === 'popular') {
+    matches = matches.filter(m => m.popular);
   }
 
-  if (clientSportFilter) {
-    matches = matches.filter(m => (m.category || '').toLowerCase() === state.currentSport.toLowerCase());
+  if (clientSportFilter || state.currentSport !== 'all') {
+    const sport = state.currentSport.toLowerCase();
+    if (sport !== 'all') {
+      matches = matches.filter(m => (m.category || '').toLowerCase() === sport);
+    }
   }
 
-  // Probe before committing — avoids flashing non-playable cards into the grid
-  // (and into filter switches) while streams are still being checked.
-  const withSources = matches.filter(m => m.sources && m.sources.length > 0);
-  matches = await filterToPlayableMatches(withSources);
+  matches = await filterToPlayableMatches(matches);
   if (requestId !== loadMatchesRequestId) return state.allMatches;
 
   commitMatches(matches);
@@ -285,16 +408,33 @@ export function clearStreamsCache(): void {
   streamsCache.clear();
 }
 
-export async function loadStreams(source: string, id: string): Promise<Stream[]> {
-  const cacheKey = `${source}:${id}`;
+export async function loadStreams(
+  source: string,
+  id: string,
+  category?: string,
+): Promise<Stream[]> {
+  const cacheKey = `${source}:${id}:${category || ''}`;
   const cached = streamsCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data;
   }
-  const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
-  const streams = Array.isArray(data) ? data : [];
-  // Cache empties too — the match-list probe would otherwise re-hit every
-  // dead source on each refresh, and a short TTL still lets streams appear later.
+
+  let streams: Stream[] = [];
+  if (isSportsrcSource(source)) {
+    const cat = category || 'football';
+    const matchId = id.replace(/^sportsrc:/, '');
+    const res = await fetch(
+      `/api/sportsrc/stream/${encodeURIComponent(cat)}/${encodeURIComponent(matchId)}`,
+      { headers: { Accept: 'application/json' } },
+    );
+    if (!res.ok) throw new Error(`SportSRC stream HTTP ${res.status}`);
+    const data = await res.json();
+    streams = Array.isArray(data) ? data : [];
+  } else {
+    const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
+    streams = Array.isArray(data) ? data : [];
+  }
+
   streamsCache.set(cacheKey, { data: streams, ts: Date.now() });
   return streams;
 }

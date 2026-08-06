@@ -1,5 +1,6 @@
 import type { APIMatch } from './types';
 import { el, bindListDelegation, setHostImage } from './helpers';
+import { badgeImagePath } from './state';
 import { formatSportLabel, getSportEmoji, isMatchLive, isEPLMatch, getPosterUrl, formatDate } from './format';
 import { getMatchById } from './api';
 
@@ -121,7 +122,7 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
         img.loading = 'lazy';
         img.decoding = 'async';
         placeholder.style.display = 'none';
-        setHostImage(img, `/badge/${teamData.badge}.webp`, () => {
+        setHostImage(img, badgeImagePath(teamData.badge), () => {
           img.style.display = 'none';
           placeholder.style.display = 'flex';
         });

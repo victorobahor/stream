@@ -47,3 +47,24 @@ export function imageUrlForHost(path: string, index: number): string {
 export function getImgUrl(path: string): string {
   return imageUrlForHost(path, hostIndex.current);
 }
+
+/** Absolute URLs pass through; relative Streamed image paths go through mirrors. */
+export function resolveImageUrl(path: string): string {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  if (normalized.startsWith('/api/images')) {
+    return `${API_HOSTS[hostIndex.current]}${normalized}`;
+  }
+  return getImgUrl(normalized.startsWith('/badge') || normalized.startsWith('/poster') || normalized.startsWith('/proxy')
+    ? normalized
+    : `/badge/${path.replace(/^\//, '')}`);
+}
+
+/** Badge path for setHostImage: absolute SportSRC URLs or Streamed /badge/… paths. */
+export function badgeImagePath(badge: string): string {
+  if (!badge) return '';
+  if (/^https?:\/\//i.test(badge)) return badge;
+  const id = badge.replace(/\.webp$/i, '');
+  return `/badge/${id}.webp`;
+}

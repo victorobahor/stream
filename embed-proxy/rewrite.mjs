@@ -1,15 +1,31 @@
 /** Shared embed HTML rewrite — used by the Vite plugin and the Docker/Node server. */
 
-export const ALLOWED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
+export const ALLOWED_EMBED_HOSTS = new Set([
+  // Streamed native player (never always-proxy — WASM lock)
+  'embed.st',
+  'www.embed.st',
+  // SportSRC V1 wrappers (always proxy + strip ads)
+  'embed.streamapi.cc',
+  'streamapi.cc',
+  'football77.org',
+  'www.football77.org',
+  'embed.sportsrc.org',
+  'www.embed.sportsrc.org',
+]);
 
 // The HTML string uses double quotes inside a single-quoted JS string, so
 // [^']* after ad.html already consumes through </iframe> — don't re-match it.
 export const AD_INJECTOR_RE =
   /<script>\(\(\)=>\{let a=\(\)=>\{document\.body\.insertAdjacentHTML\('beforeend','[^']*ad\.html[^']*'\);[\s\S]*?\}\)\(\);<\/script>/i;
 
+/** Hosts commonly injected as popunder / tracker scripts on SportSRC V1 wrappers. */
+export const AD_SCRIPT_HOST_RE =
+  /enteringlacquergiant\.com|histats\.com|s10\.histats\.com|sstatic1\.histats\.com|pl203\d+\.pu(?:sh|b)lic/i;
+
 export const SINK_BOOTSTRAP = `<script>
 (function () {
   var SINK = '/__ad_sink';
+  var AD_HOST = /enteringlacquergiant\\.com|histats\\.com|doubleclick\\.net|googlesyndication\\.com/i;
   function stub() {
     return {
       closed: false,
@@ -36,6 +52,36 @@ export const SINK_BOOTSTRAP = `<script>
     if (typeof text === 'string' && /ad\\.html/i.test(text)) return;
     return _ins.call(this, pos, text);
   };
+  // Block late-injected ad scripts (src set after createElement).
+  var _setAttr = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name, value) {
+    if (
+      this.tagName === 'SCRIPT' &&
+      String(name).toLowerCase() === 'src' &&
+      AD_HOST.test(String(value))
+    ) {
+      try { console.debug('[ad-sink] blocked script', value); } catch (e) {}
+      return;
+    }
+    return _setAttr.call(this, name, value);
+  };
+  try {
+    var desc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+    if (desc && desc.set) {
+      Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+        configurable: true,
+        enumerable: desc.enumerable,
+        get: desc.get,
+        set: function (v) {
+          if (AD_HOST.test(String(v))) {
+            try { console.debug('[ad-sink] blocked script.src', v); } catch (e) {}
+            return;
+          }
+          return desc.set.call(this, v);
+        }
+      });
+    }
+  } catch (e) {}
 })();
 </script>`;
 
@@ -54,11 +100,34 @@ export function isAllowedEmbedUrl(raw) {
   return parsed;
 }
 
+/** Strip known wrapper ad / tracker markup from SportSRC V1 outer pages. */
+export function stripAdJunk(html) {
+  let out = String(html || '');
+  // External ad / tracker scripts
+  out = out.replace(
+    /<script\b[^>]*\bsrc=["'][^"']*["'][^>]*>\s*<\/script>/gi,
+    m => (AD_SCRIPT_HOST_RE.test(m) ? '' : m),
+  );
+  // Inline Histats (match one script block at a time — do not cross tags)
+  out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, block =>
+    /\bHistats\b/i.test(block) ? '' : block,
+  );
+  out = out.replace(/<noscript\b[^>]*>[\s\S]*?histats[\s\S]*?<\/noscript>/gi, '');
+  // Football77-style injector
+  out = out.replace(AD_INJECTOR_RE, '');
+  return out;
+}
+
 export function rewriteEmbedHtml(html, origin) {
-  let out = html.replace(AD_INJECTOR_RE, '');
+  let out = stripAdJunk(html);
   out = out.replace(/(\s)(src|href)="(\/[^"]*)"/g, `$1$2="${origin}$3"`);
-  if (out.includes('<meta charset="utf-8">')) {
+  // Prefer injecting after <head> so our stubs run before remaining scripts.
+  if (/<head\b[^>]*>/i.test(out)) {
+    out = out.replace(/<head\b[^>]*>/i, m => `${m}${SINK_BOOTSTRAP}`);
+  } else if (out.includes('<meta charset="utf-8">')) {
     out = out.replace('<meta charset="utf-8">', `<meta charset="utf-8">${SINK_BOOTSTRAP}`);
+  } else if (out.includes('<meta charset="UTF-8">')) {
+    out = out.replace('<meta charset="UTF-8">', `<meta charset="UTF-8">${SINK_BOOTSTRAP}`);
   } else {
     out = SINK_BOOTSTRAP + out;
   }
@@ -66,12 +135,18 @@ export function rewriteEmbedHtml(html, origin) {
 }
 
 export async function readUpstream(url) {
+  let referer = 'https://embed.streamapi.cc/';
+  try {
+    referer = new URL(url).origin + '/';
+  } catch {
+    /* keep default */
+  }
   const res = await fetch(url, {
     headers: {
       Accept: 'text/html,application/xhtml+xml',
       'User-Agent':
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
-      Referer: 'https://embed.st/',
+      Referer: referer,
     },
   });
   return {

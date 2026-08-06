@@ -61,6 +61,14 @@ export function log(level: string, ...args: unknown[]): void {
  * keeps pointing at the dead host forever.
  */
 export function setHostImage(img: HTMLImageElement, path: string, onExhausted?: () => void): void {
+  if (/^https?:\/\//i.test(path)) {
+    img.onerror = () => {
+      img.onerror = null;
+      onExhausted?.();
+    };
+    img.src = path;
+    return;
+  }
   let attempt = 0;
   img.onerror = () => {
     attempt++;
@@ -100,6 +108,36 @@ export function filterMatchesBySearch(matches: APIMatch[], searchQuery: string):
 
 export function filterMatchesWithSources(matches: APIMatch[]): APIMatch[] {
   return matches.filter(m => m.sources && m.sources.length > 0);
+}
+
+/**
+ * Refine the merged catalog by UI category. Load-time endpoints already narrow
+ * the slate; this keeps Live/Today/Popular correct when SportSRC + Streamed
+ * rows are combined.
+ *
+ * Live: prefer `liveMatchIds` (Streamed live slate, including long events) and
+ * only date-gate SportSRC-only cards that were never on that slate.
+ */
+export function filterMatchesByCategory(
+  matches: APIMatch[],
+  category: string,
+): APIMatch[] {
+  if (category === 'live') {
+    return matches.filter(m => {
+      // Streamed / merged cards from the live fetch — keep even if kickoff is
+      // outside the 3h badge window (e.g. motorsport endurance).
+      if (!String(m.id).startsWith('sportsrc:')) return true;
+      return isMatchLive(m) || m.status === 'inprogress';
+    });
+  }
+  if (category === 'today') {
+    const todayStr = new Date().toDateString();
+    return matches.filter(m => m.date && new Date(m.date).toDateString() === todayStr);
+  }
+  if (category === 'popular') {
+    return matches.filter(m => m.popular);
+  }
+  return matches;
 }
 
 /**
@@ -166,16 +204,36 @@ export function bindListDelegation(
 export const EMBED_ALLOW = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
 
 /**
- * When true, embeds are loaded through the same-origin rewrite proxy
- * (`/__embed?u=…`). That changes the document origin away from `embed.st`,
- * which trips their WASM lock — playback stays black. Keep off unless
- * experimenting. PopUnder mitigation lives in `adShield.ts` instead.
- *
- * Opt in with `VITE_EMBED_PROXY=1`. Off by default in dev and production.
+ * When true, all allowlisted embeds go through `/__embed?u=…`.
+ * Opt in with `VITE_EMBED_PROXY=1`. SportSRC streamapi wrappers are always
+ * proxied via `shouldProxyEmbed` (outer page is an ad shell + nested player).
+ * Never always-proxy embed.st — that trips the WASM lock.
  */
 export function isEmbedProxyEnabled(): boolean {
   const flag = import.meta.env.VITE_EMBED_PROXY;
   return flag === '1' || flag === 'true';
+}
+
+const STREAMED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
+
+const SPORTSRC_EMBED_HOSTS = new Set([
+  'embed.streamapi.cc',
+  'streamapi.cc',
+  'football77.org',
+  'www.football77.org',
+  'embed.sportsrc.org',
+  'www.embed.sportsrc.org',
+]);
+
+const ALWAYS_PROXY_HOSTS = new Set(['embed.streamapi.cc', 'streamapi.cc']);
+
+export function shouldProxyEmbed(embedUrl: string): boolean {
+  if (isEmbedProxyEnabled()) return true;
+  try {
+    return ALWAYS_PROXY_HOSTS.has(new URL(embedUrl).hostname);
+  } catch {
+    return false;
+  }
 }
 
 /** Same-origin proxy URL for an upstream embed, or null if not proxyable. */
@@ -184,46 +242,42 @@ export function toProxiedEmbedUrl(embedUrl: string): string | null {
   if (!safe || safe === 'about:blank') return null;
   try {
     const host = new URL(safe).hostname;
-    if (host !== 'embed.st' && host !== 'www.embed.st') return null;
+    if (!STREAMED_EMBED_HOSTS.has(host) && !SPORTSRC_EMBED_HOSTS.has(host)) return null;
   } catch {
     return null;
   }
   return `/__embed?u=${encodeURIComponent(safe)}`;
 }
 
-/** True when the URL is an https://embed.st|/www.embed.st embed path. */
+/** True when the URL is an allowlisted Streamed or SportSRC embed host. */
 export function isAllowedEmbedHost(embedUrl: string): boolean {
   try {
     const u = new URL(embedUrl);
     if (u.protocol !== 'https:') return false;
-    if (u.hostname !== 'embed.st' && u.hostname !== 'www.embed.st') return false;
-    return u.pathname.startsWith('/embed/');
+    if (STREAMED_EMBED_HOSTS.has(u.hostname)) {
+      return u.pathname.startsWith('/embed/');
+    }
+    return SPORTSRC_EMBED_HOSTS.has(u.hostname);
   } catch {
     return false;
   }
 }
 
 /**
- * Navigate an iframe to a stream embed. No `sandbox` attribute — the players
- * check for it explicitly and refuse to start. PopUnder mitigation is handled
- * by `adShield.ts` (click-to-start gate + blur→focus), not sandbox / proxy.
- * Only allowlisted embed.st hosts are accepted (OWASP A03 — untrusted frame-src).
+ * Navigate an iframe to a stream embed. No `sandbox` — players detect it.
+ * Streamed embed.st: direct (HLS preferred). SportSRC streamapi: always proxy
+ * + ad strip. PopUnder gate lives in `adShield.ts`.
  */
 export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
   const safe = sanitizeUrl(embedUrl);
   if (!safe || safe === 'about:blank') return;
   if (!isAllowedEmbedHost(safe) && !safe.startsWith('/__embed?')) return;
-  const src =
-    isEmbedProxyEnabled() ? (toProxiedEmbedUrl(safe) ?? safe) : safe;
+  const src = shouldProxyEmbed(safe) ? (toProxiedEmbedUrl(safe) ?? safe) : safe;
   if (!src.startsWith('/') && !isAllowedEmbedHost(src)) return;
   const proxied = src.startsWith('/');
   iframe.removeAttribute('srcdoc');
-  // Cleared explicitly: leftover sandbox from markup/prior nav would trip the
-  // player's detector and refuse playback.
   iframe.removeAttribute('sandbox');
   iframe.setAttribute('allow', EMBED_ALLOW);
-  // Direct embeds need a normal referrer for CDN/token checks. Proxied docs are
-  // same-origin to us; no-referrer avoids leaking the app URL if proxy is on.
   iframe.setAttribute(
     'referrerpolicy',
     proxied ? 'no-referrer' : 'strict-origin-when-cross-origin',

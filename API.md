@@ -1,4 +1,10 @@
-# Streamed API Documentation
+# StreamZone API Documentation
+
+This app uses two upstream catalogs. **Streamed** is fetched from the browser; **SportSRC V1** is fetched only through the local BFF under `/api/sportsrc/*`.
+
+---
+
+# Streamed API
 
 > Base URL: `https://streamed.pk`  
 > Mirror: `https://strmd.link`  
@@ -474,3 +480,42 @@ async function loadStreamForSport(sportId) {
 // Load football matches
 loadStreamForSport('football');
 ```
+
+---
+
+# SportSRC V1 (via local BFF)
+
+> Upstream: `https://api.sportsrc.org/?data=…` (keyless public V1)  
+> App path: `/api/sportsrc/*` (Vite middleware in dev, `embed-proxy/server.mjs` in production)  
+> The browser never talks to `api.sportsrc.org` directly — CORS and caching are handled server-side.
+
+## How StreamZone maps paths
+
+| Client request | Upstream `data=` |
+|---|---|
+| `GET /api/sportsrc/sports` | sports list |
+| `GET /api/sportsrc/matches/live` | live matches |
+| `GET /api/sportsrc/matches/all` | all matches |
+| `GET /api/sportsrc/matches/{sport}` | matches for sport |
+| `GET /api/sportsrc/stream/{id}` or `/api/sportsrc/stream/sportsrc/{id}` | streams for match |
+
+Responses are normalized to the Streamed-shaped `APIMatch` / `Stream` objects the SPA already uses. Match-only rows from SportSRC get a stub source `{ source: "sportsrc", id, category }` until streams are loaded.
+
+## Client merge behavior
+
+1. Fetch Streamed and SportSRC in parallel for the same category/sport.
+2. Deduplicate by title (+ teams when present); append a `sportsrc` source onto Streamed cards when both list the same fixture.
+3. SportSRC-only matches get ids prefixed with `sportsrc:`.
+4. `loadStreams` probes Streamed sources and fetches SportSRC streams for stubs; Admin-style Streamed sources are preferred in the picker.
+
+## Env overrides
+
+See `.env.example`:
+
+- `SPORTSRC_BASE_URL` (default `https://api.sportsrc.org/`)
+- `SPORTSRC_CACHE_TTL_MS` (default `30000`)
+- `SPORTSRC_API_KEY` (optional; public V1 is keyless)
+
+## Playback note
+
+SportSRC embeds typically land on `embed.streamapi.cc` (often nesting `embed.st`). StreamZone always routes those through `/__embed` with ad stripping; native HLS is reserved for Streamed `embed.st` embeds.

@@ -17,6 +17,7 @@ import {
   rewriteEmbedHtml,
 } from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
+import { tryHandleSportsrcRequest } from './sportsrc.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 80);
@@ -57,7 +58,7 @@ const GZIP_TYPES = new Set([
 ]);
 
 const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' https://embed.st https://www.embed.st; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' https://embed.st https://www.embed.st https://embed.streamapi.cc https://football77.org https://www.football77.org https://embed.sportsrc.org; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'";
 
 const SECURITY_HEADERS = {
   'X-Frame-Options': 'SAMEORIGIN',
@@ -190,6 +191,10 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
     if (await tryHandleHlsRequest(req, res)) {
+      return;
+    }
+
+    if (await tryHandleSportsrcRequest(req, res)) {
       return;
     }
 
