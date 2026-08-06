@@ -173,22 +173,19 @@ describe('getPosterUrl', () => {
     expect(getPosterUrl(withPoster('https://cdn.example/p.webp'))).toBe('https://cdn.example/p.webp');
   });
 
-  it('should not double the .webp extension on a proxied poster', () => {
-    const url = getPosterUrl(withPoster('/api/images/proxy/abc123.webp'));
-    expect(url).not.toContain('.webp.webp');
-    expect(url).toMatch(/\/api\/images\/proxy\/abc123\.webp$/);
+  it('should pass through relative poster paths as-is (no Streamed image CDN)', () => {
+    expect(getPosterUrl(withPoster('/local/poster.webp'))).toBe('/local/poster.webp');
   });
 
-  it('should add the extension when the poster id has none', () => {
-    expect(getPosterUrl(withPoster('abc123'))).toMatch(/\/api\/images\/proxy\/abc123\.webp$/);
-  });
-
-  it('should fall back to the team badge pair', () => {
+  it('should return null when there is no poster (badges render separately)', () => {
     const match: APIMatch = {
       id: '1', title: 'T', category: 'football', date: 0, popular: false, sources: [],
-      teams: { home: { name: 'H', badge: 'h1' }, away: { name: 'A', badge: 'a1' } },
+      teams: {
+        home: { name: 'H', badge: 'https://img.sportsrc.org/h.png' },
+        away: { name: 'A', badge: 'https://img.sportsrc.org/a.png' },
+      },
     };
-    expect(getPosterUrl(match)).toMatch(/\/api\/images\/poster\/h1\/a1\.webp$/);
+    expect(getPosterUrl(match)).toBeNull();
   });
 
   it('should return null when there is nothing to show', () => {

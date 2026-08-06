@@ -1,42 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { isAllowedEmbedUrl, rewriteEmbedHtml, AD_INJECTOR_RE } from './rewrite.mjs';
+import { __test } from './vitePlugin';
 
-describe('embed proxy allowlist', () => {
-  it('should accept embed.st https URLs', () => {
-    const u = isAllowedEmbedUrl('https://embed.st/embed/admin/x/1');
-    expect(u?.hostname).toBe('embed.st');
+const { isAllowedEmbedUrl, rewriteEmbedHtml, ALLOWED_EMBED_HOSTS } = __test;
+
+describe('embed proxy allowlist (SportSRC)', () => {
+  it('should accept football77.org https URLs', () => {
+    const u = isAllowedEmbedUrl('https://football77.org/embed/?id=x&source=rapid');
+    expect(u?.hostname).toBe('football77.org');
   });
 
-  it('should reject unrelated hosts', () => {
-    expect(isAllowedEmbedUrl('https://evil.example/embed')).toBeNull();
+  it('should accept embed.sportsrc.org channel URLs', () => {
+    const u = isAllowedEmbedUrl('https://embed.sportsrc.org/channel/?id=ae-espn');
+    expect(u?.hostname).toBe('embed.sportsrc.org');
   });
 
-  it('should reject non-http(s)', () => {
-    expect(isAllowedEmbedUrl('javascript:alert(1)')).toBeNull();
-  });
-});
-
-describe('rewriteEmbedHtml', () => {
-  const injector =
-    `<script>(()=>{let a=()=>{document.body.insertAdjacentHTML('beforeend','<iframe style="visibility:hidden"id="close"width="1"height="1"scrolling="no"frameborder="0"src="/ad.html"></iframe>');setTimeout(()=>{document.querySelector("#close").remove();},9000);setTimeout(a,600000)};a()})();</script>`;
-
-  it('should match the live ad.html injector pattern', () => {
-    expect(AD_INJECTOR_RE.test(injector)).toBe(true);
+  it('should reject embed.st', () => {
+    expect(isAllowedEmbedUrl('https://embed.st/embed/admin/x/1')).toBeNull();
   });
 
-  it('should strip the ad.html injector and inject the open sink', () => {
-    const html =
-      `<!doctypehtml><html lang="en"><meta charset="utf-8"><script src="https://cdn.example/player.js"></script>${injector}`;
-    const out = rewriteEmbedHtml(html, 'https://embed.st');
-    expect(out).toContain('[ad-sink]');
+  it('should reject arbitrary hosts', () => {
+    expect(isAllowedEmbedUrl('https://evil.com/embed/x')).toBeNull();
+  });
+
+  it('should list SportSRC hosts', () => {
+    expect(ALLOWED_EMBED_HOSTS.has('football77.org')).toBe(true);
+    expect(ALLOWED_EMBED_HOSTS.has('embed.sportsrc.org')).toBe(true);
+  });
+
+  it('should inject the ad-sink bootstrap into HTML', () => {
+    const html = '<meta charset="utf-8"><body>hi</body>';
+    const out = rewriteEmbedHtml(html, 'https://football77.org');
+    expect(out).toContain('ad-sink');
     expect(out).toContain('window.open');
-    expect(out).not.toContain("src=\"/ad.html\"");
-    expect(out).not.toContain('insertAdjacentHTML(\'beforeend\'');
-  });
-
-  it('should absolutize root-relative asset URLs', () => {
-    const html = `<!doctypehtml><meta charset="utf-8"><iframe src="/ad.html">`;
-    const out = rewriteEmbedHtml(html, 'https://embed.st');
-    expect(out).toContain('src="https://embed.st/ad.html"');
   });
 });

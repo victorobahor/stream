@@ -8,6 +8,7 @@ import {
   AD_INJECTOR_RE,
 } from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
+import { tryHandleSportsrcRequest } from './sportsrc.mjs';
 
 function send(res: Connect.ServerResponse, status: number, type: string, body: string | Buffer): void {
   res.statusCode = status;
@@ -17,11 +18,11 @@ function send(res: Connect.ServerResponse, status: number, type: string, body: s
 }
 
 /**
- * Dev-server embed rewrite proxy + native HLS resolve/proxy:
- *   GET /__embed?u=<https://embed.st/...>  → HTML with window.open sunk
- *   GET /__ad_sink                         → blank sink document
- *   GET /api/hls/open?u=…                  → { sessionId, masterUrl }
- *   GET /api/hls/:id/master.m3u8|/p        → proxied playlist / segments
+ * Dev-server SportSRC BFF + embed rewrite + native HLS:
+ *   GET /api/sports|/api/matches/*|/api/stream/* → SportSRC (keyed server-side)
+ *   GET /__embed?u=<https://…>                  → HTML with window.open sunk
+ *   GET /__ad_sink                              → blank sink document
+ *   GET /api/hls/*                              → optional native HLS (off for SportSRC)
  */
 export function embedProxyPlugin(): Plugin {
   return {
@@ -31,6 +32,10 @@ export function embedProxyPlugin(): Plugin {
         const rawUrl = req.url || '';
         if (rawUrl.startsWith('/api/hls')) {
           const handled = await tryHandleHlsRequest(req, res);
+          if (handled) return;
+        }
+        if (rawUrl.startsWith('/api/')) {
+          const handled = await tryHandleSportsrcRequest(req, res);
           if (handled) return;
         }
         if (!rawUrl.startsWith('/__embed') && !rawUrl.startsWith('/__ad_sink')) {

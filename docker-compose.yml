@@ -3,19 +3,18 @@ services:
     build: .
     image: v1kt0r2020/streamzone:latest
     container_name: streamzone_app
-    # Pin the process: old containers still had nginx's /docker-entrypoint.sh.
     entrypoint: ["node", "embed-proxy/server.mjs"]
     ports:
-      - "8080:80"
-    # Chromium needs real /dev/shm; default 64MB causes flaky HLS resolves.
+      - "8081:80"
     shm_size: "2gb"
     environment:
-      # Sized for a single host with headroom for multiview (up to 4 slots/user).
+      # SportSRC experiment — pass the key at runtime, never bake into the image.
+      SPORTSRC_API_KEY: ${SPORTSRC_API_KEY}
+      SPORTSRC_CACHE_TTL_MS: "30000"
+      # Native HLS remains available but client defaults off for SportSRC embeds.
       HLS_MAX_SESSIONS: "24"
       HLS_MAX_OPENS: "6"
       HLS_OPEN_RATE_MAX: "48"
-      # Queue behind busy resolves instead of immediate iframe fallback.
       HLS_OPEN_WAIT_MS: "45000"
-      # Share mint cookies/playlist for the same embed across viewers.
       HLS_MINT_CACHE_TTL_MS: "120000"
     restart: unless-stopped

@@ -1,20 +1,18 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { APIMatch } from './types';
+import { describe, it, expect } from 'vitest';
+import type { APIMatch, Stream } from './types';
 import {
   resolveMatchesEndpoint,
   mapPool,
   filterToPlayableMatches,
-  clearStreamsCache,
   rankSources,
   pickPreferredStream,
 } from './api';
-import type { Stream } from './types';
 
 describe('resolveMatchesEndpoint', () => {
   it('should return live endpoint for live category with all sports', () => {
     const result = resolveMatchesEndpoint('live', 'all');
     expect(result.endpoint).toBe('/api/matches/live');
-    expect(result.fallbacks).toEqual([]);
+    expect(result.fallbacks).toEqual(['/api/matches/all-today']);
     expect(result.clientSportFilter).toBe(false);
   });
 
@@ -24,12 +22,12 @@ describe('resolveMatchesEndpoint', () => {
     expect(result.clientSportFilter).toBe(false);
   });
 
-  it('should prefer live/popular with documented popular fallbacks', () => {
+  it('should prefer live/popular with today popular fallbacks', () => {
     const result = resolveMatchesEndpoint('popular', 'all');
     expect(result.endpoint).toBe('/api/matches/live/popular');
     expect(result.fallbacks).toEqual([
       '/api/matches/all-today/popular',
-      '/api/matches/all/popular',
+      '/api/matches/all-today',
     ]);
     expect(result.clientSportFilter).toBe(false);
   });
@@ -67,13 +65,13 @@ describe('resolveMatchesEndpoint', () => {
 });
 
 describe('rankSources', () => {
-  it('should put admin ahead of delta', () => {
+  it('should put rapid ahead of delta', () => {
     const ranked = rankSources([
       { source: 'delta', id: 'd1' },
-      { source: 'admin', id: 'a1' },
-      { source: 'echo', id: 'e1' },
+      { source: 'rapid', id: 'r1' },
+      { source: 'sportsrc', id: 's1' },
     ]);
-    expect(ranked.map(s => s.source)).toEqual(['admin', 'echo', 'delta']);
+    expect(ranked.map(s => s.source)).toEqual(['rapid', 'sportsrc', 'delta']);
   });
 });
 
@@ -81,8 +79,8 @@ describe('pickPreferredStream', () => {
   const base = {
     id: 's',
     language: 'English',
-    embedUrl: 'https://embed.st/embed/x/1',
-    source: 'admin',
+    embedUrl: 'https://football77.org/embed/?id=x',
+    source: 'rapid',
   };
 
   it('should prefer HD, then higher viewers', () => {
@@ -127,91 +125,36 @@ describe('filterToPlayableMatches', () => {
     popular: false,
   };
 
-  beforeEach(() => {
-    clearStreamsCache();
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    clearStreamsCache();
-  });
-
-  function mockStreamResponses(map: Record<string, unknown>): void {
-    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const key = Object.keys(map).find(k => url.includes(k));
-      const body = key ? map[key] : [];
-      return new Response(JSON.stringify(body), { status: 200 });
-    });
-  }
-
-  it('should drop matches whose sources all return empty streams', async () => {
-    mockStreamResponses({
-      '/api/stream/echo/dead': [],
-    });
+  it('should drop matches with no id or sources', async () => {
     const matches: APIMatch[] = [
-      { ...base, id: '1', sources: [{ source: 'echo', id: 'dead' }] },
+      { ...base, id: '', sources: [{ source: 'sportsrc', id: 'x' }] },
+      { ...base, id: '2', sources: [] },
     ];
     expect(await filterToPlayableMatches(matches)).toEqual([]);
   });
 
-  it('should keep matches with at least one working source and prune dead ones', async () => {
-    mockStreamResponses({
-      '/api/stream/echo/dead': [],
-      '/api/stream/admin/live': [{ id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' }],
-    });
+  it('should keep stub sources without probing (rate-limit safe)', async () => {
     const matches: APIMatch[] = [
-      {
-        ...base,
-        id: '1',
-        sources: [
-          { source: 'echo', id: 'dead' },
-          { source: 'admin', id: 'live' },
-        ],
-      },
-      { ...base, id: '2', sources: [{ source: 'echo', id: 'dead' }] },
+      { ...base, id: '1', sources: [{ source: 'sportsrc', id: '1' }] },
+      { ...base, id: '2', title: 'Other', sources: [{ source: 'rapid', id: '2' }] },
     ];
     const result = await filterToPlayableMatches(matches);
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('1');
-    expect(result[0].sources).toEqual([{ source: 'admin', id: 'live' }]);
+    expect(result).toHaveLength(2);
+    expect(result[0].sources[0].source).toBe('sportsrc');
   });
 
-  it('should rank known sources (admin before delta) among working sources', async () => {
-    mockStreamResponses({
-      '/api/stream/delta/1': [{ id: '1', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/1', source: 'delta' }],
-      '/api/stream/admin/2': [{ id: '2', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/2', source: 'admin' }],
-    });
+  it('should rank rapid ahead of delta on stub sources', async () => {
     const matches: APIMatch[] = [
       {
         ...base,
         id: '1',
         sources: [
           { source: 'delta', id: '1' },
-          { source: 'admin', id: '2' },
+          { source: 'rapid', id: '1' },
         ],
       },
     ];
     const result = await filterToPlayableMatches(matches);
-    expect(result[0].sources).toEqual([
-      { source: 'admin', id: '2' },
-      { source: 'delta', id: '1' },
-    ]);
-  });
-
-  it('should probe a shared source:id only once across matches', async () => {
-    mockStreamResponses({
-      '/api/stream/admin/shared': [
-        { id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' },
-      ],
-    });
-    const matches: APIMatch[] = [
-      { ...base, id: '1', sources: [{ source: 'admin', id: 'shared' }] },
-      { ...base, id: '2', title: 'Other', sources: [{ source: 'admin', id: 'shared' }] },
-    ];
-    const result = await filterToPlayableMatches(matches);
-    expect(result).toHaveLength(2);
-    expect(vi.mocked(fetch).mock.calls.length).toBe(1);
+    expect(result[0].sources.map(s => s.source)).toEqual(['rapid', 'delta']);
   });
 });

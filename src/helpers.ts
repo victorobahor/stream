@@ -1,5 +1,5 @@
 import type { APIMatch } from './types';
-import { LOG_LEVEL, API_HOSTS, getActiveHostIndex, imageUrlForHost } from './state';
+import { LOG_LEVEL, resolveImageUrl } from './state';
 import { isEPLMatch, isMatchLive } from './format';
 import { stopNativePlayback } from './mediaStop';
 
@@ -56,22 +56,16 @@ export function log(level: string, ...args: unknown[]): void {
 // ── Images ──
 
 /**
- * Point an <img> at an API-hosted image path, retrying the remaining mirror
- * hosts on error. Without this an image rendered before `rotateActiveHost()`
- * keeps pointing at the dead host forever.
+ * Point an <img> at a badge/poster URL. SportSRC badges are absolute
+ * `img.sportsrc.org` URLs — no host rotation.
  */
 export function setHostImage(img: HTMLImageElement, path: string, onExhausted?: () => void): void {
-  let attempt = 0;
+  const url = resolveImageUrl(path);
   img.onerror = () => {
-    attempt++;
-    if (attempt >= API_HOSTS.length) {
-      img.onerror = null;
-      onExhausted?.();
-      return;
-    }
-    img.src = imageUrlForHost(path, getActiveHostIndex() + attempt);
+    img.onerror = null;
+    onExhausted?.();
   };
-  img.src = imageUrlForHost(path, getActiveHostIndex());
+  img.src = url;
 }
 
 // ── Match filtering / sorting ──
@@ -178,36 +172,41 @@ export function isEmbedProxyEnabled(): boolean {
   return flag === '1' || flag === 'true';
 }
 
+const SPORTSRC_EMBED_HOSTS = new Set([
+  'football77.org',
+  'www.football77.org',
+  'embed.sportsrc.org',
+  'www.embed.sportsrc.org',
+]);
+
 /** Same-origin proxy URL for an upstream embed, or null if not proxyable. */
 export function toProxiedEmbedUrl(embedUrl: string): string | null {
   const safe = sanitizeUrl(embedUrl);
   if (!safe || safe === 'about:blank') return null;
   try {
     const host = new URL(safe).hostname;
-    if (host !== 'embed.st' && host !== 'www.embed.st') return null;
+    if (!SPORTSRC_EMBED_HOSTS.has(host)) return null;
   } catch {
     return null;
   }
   return `/__embed?u=${encodeURIComponent(safe)}`;
 }
 
-/** True when the URL is an https://embed.st|/www.embed.st embed path. */
+/** True when the URL is an allowlisted SportSRC embed host. */
 export function isAllowedEmbedHost(embedUrl: string): boolean {
   try {
     const u = new URL(embedUrl);
     if (u.protocol !== 'https:') return false;
-    if (u.hostname !== 'embed.st' && u.hostname !== 'www.embed.st') return false;
-    return u.pathname.startsWith('/embed/');
+    return SPORTSRC_EMBED_HOSTS.has(u.hostname);
   } catch {
     return false;
   }
 }
 
 /**
- * Navigate an iframe to a stream embed. No `sandbox` attribute — the players
- * check for it explicitly and refuse to start. PopUnder mitigation is handled
- * by `adShield.ts` (click-to-start gate + blur→focus), not sandbox / proxy.
- * Only allowlisted embed.st hosts are accepted (OWASP A03 — untrusted frame-src).
+ * Navigate an iframe to a stream embed. No `sandbox` attribute — SportSRC docs
+ * forbid it (breaks player scripts). PopUnder mitigation is in `adShield.ts`.
+ * Only allowlisted SportSRC embed hosts are accepted (OWASP A03).
  */
 export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
   const safe = sanitizeUrl(embedUrl);

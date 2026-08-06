@@ -29,7 +29,6 @@ async function lookupMatchesByIds(ids: string[]): Promise<Map<string, APIMatch>>
     '/api/matches/all-today',
     '/api/matches/all-today/popular',
     '/api/matches/all',
-    '/api/matches/all/popular',
   ];
   await Promise.all(
     endpoints.map(async endpoint => {

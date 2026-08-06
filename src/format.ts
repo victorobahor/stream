@@ -1,5 +1,5 @@
 import type { APIMatch, SportEmojiMap } from './types';
-import { state, getImgUrl, API_HOSTS, getActiveHostIndex } from './state';
+import { state, resolveImageUrl } from './state';
 
 const ONE_HOUR_MS = 3_600_000;
 
@@ -57,6 +57,7 @@ export function formatSportLabel(sport: string): string {
 // ── Match utilities ──
 
 export function isMatchLive(match: APIMatch): boolean {
+  if (match.status === 'inprogress') return true;
   if (state.liveMatchIds.has(match.id)) return true;
   if (match.date) {
     const diff = Date.now() - match.date;
@@ -82,6 +83,8 @@ export function isEPLMatch(match: APIMatch): boolean {
 
 function computeIsEPL(match: APIMatch): boolean {
   if ((match.category || '').toLowerCase() !== 'football') return false;
+  const league = (match.league || '').toLowerCase();
+  if (league.includes('premier league') || league.includes('epl')) return true;
   const title = (match.title || '').toLowerCase();
   if (title.includes('premier league') || title.includes('epl')) return true;
   const home = (match.teams?.home?.name || '').toLowerCase();
@@ -125,23 +128,10 @@ export function getSportEmoji(sport: string): string {
 
 export function getPosterUrl(match: APIMatch): string | null {
   if (match.poster) {
-    let p = match.poster;
-    if (p.startsWith('http://') || p.startsWith('https://')) return p;
-    if (p.includes('/api/images/proxy/')) {
-      p = p.replace(/^\/?api\/images\/proxy\//, '');
-      p = p.replace(/^\/?api\/images\//, '');
-    }
-    if (p.startsWith('/api/images/') || p.startsWith('api/images/')) {
-      const path = p.startsWith('/') ? p : '/' + p;
-      return `${API_HOSTS[getActiveHostIndex()]}${path}`;
-    }
-    // A poster of `/api/images/proxy/<id>.webp` is stripped to `<id>.webp`
-    // above, so appending unconditionally produced a `.webp.webp` suffix.
-    return getImgUrl(`/proxy/${p}${p.endsWith('.webp') ? '' : '.webp'}`);
+    const p = resolveImageUrl(match.poster);
+    return p || null;
   }
-  if (match.teams?.home?.badge && match.teams?.away?.badge) {
-    return getImgUrl(`/poster/${match.teams.home.badge}/${match.teams.away.badge}.webp`);
-  }
+  // SportSRC has no composite poster endpoint — cards use team badges instead.
   return null;
 }
 

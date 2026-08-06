@@ -16,9 +16,9 @@ const generations = new Map<string, number>();
 
 export function isHlsNativeEnabled(): boolean {
   const flag = import.meta.env.VITE_HLS_NATIVE;
-  // Default ON for this experiment branch; set VITE_HLS_NATIVE=0 to force iframe.
-  if (flag === '0' || flag === 'false') return false;
-  return true;
+  // SportSRC embeds are iframe-first (football77 / embed.sportsrc). Native HLS
+  // minting was Streamed/embed.st-specific — opt in with VITE_HLS_NATIVE=1.
+  return flag === '1' || flag === 'true';
 }
 
 function bumpGeneration(key: string): number {

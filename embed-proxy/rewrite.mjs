@@ -1,6 +1,11 @@
 /** Shared embed HTML rewrite — used by the Vite plugin and the Docker/Node server. */
 
-export const ALLOWED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
+export const ALLOWED_EMBED_HOSTS = new Set([
+  'football77.org',
+  'www.football77.org',
+  'embed.sportsrc.org',
+  'www.embed.sportsrc.org',
+]);
 
 // The HTML string uses double quotes inside a single-quoted JS string, so
 // [^']* after ad.html already consumes through </iframe> — don't re-match it.
@@ -71,7 +76,7 @@ export async function readUpstream(url) {
       Accept: 'text/html,application/xhtml+xml',
       'User-Agent':
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
-      Referer: 'https://embed.st/',
+      Referer: 'https://football77.org/',
     },
   });
   return {

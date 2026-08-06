@@ -91,7 +91,7 @@ function fakeIframe() {
   };
 }
 
-const ALLOWED_EMBED = 'https://embed.st/embed/admin/ppv-test/1';
+const ALLOWED_EMBED = 'https://football77.org/embed/?id=test-match&source=rapid';
 
 describe('applyEmbed', () => {
   it('should navigate to the embed URL', () => {
@@ -140,34 +140,36 @@ describe('applyEmbed', () => {
     expect(iframe.getAttribute('src')).toBeNull();
   });
 
-  it('should load embed.st directly by default (proxy breaks origin checks)', () => {
+  it('should load SportSRC embeds directly by default', () => {
     const iframe = fakeIframe();
     applyEmbed(
       iframe as unknown as HTMLIFrameElement,
-      'https://embed.st/embed/admin/ppv-test/1',
+      'https://football77.org/embed/?id=test&source=rapid',
     );
-    expect(iframe.getAttribute('src')).toBe('https://embed.st/embed/admin/ppv-test/1');
+    expect(iframe.getAttribute('src')).toBe(
+      'https://football77.org/embed/?id=test&source=rapid',
+    );
     expect(iframe.getAttribute('sandbox')).toBeNull();
   });
 
-  it('should route embed.st through /__embed when VITE_EMBED_PROXY=1', () => {
+  it('should route SportSRC embeds through /__embed when VITE_EMBED_PROXY=1', () => {
     vi.stubEnv('VITE_EMBED_PROXY', '1');
     const iframe = fakeIframe();
     applyEmbed(
       iframe as unknown as HTMLIFrameElement,
-      'https://embed.st/embed/admin/ppv-test/1',
+      'https://football77.org/embed/?id=test&source=rapid',
     );
     const src = iframe.getAttribute('src') || '';
     expect(src.startsWith('/__embed?u=')).toBe(true);
-    expect(decodeURIComponent(src)).toContain('https://embed.st/embed/admin/ppv-test/1');
+    expect(decodeURIComponent(src)).toContain('https://football77.org/embed/?id=test&source=rapid');
     vi.unstubAllEnvs();
   });
 });
 
 describe('toProxiedEmbedUrl', () => {
-  it('should build a proxy URL for embed.st', () => {
-    expect(toProxiedEmbedUrl('https://embed.st/embed/x/1')).toBe(
-      '/__embed?u=' + encodeURIComponent('https://embed.st/embed/x/1'),
+  it('should build a proxy URL for football77.org', () => {
+    expect(toProxiedEmbedUrl('https://football77.org/embed/?id=x')).toBe(
+      '/__embed?u=' + encodeURIComponent('https://football77.org/embed/?id=x'),
     );
   });
 

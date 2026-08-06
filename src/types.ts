@@ -31,6 +31,12 @@ export interface APIMatch {
   date: number;
   poster?: string;
   popular: boolean;
+  /** SportSRC status: inprogress | notstarted | finished | … */
+  status?: string;
+  statusDetail?: string;
+  league?: string;
+  country?: string;
+  score?: unknown;
   teams?: MatchTeams;
   sources: StreamSource[];
 }

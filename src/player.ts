@@ -355,7 +355,10 @@ export function renderPlayerInfo(match: APIMatch): void {
         img.alt = team.name || '';
         img.loading = 'lazy';
         img.decoding = 'async';
-        setHostImage(img, `/badge/${team.badge}.webp`, () => img.remove());
+        const badgeSrc = /^https?:\/\//i.test(team.badge)
+          ? team.badge
+          : `/badge/${team.badge}.webp`;
+        setHostImage(img, badgeSrc, () => img.remove());
         badge.appendChild(img);
       }
       const name = document.createElement('span');

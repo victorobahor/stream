@@ -15,12 +15,15 @@ describe('Content Security Policy', () => {
     expect(csp).not.toContain('frame-src *');
   });
 
-  it('should allow same-origin proxy frames plus embed.st only', () => {
-    expect(csp).toContain("frame-src 'self' https://embed.st https://www.embed.st");
-    expect(csp).not.toContain('frame-src *');
-    // Reject the old broad "any https" token (exact directive value).
+  it('should allow SportSRC embed hosts only', () => {
+    expect(csp).toContain(
+      "frame-src 'self' https://football77.org https://www.football77.org https://embed.sportsrc.org",
+    );
+    expect(csp).not.toContain('embed.st');
     const frameSrc = csp.split(';').map(s => s.trim()).find(s => s.startsWith('frame-src'));
-    expect(frameSrc).toBe("frame-src 'self' https://embed.st https://www.embed.st");
+    expect(frameSrc).toBe(
+      "frame-src 'self' https://football77.org https://www.football77.org https://embed.sportsrc.org",
+    );
   });
 
   it('should keep script-src locked to self', () => {
@@ -32,17 +35,17 @@ describe('Content Security Policy', () => {
     expect(csp).toContain("object-src 'none'");
   });
 
-  it('should have restrictive connect-src', () => {
-    expect(csp).toContain("connect-src 'self' https://streamed.pk https://strmd.link");
+  it('should keep connect-src same-origin (SportSRC BFF)', () => {
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('streamed.pk');
+    expect(csp).not.toContain('strmd.link');
   });
 
-  it('should allow blob media/workers for native HLS', () => {
+  it('should allow blob media/workers for optional native HLS', () => {
     expect(csp).toContain("media-src 'self' blob:");
     expect(csp).toContain("worker-src 'self' blob:");
   });
   it('should not rely on header-only directives that a meta tag ignores', () => {
-    // `sandbox`, `frame-ancestors` and `report-uri` are silently dropped when
-    // delivered via <meta> — putting them here is a no-op that reads as safety.
     expect(csp).not.toMatch(/(^|;)\s*sandbox\b/);
     expect(csp).not.toContain('frame-ancestors');
     expect(csp).not.toContain('report-uri');

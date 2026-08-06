@@ -121,7 +121,11 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
         img.loading = 'lazy';
         img.decoding = 'async';
         placeholder.style.display = 'none';
-        setHostImage(img, `/badge/${teamData.badge}.webp`, () => {
+        // SportSRC badges are absolute URLs; legacy relative ids still work via resolveImageUrl.
+        const badgeSrc = /^https?:\/\//i.test(teamData.badge)
+          ? teamData.badge
+          : `/badge/${teamData.badge}.webp`;
+        setHostImage(img, badgeSrc, () => {
           img.style.display = 'none';
           placeholder.style.display = 'flex';
         });
