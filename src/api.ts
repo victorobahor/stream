@@ -174,16 +174,74 @@ function normalizeTitleKey(title: string): string {
     .trim();
 }
 
-function matchDedupeKey(m: APIMatch): string {
-  const cat = (m.category || '').toLowerCase();
+/**
+ * Collapse common club nicknames / suffixes so "Wolves" and
+ * "Wolverhampton Wanderers" share a dedupe key.
+ */
+const TEAM_ALIASES: Record<string, string> = {
+  wolves: 'wolverhampton wanderers',
+  spurs: 'tottenham hotspur',
+  tottenham: 'tottenham hotspur',
+  'man utd': 'manchester united',
+  'man united': 'manchester united',
+  'manchester utd': 'manchester united',
+  'man city': 'manchester city',
+  'nottm forest': 'nottingham forest',
+  'nottingham forest': 'nottingham forest',
+  psg: 'paris saint germain',
+  barca: 'barcelona',
+  'inter milan': 'internazionale',
+  inter: 'internazionale',
+};
+
+export function canonicalizeTeamName(name: string): string {
+  let n = normalizeTitleKey(name);
+  if (!n) return '';
+  if (TEAM_ALIASES[n]) n = TEAM_ALIASES[n];
+  n = n
+    .replace(/\b(fc|afc|cf|sc)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return TEAM_ALIASES[n] || n;
+}
+
+function matchTeamsKey(m: APIMatch): string {
   const home = m.teams?.home?.name;
   const away = m.teams?.away?.name;
-  const title =
-    home && away
-      ? normalizeTitleKey(`${home} vs ${away}`)
-      : normalizeTitleKey(m.title);
+  if (home && away) {
+    const pair = [canonicalizeTeamName(home), canonicalizeTeamName(away)]
+      .filter(Boolean)
+      .sort();
+    if (pair.length === 2) return pair.join(' vs ');
+  }
+  // Title fallback: split on vs and canonicalize each side when possible.
+  const raw = normalizeTitleKey(m.title);
+  const parts = raw.split(/\s+vs\s+/);
+  if (parts.length === 2) {
+    const pair = parts.map(canonicalizeTeamName).filter(Boolean).sort();
+    if (pair.length === 2) return pair.join(' vs ');
+  }
+  return raw;
+}
+
+function matchDedupeKey(m: APIMatch): string {
+  const cat = (m.category || '').toLowerCase();
+  const title = matchTeamsKey(m);
   const bucket = Math.floor(Number(m.date || 0) / DEDUPE_WINDOW_MS);
   return `${cat}|${bucket}|${title}`;
+}
+
+function bareMatchId(id: string): string {
+  return String(id || '').replace(/^sportsrc:/, '');
+}
+
+function attachSportsrcSource(existing: APIMatch, stub: StreamSource): void {
+  const has = (existing.sources || []).some(
+    s => isSportsrcSource(s) && s.id === stub.id,
+  );
+  if (!has) {
+    existing.sources = rankSources([...(existing.sources || []), stub]);
+  }
 }
 
 /**
@@ -195,6 +253,7 @@ export function mergeMatchLists(
   sportsrc: APIMatch[],
 ): APIMatch[] {
   const byKey = new Map<string, APIMatch>();
+  const byId = new Map<string, APIMatch>();
   const out: APIMatch[] = [];
 
   for (const m of streamed) {
@@ -204,26 +263,26 @@ export function mergeMatchLists(
       sources: rankSources([...(m.sources || [])]),
     };
     byKey.set(matchDedupeKey(copy), copy);
+    byId.set(bareMatchId(copy.id), copy);
     out.push(copy);
   }
 
   for (const raw of sportsrc) {
     if (!raw?.id) continue;
     const category = raw.category || 'football';
+    const bareId = bareMatchId(raw.id);
     const stub: StreamSource = {
       source: 'sportsrc',
-      id: raw.id.replace(/^sportsrc:/, ''),
+      id: bareId,
       category,
     };
     const key = matchDedupeKey(raw);
-    const existing = byKey.get(key);
+    const existing = byId.get(bareId) || byKey.get(key);
     if (existing) {
-      const has = (existing.sources || []).some(
-        s => isSportsrcSource(s) && s.id === stub.id,
-      );
-      if (!has) {
-        existing.sources = rankSources([...(existing.sources || []), stub]);
-      }
+      attachSportsrcSource(existing, stub);
+      // Alias keys (e.g. Wolves → Wolverhampton) onto the survivor.
+      byKey.set(key, existing);
+      byId.set(bareId, existing);
       continue;
     }
     const id = raw.id.startsWith(SPORTSRC_ID_PREFIX)
@@ -235,6 +294,7 @@ export function mergeMatchLists(
       sources: [stub],
     };
     byKey.set(key, card);
+    byId.set(bareId, card);
     out.push(card);
   }
 

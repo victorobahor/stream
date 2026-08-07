@@ -293,4 +293,86 @@ describe('mergeMatchLists', () => {
     expect(merged[0].id).toBe('s1');
     expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
   });
+
+  it('should merge club nicknames (Wolves → Wolverhampton Wanderers)', () => {
+    const streamed: APIMatch[] = [
+      {
+        id: 'wolverhampton-wanderers-vs-port-vale-2503731',
+        title: 'Wolverhampton Wanderers vs Port Vale',
+        category: 'football',
+        date: now,
+        popular: true,
+        sources: [{ source: 'admin', id: 'ppv-wolves' }],
+        teams: {
+          home: { name: 'Wolverhampton Wanderers', badge: 'a' },
+          away: { name: 'Port Vale', badge: 'b' },
+        },
+      },
+    ];
+    const sportsrc: APIMatch[] = [
+      {
+        id: 'wolves-vs-port-vale-football-1567419',
+        title: 'Wolves vs Port Vale',
+        category: 'football',
+        date: now,
+        popular: true,
+        sources: [{ source: 'sportsrc', id: 'wolves-vs-port-vale-football-1567419', category: 'football' }],
+        teams: {
+          home: { name: 'Wolves', badge: 'a' },
+          away: { name: 'Port Vale', badge: 'b' },
+        },
+      },
+      {
+        id: 'wolverhampton-wanderers-vs-port-vale-2503731',
+        title: 'Wolverhampton Wanderers vs Port Vale',
+        category: 'football',
+        date: now,
+        popular: true,
+        sources: [{ source: 'sportsrc', id: 'wolverhampton-wanderers-vs-port-vale-2503731', category: 'football' }],
+        teams: {
+          home: { name: 'Wolverhampton Wanderers', badge: 'a' },
+          away: { name: 'Port Vale', badge: 'b' },
+        },
+      },
+    ];
+    const merged = mergeMatchLists(streamed, sportsrc);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe('wolverhampton-wanderers-vs-port-vale-2503731');
+    expect(merged[0].sources.filter(s => s.source === 'sportsrc')).toHaveLength(2);
+  });
+
+  it('should merge SportSRC rows that reuse a Streamed match id', () => {
+    const streamed: APIMatch[] = [
+      {
+        id: 'same-id-1',
+        title: 'Gamma United vs Delta',
+        category: 'football',
+        date: now,
+        popular: false,
+        sources: [{ source: 'admin', id: 'same-id-1' }],
+        teams: {
+          home: { name: 'Gamma United', badge: 'g' },
+          away: { name: 'Delta', badge: 'd' },
+        },
+      },
+    ];
+    const sportsrc: APIMatch[] = [
+      {
+        id: 'same-id-1',
+        title: 'Gamma vs Delta FC',
+        category: 'football',
+        date: now + 120_000,
+        popular: false,
+        sources: [{ source: 'sportsrc', id: 'same-id-1', category: 'football' }],
+        teams: {
+          home: { name: 'Gamma', badge: 'g' },
+          away: { name: 'Delta FC', badge: 'd' },
+        },
+      },
+    ];
+    const merged = mergeMatchLists(streamed, sportsrc);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe('same-id-1');
+    expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
+  });
 });
