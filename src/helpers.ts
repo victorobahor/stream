@@ -285,6 +285,34 @@ export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
   iframe.setAttribute('src', src);
 }
 
+/**
+ * SportSRC streamapi pages wrap embed.st. Ask the embed proxy for the nested
+ * player URL so we can mint native HLS instead of framing the ad shell.
+ */
+export async function resolveEmbedForPlayback(embedUrl: string): Promise<string> {
+  const safe = sanitizeUrl(embedUrl);
+  if (!safe || safe === 'about:blank') return embedUrl;
+  if (!shouldProxyEmbed(safe)) return safe;
+
+  const proxied = toProxiedEmbedUrl(safe);
+  if (!proxied) return safe;
+
+  try {
+    const metaUrl = `${proxied}${proxied.includes('?') ? '&' : '?'}meta=1`;
+    const res = await fetch(metaUrl, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return safe;
+    const data = (await res.json()) as { nestedEmbedUrl?: string | null };
+    const nested = typeof data.nestedEmbedUrl === 'string' ? sanitizeUrl(data.nestedEmbedUrl) : '';
+    if (nested && nested !== 'about:blank' && isAllowedEmbedHost(nested)) {
+      log('debug', 'Unwrapped SportSRC embed →', nested);
+      return nested;
+    }
+  } catch (e) {
+    log('warn', 'Embed unwrap failed, using proxied iframe path:', e);
+  }
+  return safe;
+}
+
 export function clearEmbed(iframe: HTMLIFrameElement): void {
   iframe.onload = null;
   iframe.removeAttribute('srcdoc');

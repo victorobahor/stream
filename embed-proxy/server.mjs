@@ -15,6 +15,7 @@ import {
   isAllowedEmbedUrl,
   readUpstream,
   rewriteEmbedHtml,
+  extractNestedPlayerUrl,
 } from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
 import { tryHandleSportsrcRequest } from './sportsrc.mjs';
@@ -132,6 +133,22 @@ async function handleProxy(req, res, url) {
     const upstream = await readUpstream(embedUrl.toString());
     if (upstream.status >= 400) {
       await send(req, res, 502, 'text/plain; charset=utf-8', `Upstream HTTP ${upstream.status}`);
+      return;
+    }
+    const wantMeta =
+      url.searchParams.get('meta') === '1' ||
+      String(req.headers.accept || '').includes('application/json');
+    if (wantMeta) {
+      await send(
+        req,
+        res,
+        200,
+        'application/json; charset=utf-8',
+        JSON.stringify({
+          nestedEmbedUrl: extractNestedPlayerUrl(upstream.body),
+          source: embedUrl.toString(),
+        }),
+      );
       return;
     }
     const origin = `${embedUrl.protocol}//${embedUrl.host}`;

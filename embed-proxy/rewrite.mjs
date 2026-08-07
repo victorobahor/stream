@@ -103,19 +103,32 @@ export function isAllowedEmbedUrl(raw) {
 /** Strip known wrapper ad / tracker markup from SportSRC V1 outer pages. */
 export function stripAdJunk(html) {
   let out = String(html || '');
-  // External ad / tracker scripts
-  out = out.replace(
-    /<script\b[^>]*\bsrc=["'][^"']*["'][^>]*>\s*<\/script>/gi,
-    m => (AD_SCRIPT_HOST_RE.test(m) ? '' : m),
+  // External ad / tracker scripts (with or without explicit </script>)
+  out = out.replace(/<script\b[^>]*\bsrc=["'][^"']*["'][^>]*>\s*<\/script>/gi, m =>
+    AD_SCRIPT_HOST_RE.test(m) ? '' : m,
+  );
+  out = out.replace(/<script\b[^>]*\bsrc=["'][^"']*["'][^>]*\/?>/gi, m =>
+    AD_SCRIPT_HOST_RE.test(m) ? '' : m,
   );
   // Inline Histats (match one script block at a time — do not cross tags)
   out = out.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, block =>
-    /\bHistats\b/i.test(block) ? '' : block,
+    /\bHistats\b|_Hasync/i.test(block) ? '' : block,
   );
   out = out.replace(/<noscript\b[^>]*>[\s\S]*?histats[\s\S]*?<\/noscript>/gi, '');
   // Football77-style injector
   out = out.replace(AD_INJECTOR_RE, '');
   return out;
+}
+
+/**
+ * SportSRC streamapi wrappers nest the real player (usually embed.st).
+ * Extract it so the client can prefer native HLS over the ad shell iframe.
+ */
+export function extractNestedPlayerUrl(html) {
+  const m = String(html || '').match(
+    /<iframe\b[^>]*\bsrc=["'](https:\/\/(?:www\.)?embed\.st\/embed\/[^"']+)["']/i,
+  );
+  return m ? m[1] : null;
 }
 
 export function rewriteEmbedHtml(html, origin) {

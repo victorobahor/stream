@@ -5,6 +5,7 @@ import {
   readUpstream,
   rewriteEmbedHtml,
   stripAdJunk,
+  extractNestedPlayerUrl,
   ALLOWED_EMBED_HOSTS,
   AD_INJECTOR_RE,
   AD_SCRIPT_HOST_RE,
@@ -23,6 +24,7 @@ function send(res: Connect.ServerResponse, status: number, type: string, body: s
  * Dev-server: SportSRC BFF + embed rewrite + native HLS:
  *   GET /api/sportsrc/*                    → SportSRC V1
  *   GET /__embed?u=<https://…>             → HTML with ads stripped / window.open sunk
+ *   GET /__embed?u=…&meta=1                → JSON { nestedEmbedUrl } for HLS unwrap
  *   GET /__ad_sink                         → blank sink document
  *   GET /api/hls/*                         → native HLS (Streamed embed.st)
  */
@@ -71,6 +73,23 @@ export function embedProxyPlugin(): Plugin {
             return;
           }
 
+          const wantMeta =
+            parsed.searchParams.get('meta') === '1' ||
+            String(req.headers.accept || '').includes('application/json');
+          if (wantMeta) {
+            const nestedEmbedUrl = extractNestedPlayerUrl(upstream.body);
+            send(
+              res,
+              200,
+              'application/json; charset=utf-8',
+              JSON.stringify({
+                nestedEmbedUrl,
+                source: embedUrl.toString(),
+              }),
+            );
+            return;
+          }
+
           const origin = `${embedUrl.protocol}//${embedUrl.host}`;
           const rewritten = rewriteEmbedHtml(upstream.body, origin);
           send(res, 200, 'text/html; charset=utf-8', rewritten);
@@ -87,6 +106,7 @@ export const __test = {
   isAllowedEmbedUrl,
   rewriteEmbedHtml,
   stripAdJunk,
+  extractNestedPlayerUrl,
   ALLOWED_EMBED_HOSTS,
   AD_INJECTOR_RE,
   AD_SCRIPT_HOST_RE,

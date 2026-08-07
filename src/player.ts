@@ -1,6 +1,6 @@
 import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
-import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log } from './helpers';
+import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log, resolveEmbedForPlayback } from './helpers';
 import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import { loadStreams as fetchStreams, pickPreferredStream } from './api';
 import { badgeImagePath } from './state';
@@ -240,7 +240,11 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   const video = el('stream-video') as HTMLVideoElement | null;
 
   void (async () => {
-    const nativeOk = !!video && (await playNativeHls(stream.embedUrl, {
+    // SportSRC streamapi wrappers → unwrap nested embed.st for native HLS.
+    const playUrl = await resolveEmbedForPlayback(stream.embedUrl);
+    if (state.selectedStream !== stream) return;
+
+    const nativeOk = !!video && (await playNativeHls(playUrl, {
       key: MAIN_PLAYER_KEY,
       video,
       onReady: () => {
@@ -259,7 +263,8 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
     // match source (e.g. admin) before falling back to the ads iframe.
     if (allowHlsSourceFailover && tryNextSource()) return;
     setLoadingStage('Starting embed player…');
-    playViaIframe(stream.embedUrl);
+    // Prefer unwrapped embed.st iframe; otherwise proxied streamapi shell.
+    playViaIframe(playUrl);
     showToast(toast, 'success');
   })();
 }

@@ -5,6 +5,7 @@ const {
   isAllowedEmbedUrl,
   rewriteEmbedHtml,
   stripAdJunk,
+  extractNestedPlayerUrl,
   ALLOWED_EMBED_HOSTS,
 } = __test;
 
@@ -57,6 +58,11 @@ document.head.appendChild(hs);
     expect(out).not.toContain('enteringlacquergiant.com');
     expect(out).not.toContain('Histats');
     expect(out).toContain('https://embed.st/embed/admin/foo/1');
+  });
+
+  it('should extract nested embed.st player URL from streamapi wrappers', () => {
+    expect(extractNestedPlayerUrl(sample)).toBe('https://embed.st/embed/admin/foo/1');
+    expect(extractNestedPlayerUrl('<div>no player</div>')).toBeNull();
   });
 
   it('should not strip unrelated inline scripts when removing Histats', () => {

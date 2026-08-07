@@ -14,6 +14,7 @@ import {
   EMBED_ALLOW,
   toProxiedEmbedUrl,
   shouldProxyEmbed,
+  resolveEmbedForPlayback,
 } from './helpers';
 import { state } from './state';
 import type { APIMatch } from './types';
@@ -194,6 +195,49 @@ describe('shouldProxyEmbed', () => {
       'https://embed.streamapi.cc/sport/test/',
     );
     expect(iframe.getAttribute('src') || '').toMatch(/^\/__embed\?u=/);
+  });
+});
+
+describe('resolveEmbedForPlayback', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('should return embed.st URLs unchanged', async () => {
+    const url = 'https://embed.st/embed/admin/x/1';
+    await expect(resolveEmbedForPlayback(url)).resolves.toBe(url);
+  });
+
+  it('should unwrap streamapi wrappers to nested embed.st', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          nestedEmbedUrl: 'https://embed.st/embed/admin/ppv-middlesbrough-vs-wrexham/1',
+          source: 'https://embed.streamapi.cc/sport/abc/',
+        }),
+      })),
+    );
+    const out = await resolveEmbedForPlayback('https://embed.streamapi.cc/sport/abc/');
+    expect(out).toBe('https://embed.st/embed/admin/ppv-middlesbrough-vs-wrexham/1');
+    expect(fetch).toHaveBeenCalled();
+    const called = String(vi.mocked(fetch).mock.calls[0][0]);
+    expect(called).toMatch(/\/__embed\?u=/);
+    expect(called).toMatch(/meta=1/);
+  });
+
+  it('should fall back to the streamapi URL when unwrap fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        json: async () => ({}),
+      })),
+    );
+    const url = 'https://embed.streamapi.cc/sport/abc/';
+    await expect(resolveEmbedForPlayback(url)).resolves.toBe(url);
   });
 });
 

@@ -1,6 +1,6 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
-import { el, sanitizeUrl, applyEmbed, clearEmbed, log } from '../helpers';
+import { el, sanitizeUrl, applyEmbed, clearEmbed, log, resolveEmbedForPlayback } from '../helpers';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from '../hlsPlayer';
 import { mountPlayGate } from '../adShield';
 import { getMatchById, loadMatches } from '../api';
@@ -305,7 +305,11 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
 
     const requestUrl = desiredUrl;
     void (async () => {
-      const ok = await playNativeHls(requestUrl, {
+      const playUrl = await resolveEmbedForPlayback(requestUrl);
+      // Slot may have been cleared / switched while unwrap ran.
+      if (state.multiviewSlots[i]?.stream?.embedUrl !== requestUrl) return;
+
+      const ok = await playNativeHls(playUrl, {
         key: mvPlayerKey(i),
         video,
         onReady: () => {
@@ -319,7 +323,7 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
       if (ok) return;
 
       video.remove();
-      mountSlotIframe(slotEl, i, requestUrl, overlayEl);
+      mountSlotIframe(slotEl, i, playUrl, overlayEl);
     })();
   }
 
