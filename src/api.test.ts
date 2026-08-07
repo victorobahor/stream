@@ -232,7 +232,9 @@ describe('filterToPlayableMatches', () => {
 });
 
 describe('mergeMatchLists', () => {
-  const now = Date.now();
+  // Dedupe keys bucket by 30m windows — pin inside a window so +1m never crosses.
+  const DEDUPE_WINDOW_MS = 30 * 60 * 1000;
+  const now = Math.floor(Date.now() / DEDUPE_WINDOW_MS) * DEDUPE_WINDOW_MS + 5 * 60 * 1000;
 
   it('should prefix SportSRC-only ids and keep Streamed cards', () => {
     const streamed: APIMatch[] = [
