@@ -119,4 +119,5 @@ export function updateSectionTitle(): void {
   }
   const titleEl = el('section-title');
   if (titleEl) titleEl.textContent = title;
+  document.title = `${title} — StreamZone`;
 }
