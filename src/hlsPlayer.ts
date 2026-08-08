@@ -177,13 +177,10 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
         return;
       }
 
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        manifestLoadingTimeOut: 20_000,
-        levelLoadingTimeOut: 20_000,
-        fragLoadingTimeOut: 30_000,
-      });
+      // Streamed CDN playlists are standard live HLS (often …/high|low/mono.m3u8),
+      // not LL-HLS. lowLatencyMode starves the buffer and makes audio crackle;
+      // a conservative ABR estimate also strandes us on the low/mono rung.
+      const hls = new Hls(nativeHlsConfig());
       inst.hls = hls;
 
       hls.on(Hls.Events.ERROR, (_e, info) => {
@@ -206,6 +203,10 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
         if (key === MAIN_PLAYER_KEY) {
           video.classList.remove('hidden');
         }
+        video.muted = false;
+        if (typeof video.volume === 'number' && video.volume < 0.2) {
+          video.volume = 1;
+        }
         onReady?.();
         void video.play().catch(() => {
           /* controls remain for a manual gesture */
@@ -223,6 +224,60 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
     if (isCurrent()) destroyKey(key);
     return false;
   }
+}
+
+/** Shared hls.js knobs for Streamed live (exported for unit tests). */
+export function nativeHlsConfig(): Record<string, unknown> {
+  return {
+    enableWorker: true,
+    lowLatencyMode: false,
+    // ~2 Mbps prior: try above the 700kbps low rung without insisting on
+    // the often-gated 8 Mbps high/*.ts variant through the proxy.
+    abrEwmaDefaultEstimate: 2_000_000,
+    abrEwmaFastLive: 3,
+    abrEwmaSlowLive: 9,
+    abrBandWidthFactor: 0.85,
+    abrBandWidthUpFactor: 0.7,
+    maxBufferLength: 30,
+    maxMaxBufferLength: 60,
+    liveSyncDurationCount: 3,
+    liveMaxLatencyDurationCount: 12,
+    manifestLoadingTimeOut: 20_000,
+    levelLoadingTimeOut: 20_000,
+    fragLoadingTimeOut: 30_000,
+  };
+}
+
+/** Prefer 1080p/high when the master lists multiple rungs (Burnley-style high|low/mono). */
+export function preferHighestLevel(
+  hls: {
+    startLevel?: number;
+    nextLevel?: number;
+    loadLevel?: number;
+    currentLevel?: number;
+    levels?: Array<{ height?: number; bitrate?: number }>;
+  },
+  levels?: Array<{ height?: number; bitrate?: number }> | null,
+): number {
+  const list = levels && levels.length ? levels : hls.levels || [];
+  if (!list.length) return -1;
+  let best = 0;
+  for (let i = 1; i < list.length; i++) {
+    const a = list[i];
+    const b = list[best];
+    const ah = a.height || 0;
+    const bh = b.height || 0;
+    if (ah > bh || (ah === bh && (a.bitrate || 0) > (b.bitrate || 0))) best = i;
+  }
+  // Soft-prefer the high rung. Do not set currentLevel — that disables ABR and
+  // prevents fallback when high/*.ts is gated (common through the proxy).
+  hls.startLevel = best;
+  try {
+    hls.nextLevel = best;
+  } catch {
+    /* older hls.js */
+  }
+  return best;
 }
 
 export function getActiveHlsSessionId(key: string = MAIN_PLAYER_KEY): string | null {

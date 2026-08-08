@@ -8,6 +8,7 @@ const {
   isAllowedEmbedUrl,
   isAllowedMediaHost,
   isCandidatePlaylistUrl,
+  isLikelyMediaSegment,
 } = __test;
 
 describe('hlsNative helpers', () => {
@@ -70,5 +71,13 @@ describe('hlsNative helpers', () => {
     expect(isCandidatePlaylistUrl('https://evil.com/ads/playlist.m3u8', 200)).toBe(false);
     expect(isCandidatePlaylistUrl('https://lb1.strmd.st/x/playlist.m3u8', 404)).toBe(false);
     expect(isCandidatePlaylistUrl('https://lb1.strmd.st/seg.ts', 200)).toBe(false);
+  });
+
+  it('should reject tiny Not-found segment bodies', () => {
+    expect(isLikelyMediaSegment(Buffer.from('Not found'))).toBe(false);
+    expect(isLikelyMediaSegment(Buffer.from([0x47, 0x40, 0x11]))).toBe(false); // too small
+    const ts = Buffer.alloc(188, 0);
+    ts[0] = 0x47;
+    expect(isLikelyMediaSegment(ts)).toBe(true);
   });
 });

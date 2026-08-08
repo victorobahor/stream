@@ -288,20 +288,62 @@ export async function openHlsSessionForRequest(embedUrlRaw, req = null) {
 }
 
 async function fetchViaPage(page, url) {
-  return page.evaluate(async u => {
-    const r = await fetch(u, { credentials: 'omit' });
-    if (!r.ok) throw new Error(`upstream ${r.status}`);
-    const bytes = new Uint8Array(await r.arrayBuffer());
-    let s = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      s += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  // Prefer in-page fetch first (matches the WASM player’s network path).
+  try {
+    const data = await page.evaluate(async u => {
+      const r = await fetch(u, { credentials: 'omit' });
+      if (!r.ok) throw new Error(`upstream ${r.status}`);
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      let s = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        s += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      return {
+        ct: r.headers.get('content-type') || '',
+        b64: btoa(s),
+      };
+    }, url);
+    const buf = Buffer.from(data.b64, 'base64');
+    const isPlaylist = url.includes('.m3u8') || (data.ct || '').includes('mpegurl');
+    if (isPlaylist || isLikelyMediaSegment(buf)) return data;
+    // Fall through — high/*.ts sometimes 200s a tiny "Not found".
+  } catch {
+    /* try Node fetch with mint cookies below */
+  }
+
+  const embedReferer = (() => {
+    try {
+      const u = page.url();
+      if (u && u.includes('embed.st')) return u;
+    } catch {
+      /* ignore */
     }
-    return {
-      ct: r.headers.get('content-type') || '',
-      b64: btoa(s),
-    };
-  }, url);
+    return 'https://embed.st/';
+  })();
+  const cookies = await page.context().cookies(url);
+  const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': UA,
+      Referer: embedReferer,
+      Origin: 'https://embed.st',
+      Accept: '*/*',
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+    redirect: 'manual',
+  });
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(`upstream redirect ${response.status}`);
+  }
+  if (!response.ok) {
+    throw new Error(`upstream ${response.status}`);
+  }
+  const buf = Buffer.from(await response.arrayBuffer());
+  return {
+    ct: response.headers.get('content-type') || '',
+    b64: buf.toString('base64'),
+  };
 }
 
 async function tryClickPlay(page) {
@@ -566,6 +608,16 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
     }
 
     buf = unwrapPngTs(buf);
+    // Upstream sometimes returns HTTP 200 with a tiny "Not found" body for
+    // expired/cookie-gated high-bitrate segments. Never hand that to hls.js
+    // as video/mp2t — it locks ABR onto the low/mono rung (bad audio).
+    if (!isLikelyMediaSegment(buf)) {
+      return {
+        status: 502,
+        type: 'text/plain; charset=utf-8',
+        body: Buffer.from('Upstream segment missing or invalid'),
+      };
+    }
     return {
       status: 200,
       type: 'video/mp2t',
@@ -574,6 +626,20 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
   }
 
   return { status: 404, type: 'text/plain; charset=utf-8', body: Buffer.from('Not found') };
+}
+
+/** MPEG-TS starts with 0x47; fMP4/ISOBMFF has an `ftyp`/`moof` box. */
+export function isLikelyMediaSegment(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 64) return false;
+  if (buf[0] === 0x47) return true;
+  const head = buf.subarray(0, Math.min(64, buf.length)).toString('latin1');
+  if (head.includes('ftyp') || head.includes('moof') || head.includes('mdat')) return true;
+  const asText = buf.subarray(0, Math.min(32, buf.length)).toString('utf8').toLowerCase();
+  if (asText.includes('not found') || asText.includes('error') || asText.includes('<html')) {
+    return false;
+  }
+  // Opaque but large enough — allow (some CDNs use custom wrappers we unwrap).
+  return buf.length >= 1024;
 }
 
 /**
@@ -658,4 +724,5 @@ export const __test = {
   isAllowedEmbedUrl,
   isAllowedMediaHost,
   isCandidatePlaylistUrl,
+  isLikelyMediaSegment,
 };
