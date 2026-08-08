@@ -205,6 +205,59 @@ export function canonicalizeTeamName(name: string): string {
   return TEAM_ALIASES[n] || n;
 }
 
+function teamNamesMatch(a: string, b: string): boolean {
+  const ca = canonicalizeTeamName(a);
+  const cb = canonicalizeTeamName(b);
+  if (!ca || !cb) return false;
+  return ca === cb || ca.includes(cb) || cb.includes(ca);
+}
+
+/** Parse "Home vs Away" (or "Home - Away") from a match title. */
+export function parseTitleTeams(
+  title: string,
+): { home: string; away: string } | null {
+  const raw = String(title || '').trim();
+  if (!raw) return null;
+  const vs = raw.split(/\s+vs\.?\s+/i);
+  if (vs.length === 2 && vs[0].trim() && vs[1].trim()) {
+    return { home: vs[0].trim(), away: vs[1].trim() };
+  }
+  const dash = raw.split(/\s+[-–—]\s+/);
+  if (dash.length === 2 && dash[0].trim() && dash[1].trim()) {
+    return { home: dash[0].trim(), away: dash[1].trim() };
+  }
+  return null;
+}
+
+/**
+ * Upstream sometimes flips `teams.home/away` names relative to `title`
+ * (and badges). Title order wins; keep badge slots so logos stay put.
+ */
+export function reconcileMatchTeams(match: APIMatch): APIMatch {
+  const parsed = parseTitleTeams(match.title || '');
+  if (!parsed || !match.teams?.home || !match.teams?.away) return match;
+
+  const homeName = match.teams.home.name || '';
+  const awayName = match.teams.away.name || '';
+  if (!homeName || !awayName) return match;
+
+  const aligned =
+    teamNamesMatch(homeName, parsed.home) && teamNamesMatch(awayName, parsed.away);
+  if (aligned) return match;
+
+  const swapped =
+    teamNamesMatch(homeName, parsed.away) && teamNamesMatch(awayName, parsed.home);
+  if (!swapped) return match;
+
+  return {
+    ...match,
+    teams: {
+      home: { ...match.teams.home, name: parsed.home },
+      away: { ...match.teams.away, name: parsed.away },
+    },
+  };
+}
+
 function matchTeamsKey(m: APIMatch): string {
   const home = m.teams?.home?.name;
   const away = m.teams?.away?.name;
@@ -302,16 +355,17 @@ export function mergeMatchLists(
 }
 
 /**
- * Ask `/api/stream/{source}/{id}` which listed sources actually have embeds.
- * SportSRC stubs are kept without mass probing (detail on open).
+ * Ask `/api/stream/{source}/{id}` (and SportSRC detail) which listed sources
+ * actually have embeds. Drop empty stubs so cards never show a fake "1 src".
  */
 export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIMatch[]> {
   const uniqueSources = new Map<string, StreamSource>();
   for (const match of matches) {
     for (const source of match.sources || []) {
       if (!source?.source || !source?.id) continue;
-      if (isSportsrcSource(source)) continue;
-      const key = `${source.source}:${source.id}`;
+      const key = isSportsrcSource(source)
+        ? `sportsrc:${source.id}:${source.category || ''}`
+        : `${source.source}:${source.id}`;
       if (!uniqueSources.has(key)) uniqueSources.set(key, source);
     }
   }
@@ -336,8 +390,10 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
   for (const match of matches) {
     const sources = rankSources(
       (match.sources || []).filter(s => {
-        if (isSportsrcSource(s)) return true;
-        return workingKeys.has(`${s.source}:${s.id}`);
+        const key = isSportsrcSource(s)
+          ? `sportsrc:${s.id}:${s.category || ''}`
+          : `${s.source}:${s.id}`;
+        return workingKeys.has(key);
       }),
     );
     if (sources.length === 0) continue;
@@ -410,7 +466,7 @@ export async function loadMatches(): Promise<APIMatch[]> {
   const [streamedRaw, sportsrcRaw] = await Promise.all([streamedPromise, sportsrcPromise]);
   if (requestId !== loadMatchesRequestId) return state.allMatches;
 
-  let matches = mergeMatchLists(streamedRaw, sportsrcRaw);
+  let matches = mergeMatchLists(streamedRaw, sportsrcRaw).map(reconcileMatchTeams);
 
   // Narrow merged catalog. For Live: trust Streamed's live slate (API may keep
   // long events like motorsport past our 3h window). Only date-gate SportSRC-only

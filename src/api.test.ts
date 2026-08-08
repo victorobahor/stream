@@ -8,6 +8,7 @@ import {
   rankSources,
   pickPreferredStream,
   mergeMatchLists,
+  reconcileMatchTeams,
 } from './api';
 import type { Stream } from './types';
 
@@ -216,8 +217,35 @@ describe('filterToPlayableMatches', () => {
     expect(vi.mocked(fetch).mock.calls.length).toBe(1);
   });
 
-  it('should keep sportsrc stubs without probing', async () => {
-    mockStreamResponses({});
+  it('should probe sportsrc stubs and drop empty ones', async () => {
+    mockStreamResponses({
+      '/api/sportsrc/stream/football/x': [],
+    });
+    const matches: APIMatch[] = [
+      {
+        ...base,
+        id: 'sportsrc:x',
+        sources: [{ source: 'sportsrc', id: 'x', category: 'football' }],
+      },
+    ];
+    const result = await filterToPlayableMatches(matches);
+    expect(result).toHaveLength(0);
+    expect(vi.mocked(fetch).mock.calls.length).toBe(1);
+  });
+
+  it('should keep sportsrc stubs that return streams', async () => {
+    mockStreamResponses({
+      '/api/sportsrc/stream/football/x': [
+        {
+          id: 's1',
+          streamNo: 1,
+          language: 'en',
+          hd: true,
+          embedUrl: 'https://embed.streamapi.cc/sport/x/',
+          source: 'sportsrc',
+        },
+      ],
+    });
     const matches: APIMatch[] = [
       {
         ...base,
@@ -227,7 +255,9 @@ describe('filterToPlayableMatches', () => {
     ];
     const result = await filterToPlayableMatches(matches);
     expect(result).toHaveLength(1);
-    expect(vi.mocked(fetch).mock.calls.length).toBe(0);
+    expect(result[0].sources).toEqual([
+      { source: 'sportsrc', id: 'x', category: 'football' },
+    ]);
   });
 });
 
@@ -374,5 +404,44 @@ describe('mergeMatchLists', () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].id).toBe('same-id-1');
     expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
+  });
+});
+
+describe('reconcileMatchTeams', () => {
+  it('should fix flipped home/away names to match the title (PSG vs Man Utd)', () => {
+    const match: APIMatch = {
+      id: 'paris-saint-germain-vs-manchester-united-2558870',
+      title: 'Paris Saint-Germain vs Manchester United',
+      category: 'football',
+      date: Date.now(),
+      popular: false,
+      sources: [{ source: 'echo', id: 'x' }],
+      teams: {
+        home: { name: 'Manchester United', badge: 'psg-badge' },
+        away: { name: 'Paris Saint-Germain', badge: 'utd-badge' },
+      },
+    };
+    const fixed = reconcileMatchTeams(match);
+    expect(fixed.teams?.home?.name).toBe('Paris Saint-Germain');
+    expect(fixed.teams?.away?.name).toBe('Manchester United');
+    // Badges stay in their slots (they already followed title order).
+    expect(fixed.teams?.home?.badge).toBe('psg-badge');
+    expect(fixed.teams?.away?.badge).toBe('utd-badge');
+  });
+
+  it('should leave already-aligned teams alone', () => {
+    const match: APIMatch = {
+      id: 'a',
+      title: 'Arsenal vs Chelsea',
+      category: 'football',
+      date: Date.now(),
+      popular: false,
+      sources: [],
+      teams: {
+        home: { name: 'Arsenal', badge: 'a' },
+        away: { name: 'Chelsea', badge: 'c' },
+      },
+    };
+    expect(reconcileMatchTeams(match)).toBe(match);
   });
 });
