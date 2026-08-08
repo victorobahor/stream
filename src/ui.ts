@@ -15,6 +15,7 @@ export function showHome(): void {
   state.currentMatch = null;
   stopAllIframes();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  document.title = 'StreamZone — Live Sports Streaming';
 }
 
 // ── Loading states ──
