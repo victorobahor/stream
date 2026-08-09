@@ -297,6 +297,7 @@ export function openPlayer(match: APIMatch): void {
   el('multiview-view')?.classList.add('hidden');
   el('player-view')?.classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  document.title = `${match.title || 'Match'} — StreamZone`;
 
   renderPlayerInfo(match);
 

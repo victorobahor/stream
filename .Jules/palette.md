@@ -27,3 +27,6 @@
 ## 2024-07-27 - Color Contrast for Helper and Placeholder Text
 **Learning:** Text using `--text3` (`rgba(240,244,255,0.35)`) over the dark background (`#080c14`) only achieves a contrast ratio of ~2.96:1, falling short of WCAG AA requirements for normal-sized text. This makes placeholder text, stream counts, and other helper text harder to read for users with visual impairments.
 **Action:** When designing a dark theme, ensure text with reduced opacity still maintains a contrast ratio of at least 4.5:1 against its background. Adjust the alpha value or use a lighter base color if necessary.
+## 2024-05-18 - Document titles for SPA navigation
+**Learning:** Single-page app (SPA) view changes require programmatic `document.title` updates so screen readers can announce the navigation.
+**Action:** When adding new views, set `document.title` in the view initialization function to reflect the current state (e.g. `title - StreamZone`).

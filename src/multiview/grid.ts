@@ -391,6 +391,7 @@ export function showMultiview(): void {
   el('home-view')?.classList.add('hidden');
   el('player-view')?.classList.add('hidden');
   el('multiview-view')?.classList.remove('hidden');
+  document.title = 'Multi View — StreamZone';
 
   // Stop the main player only — multiview slots manage their own media.
   stopNativeHls(MAIN_PLAYER_KEY);
