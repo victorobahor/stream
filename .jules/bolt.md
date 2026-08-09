@@ -23,3 +23,7 @@
 ## 2024-07-19 - Short-circuiting String Operations
 **Learning:** In hot loops like `matchTextIncludes` (which runs on every keystroke during search), unconditionally executing `.toLowerCase()` and `.includes()` on multiple properties before evaluating the results creates unnecessary string allocations and CPU overhead, especially when a match might be found on the very first property.
 **Action:** When evaluating multiple string conditions for a single true/false outcome, use early returns (short-circuiting). Check the first property and return immediately if true, skipping expensive operations on the remaining properties.
+
+## 2024-07-26 - Schwartzian Transform for Array Sorting
+**Learning:** In highly used sorting functions (like `sortMatchesForDisplay`), placing expensive function calls (e.g. ones involving string manipulation or date calculations) directly inside the `.sort()` comparator results in $O(N \log N)$ executions, creating a measurable bottleneck when the list size grows.
+**Action:** Use a Schwartzian transform (decorate-sort-undecorate) to pre-calculate expensive sort keys in a prior `.map()` step. This reduces expensive executions to strictly $O(N)$ while keeping the comparator fast and simple.
