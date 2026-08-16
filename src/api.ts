@@ -473,8 +473,10 @@ export async function loadMatches(): Promise<APIMatch[]> {
   // rows so popular stubs cannot pollute Live.
   matches = matches.filter(m => m.sources && m.sources.length > 0);
   if (state.currentCategory === 'today') {
-    const todayStr = new Date().toDateString();
-    matches = matches.filter(m => m.date && new Date(m.date).toDateString() === todayStr);
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+    matches = matches.filter(m => m.date && m.date >= startOfDay && m.date < endOfDay);
   } else if (state.currentCategory === 'live') {
     matches = matches.filter(m => {
       if (!String(m.id).startsWith('sportsrc:')) return true;
