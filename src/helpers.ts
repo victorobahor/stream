@@ -131,8 +131,10 @@ export function filterMatchesByCategory(
     });
   }
   if (category === 'today') {
-    const todayStr = new Date().toDateString();
-    return matches.filter(m => m.date && new Date(m.date).toDateString() === todayStr);
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+    return matches.filter(m => m.date && m.date >= startOfDay && m.date < endOfDay);
   }
   if (category === 'popular') {
     return matches.filter(m => m.popular);
