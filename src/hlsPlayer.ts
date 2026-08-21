@@ -22,7 +22,7 @@ export function isHlsUnsupportedEmbed(embedUrl: string): boolean {
 
 function closeRemoteSession(sessionId: string | null): void {
   if (!sessionId) return;
-  const url = `/api/hls/${sessionId}/close`;
+  const url = `/api/hls/${encodeURIComponent(sessionId)}/close`;
   try {
     if (navigator.sendBeacon?.(url)) return;
   } catch { /* use keepalive */ }
