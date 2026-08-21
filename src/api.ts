@@ -70,9 +70,9 @@ export function resolveMatchesEndpoint(cat: Category, sport: string): MatchesEnd
 
   if (sport !== 'all') {
     if (cat === 'popular') {
-      endpoint = `/api/matches/${sport}/popular`;
+      endpoint = `/api/matches/${encodeURIComponent(sport)}/popular`;
     } else if (cat === 'all') {
-      endpoint = `/api/matches/${sport}`;
+      endpoint = `/api/matches/${encodeURIComponent(sport)}`;
     } else {
       // No /matches/{sport}/live|today — filter the global slate client-side.
       endpoint = cat === 'live' ? '/api/matches/live' : '/api/matches/all-today';
@@ -549,7 +549,7 @@ export async function loadStreams(
     const data = await res.json();
     streams = Array.isArray(data) ? data : [];
   } else {
-    const data = await fetchJSON<Stream[]>(`/api/stream/${source}/${id}`);
+    const data = await fetchJSON<Stream[]>(`/api/stream/${encodeURIComponent(source)}/${encodeURIComponent(id)}`);
     streams = Array.isArray(data) ? data : [];
   }
 

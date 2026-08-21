@@ -47,7 +47,7 @@ function bumpGeneration(key: string): number {
 
 function closeRemoteSession(sessionId: string | null): void {
   if (!sessionId) return;
-  const url = `/api/hls/${sessionId}/close`;
+  const url = `/api/hls/${encodeURIComponent(sessionId)}/close`;
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
       navigator.sendBeacon(url);
