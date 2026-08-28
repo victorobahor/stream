@@ -28,7 +28,7 @@ export function updateSourceBarActive(idx: number): void {
 export function renderStreamTabs(streams: Stream[], source: string): void {
   const tabs = el('stream-tabs');
   if (!tabs) return;
-  tabs.innerHTML = '';
+  tabs.replaceChildren();
   activeStreamTab = null;
   const fragment = document.createDocumentFragment();
   streams.forEach((stream, i) => {
@@ -72,7 +72,10 @@ export function renderSourceButtons(sources: StreamSource[]): void {
     return;
   }
   bar.classList.remove('hidden');
-  bar.innerHTML = '<span class="source-bar-label">Sources:</span>';
+  const barLabel = document.createElement('span');
+  barLabel.className = 'source-bar-label';
+  barLabel.textContent = 'Sources:';
+  bar.replaceChildren(barLabel);
   const fragment = document.createDocumentFragment();
   sources.forEach((src, i) => {
     const btn = document.createElement('button');
@@ -103,7 +106,7 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
 
   if (streamsLoading) streamsLoading.classList.remove('hidden');
   if (noStreams) noStreams.classList.add('hidden');
-  if (streamTabs) streamTabs.innerHTML = '';
+  if (streamTabs) streamTabs.replaceChildren();
   if (streamCount) streamCount.textContent = '';
 
   try {
@@ -312,7 +315,7 @@ export function openPlayer(match: APIMatch): void {
   el('player-placeholder')?.classList.remove('hidden');
   el('player-loading')?.classList.add('hidden');
   const streamTabs = el('stream-tabs');
-  if (streamTabs) streamTabs.innerHTML = '';
+  if (streamTabs) streamTabs.replaceChildren();
   const streamCount = el('stream-count');
   if (streamCount) streamCount.textContent = '';
   el('no-streams')?.classList.add('hidden');
@@ -350,7 +353,7 @@ export function renderPlayerInfo(match: APIMatch): void {
   if (hasTeams) {
     const h = match.teams!.home!;
     const a = match.teams!.away!;
-    teamsDiv.innerHTML = '';
+    teamsDiv.replaceChildren();
 
     const buildTeam = (team: typeof h, defName: string) => {
       const wrap = document.createElement('div');
@@ -380,7 +383,7 @@ export function renderPlayerInfo(match: APIMatch): void {
     teamsDiv.appendChild(vs);
     teamsDiv.appendChild(buildTeam(a, 'Away'));
   } else {
-    teamsDiv.innerHTML = '';
+    teamsDiv.replaceChildren();
     const titleSpan = document.createElement('span');
     titleSpan.className = 'player-title';
     titleSpan.textContent = match.title || 'Match';

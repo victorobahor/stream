@@ -62,8 +62,10 @@ export function mountPlayGate(
 
   const icon = document.createElement('span');
   icon.className = 'player-gate-icon';
-  icon.innerHTML =
-    '<svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+  icon.insertAdjacentHTML(
+    'beforeend',
+    '<svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>'
+  );
 
   const label = document.createElement('span');
   label.className = 'player-gate-label';
