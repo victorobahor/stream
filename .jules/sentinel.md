@@ -24,3 +24,8 @@
 **Vulnerability:** Path traversal and SSRF risks due to unencoded dynamic variables injected directly into client-side fetch paths.
 **Learning:** When dynamic variables like `id` or `source` are concatenated into API fetch URLs without encoding, an attacker could manipulate the input to traverse directories or construct arbitrary URLs if not properly handled on the server.
 **Prevention:** Always apply `encodeURIComponent` to any dynamic data placed within a URL path, particularly inside data-fetching services or utility modules.
+
+## 2024-10-27 - Safe DOM Element Clearing
+**Vulnerability:** Constructing DOM elements by concatenating dynamic user or API data into HTML strings (e.g., via template literals assigned to `innerHTML`) allows XSS payloads to execute via attribute breakout, even if partially escaped. This also applies when clearing elements using `element.innerHTML = ''`, which is a pattern that can lead to confusion and incorrect usage later.
+**Learning:** Using `innerHTML = ''` to clear an element is less safe and performant than using the native `replaceChildren()` method. Additionally, while `insertAdjacentHTML` can be used for static HTML, it still presents a security risk if user input is ever included, making pure DOM manipulation APIs superior.
+**Prevention:** Always use `element.replaceChildren()` to clear the contents of a DOM element instead of `element.innerHTML = ''`.
