@@ -30,3 +30,7 @@
 ## 2024-05-18 - Document titles for SPA navigation
 **Learning:** Single-page app (SPA) view changes require programmatic `document.title` updates so screen readers can announce the navigation.
 **Action:** When adding new views, set `document.title` in the view initialization function to reflect the current state (e.g. `title - StreamZone`).
+
+## 2024-08-30 - Interactive Toggles and ARIA States
+**Learning:** Adding visual classes like `.active` or `.open` to navigation links, tabs, and toggles provides visual cues for sighted users, but fails to notify screen readers of state changes unless paired with corresponding ARIA states (`aria-current`, `aria-expanded`, `aria-pressed`).
+**Action:** When creating or toggling interactive elements with active/open states, ensure that ARIA attributes are updated in sync with the visual classes (e.g., `aria-pressed="true"` when `.active` is added, `aria-expanded="false"` when `.open` is removed).

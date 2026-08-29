@@ -428,7 +428,9 @@ export function changeMultiviewLayout(layout: MultiviewLayout): void {
   state.multiviewLayout = layout;
 
   document.querySelectorAll('.layout-btn').forEach(btn => {
-    btn.classList.toggle('active', (btn as HTMLElement).dataset.layout === layout);
+    const isActive = (btn as HTMLElement).dataset.layout === layout;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', String(isActive));
   });
 
   const numSlots = getNumSlotsForLayout(layout);

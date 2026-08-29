@@ -54,16 +54,28 @@ export function setActiveNav(linkEl: HTMLElement | null): void {
   // Cleared by query rather than from a cached reference: the mobile nav can be
   // rebuilt, and a retained node would both miss the live link and leak the
   // detached one.
-  document.querySelectorAll('.nav-link.active').forEach(l => l.classList.remove('active'));
-  if (linkEl) linkEl.classList.add('active');
+  document.querySelectorAll('.nav-link.active').forEach(l => {
+    l.classList.remove('active');
+    l.removeAttribute('aria-current');
+  });
+  if (linkEl) {
+    linkEl.classList.add('active');
+    linkEl.setAttribute('aria-current', 'page');
+  }
 }
 
 export function toggleMobileMenu(): void {
-  el('mobile-nav')?.classList.toggle('open');
+  const nav = el('mobile-nav');
+  const btn = el('mobile-menu-btn');
+  if (nav) {
+    const isOpen = nav.classList.toggle('open');
+    if (btn) btn.setAttribute('aria-expanded', String(isOpen));
+  }
 }
 
 export function closeMobileMenu(): void {
   el('mobile-nav')?.classList.remove('open');
+  el('mobile-menu-btn')?.setAttribute('aria-expanded', 'false');
 }
 
 // ── Sports bar rendering ──

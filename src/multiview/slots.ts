@@ -324,6 +324,7 @@ export function toggleMultiviewSidebar(): void {
   const toggleBtn = el('toggle-multiview-sidebar');
   if (toggleBtn) {
     toggleBtn.classList.toggle('active', state.multiviewSidebarOpen);
+    toggleBtn.setAttribute('aria-expanded', String(state.multiviewSidebarOpen));
   }
 }
 
