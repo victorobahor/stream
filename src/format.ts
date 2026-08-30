@@ -35,6 +35,10 @@ export function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+// Memoised map of sport ID / name -> human label to avoid O(N) lookup in loops.
+const sportLabelCache = new Map<string, string>();
+let lastSportsRef: typeof state.sports = [];
+
 /**
  * Human label for a sport id or raw category (`american-football` → `American Football`).
  * Prefers the API sports list name when available.
@@ -43,10 +47,20 @@ export function formatSportLabel(sport: string): string {
   const raw = (sport || '').trim();
   if (!raw) return 'Sport';
   const key = raw.toLowerCase();
-  const fromApi = state.sports.find(
-    s => (s.id || '').toLowerCase() === key || (s.name || '').toLowerCase() === key,
-  );
-  if (fromApi?.name) return fromApi.name;
+
+  // state.sports is reassigned during loadMatches(), making reference equality a safe invalidation check.
+  if (state.sports !== lastSportsRef) {
+    sportLabelCache.clear();
+    for (const s of state.sports) {
+      if (s.id) sportLabelCache.set(s.id.toLowerCase(), s.name);
+      if (s.name) sportLabelCache.set(s.name.toLowerCase(), s.name);
+    }
+    lastSportsRef = state.sports;
+  }
+
+  const fromCache = sportLabelCache.get(key);
+  if (fromCache) return fromCache;
+
   return raw
     .split(/[-_\s]+/)
     .filter(Boolean)
