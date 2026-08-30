@@ -30,3 +30,6 @@
 ## 2024-08-01 - Date string conversions in loops
 **Learning:** Recreating `new Date(ts).toDateString()` for every element in a loop or `.filter()` callback during view rendering causes significant overhead via object allocations and string conversions. Local micro-benchmarks showed this was >30x slower than numerical boundary checks.
 **Action:** When filtering or comparing dates in a loop, pre-compute numeric timestamp boundaries (like `startOfDay` and `endOfDay`) outside the loop using `new Date()`. Then, inside the loop, use strict numeric comparisons (`ts >= startOfDay && ts < endOfDay`) to completely eliminate the allocation and string processing overhead.
+## 2024-11-20 - O(N) Lookups in Unpaginated DOM Render Loops
+**Learning:** Pure formatting functions (like `formatSportLabel`) called repeatedly inside unpaginated loops (such as rendering hundreds of cards in multiview search) can cause massive CPU spikes if they internally rely on O(N) lookups (like `array.find()`).
+**Action:** Always cache lookup arrays into `Map` objects (O(1)) inside frequently called helper functions. When deriving the cache from state, use reference equality checks (`state.array !== lastRef`) instead of deep comparisons for ultra-fast cache invalidation.
