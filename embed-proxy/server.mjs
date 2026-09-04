@@ -19,6 +19,11 @@ import {
 } from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
 import { tryHandleSportsrcRequest } from './sportsrc.mjs';
+import {
+  appSecurityHeaders,
+  embedSecurityHeaders,
+  isStaticAssetPath,
+} from './securityHeaders.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 80);
@@ -58,34 +63,16 @@ const GZIP_TYPES = new Set([
   'text/plain; charset=utf-8',
 ]);
 
-const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' https://embed.st https://www.embed.st https://embed.streamapi.cc https://football77.org https://www.football77.org https://embed.sportsrc.org; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'";
+const SECURITY_HEADERS = appSecurityHeaders({});
 
-const SECURITY_HEADERS = {
-  'X-Frame-Options': 'SAMEORIGIN',
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'no-referrer',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
-  'Content-Security-Policy': CSP,
-  'Cross-Origin-Embedder-Policy': 'unsafe-none',
-  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
-  'Cross-Origin-Resource-Policy': 'cross-origin',
-  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-};
-
-function wantsGzip(req, type) {
-  const accept = req.headers['accept-encoding'] || '';
-  return accept.includes('gzip') && GZIP_TYPES.has(type);
-}
-
-async function send(req, res, status, type, body, extraHeaders = {}) {
+async function send(req, res, status, type, body, extraHeaders = {}, headerSet = SECURITY_HEADERS) {
   const headers = {
     'Content-Type': type,
     'Cache-Control':
       type.includes('text/html') && !extraHeaders['Cache-Control']
         ? 'no-store'
         : extraHeaders['Cache-Control'] || 'no-cache',
-    ...SECURITY_HEADERS,
+    ...headerSet,
     ...extraHeaders,
   };
 
@@ -107,6 +94,19 @@ async function send(req, res, status, type, body, extraHeaders = {}) {
   res.end(buf);
 }
 
+function wantsGzip(req, type) {
+  const accept = req.headers['accept-encoding'] || '';
+  return accept.includes('gzip') && GZIP_TYPES.has(type);
+}
+
+async function sendEmbed(req, res, status, type, body, extraHeaders = {}) {
+  await send(req, res, status, type, body, extraHeaders, embedSecurityHeaders(req));
+}
+
+async function sendApp(req, res, status, type, body, extraHeaders = {}) {
+  await send(req, res, status, type, body, extraHeaders, appSecurityHeaders(req));
+}
+
 function safeJoin(root, reqPath) {
   const decoded = decodeURIComponent(reqPath.split('?')[0]);
   const rootResolved = path.resolve(root);
@@ -118,28 +118,28 @@ function safeJoin(root, reqPath) {
 
 async function handleProxy(req, res, url) {
   if (url.pathname === '/__ad_sink') {
-    await send(req, res, 200, 'text/html; charset=utf-8', AD_SINK_HTML);
+    await sendEmbed(req, res, 200, 'text/html; charset=utf-8', AD_SINK_HTML);
     return;
   }
 
   const target = url.searchParams.get('u') || '';
   const embedUrl = isAllowedEmbedUrl(target);
   if (!embedUrl) {
-    await send(req, res, 400, 'text/plain; charset=utf-8', 'Invalid or disallowed embed URL');
+    await sendEmbed(req, res, 400, 'text/plain; charset=utf-8', 'Invalid or disallowed embed URL');
     return;
   }
 
   try {
     const upstream = await readUpstream(embedUrl.toString());
     if (upstream.status >= 400) {
-      await send(req, res, 502, 'text/plain; charset=utf-8', `Upstream HTTP ${upstream.status}`);
+      await sendEmbed(req, res, 502, 'text/plain; charset=utf-8', `Upstream HTTP ${upstream.status}`);
       return;
     }
     const wantMeta =
       url.searchParams.get('meta') === '1' ||
       String(req.headers.accept || '').includes('application/json');
     if (wantMeta) {
-      await send(
+      await sendApp(
         req,
         res,
         200,
@@ -152,7 +152,7 @@ async function handleProxy(req, res, url) {
       return;
     }
     const origin = `${embedUrl.protocol}//${embedUrl.host}`;
-    await send(
+    await sendEmbed(
       req,
       res,
       200,
@@ -160,7 +160,7 @@ async function handleProxy(req, res, url) {
       rewriteEmbedHtml(upstream.body, origin),
     );
   } catch (err) {
-    await send(
+    await sendEmbed(
       req,
       res,
       502,
@@ -171,9 +171,10 @@ async function handleProxy(req, res, url) {
 }
 
 async function serveStatic(req, res, url) {
-  let filePath = safeJoin(DIST, url.pathname === '/' ? '/index.html' : url.pathname);
+  const reqPath = url.pathname === '/' ? '/index.html' : url.pathname;
+  let filePath = safeJoin(DIST, reqPath);
   if (!filePath) {
-    await send(req, res, 403, 'text/plain; charset=utf-8', 'Forbidden');
+    await sendApp(req, res, 403, 'text/plain; charset=utf-8', 'Forbidden');
     return;
   }
 
@@ -184,11 +185,15 @@ async function serveStatic(req, res, url) {
       st = await fs.stat(filePath);
     }
   } catch {
+    if (isStaticAssetPath(reqPath)) {
+      await sendApp(req, res, 404, 'text/plain; charset=utf-8', 'Not found');
+      return;
+    }
     filePath = path.join(DIST, 'index.html');
     try {
       await fs.stat(filePath);
     } catch {
-      await send(req, res, 404, 'text/plain; charset=utf-8', 'Not found');
+      await sendApp(req, res, 404, 'text/plain; charset=utf-8', 'Not found');
       return;
     }
   }
@@ -197,10 +202,10 @@ async function serveStatic(req, res, url) {
   const type = MIME[ext] || 'application/octet-stream';
   const body = await fs.readFile(filePath);
   const headers = {};
-  if (url.pathname.startsWith('/assets/')) {
-    headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+  if (url.pathname.startsWith('/assets/') || isStaticAssetPath(url.pathname)) {
+    headers['Cache-Control'] = 'public, max-age=86400';
   }
-  await send(req, res, 200, type, body, headers);
+  await sendApp(req, res, 200, type, body, headers);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -223,7 +228,10 @@ const server = http.createServer(async (req, res) => {
     await serveStatic(req, res, url);
   } catch (err) {
     if (!res.headersSent) {
-      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8', ...SECURITY_HEADERS });
+      res.writeHead(500, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        ...appSecurityHeaders(req),
+      });
       res.end(`Server error: ${err?.message || err}`);
     }
   }

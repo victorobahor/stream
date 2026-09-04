@@ -12,11 +12,13 @@ import {
 } from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
 import { tryHandleSportsrcRequest } from './sportsrc.mjs';
+import { EMBED_CSP } from './securityHeaders.mjs';
 
 function send(res: Connect.ServerResponse, status: number, type: string, body: string | Buffer): void {
   res.statusCode = status;
   res.setHeader('Content-Type', type);
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Security-Policy', EMBED_CSP);
   res.end(body);
 }
 
