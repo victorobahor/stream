@@ -40,7 +40,14 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
   card.dataset.id = match.id || '';
   card.setAttribute('role', 'button');
   card.tabIndex = 0;
-  card.setAttribute('aria-label', `Watch ${match.title || 'match'}`);
+  const homeName = match.teams?.home?.name;
+  const awayName = match.teams?.away?.name;
+  card.setAttribute(
+    'aria-label',
+    homeName && awayName
+      ? `Watch ${homeName} versus ${awayName}`
+      : `Watch ${match.title || 'match'}`,
+  );
 
   if (posterUrl) {
     // An <img> rather than a CSS background so posters below the fold are
@@ -141,11 +148,20 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
     };
 
     teams.appendChild(buildTeam(match.teams!.home || {}, true));
+    const vsWrap = document.createElement('span');
+    vsWrap.className = 'vs-wrap';
     const vs = document.createElement('span');
     vs.className = 'vs-separator';
+    vs.setAttribute('aria-hidden', 'true');
     vs.textContent = 'VS';
-    teams.appendChild(vs);
-    teams.appendChild(buildTeam(match.teams!.away || {}, false));
+    const vsSr = document.createElement('span');
+    vsSr.className = 'sr-only';
+    vsSr.textContent = ' vs ';
+    vsWrap.append(vs, vsSr);
+    teams.appendChild(vsWrap);
+    const away = buildTeam(match.teams!.away || {}, false);
+    away.classList.add('away-team');
+    teams.appendChild(away);
 
     card.appendChild(teams);
   }

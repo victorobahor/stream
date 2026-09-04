@@ -28,6 +28,8 @@ export function showSkeleton(show: boolean): void {
     // Toggling the grid here re-showed stale cards under "No matches found".
     el('matches-grid')?.classList.add('hidden');
     el('empty-state')?.classList.add('hidden');
+    const matchCount = el('match-count');
+    if (matchCount) matchCount.textContent = 'Loading…';
   }
 }
 

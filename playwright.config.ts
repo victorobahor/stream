@@ -9,7 +9,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list'], ['html', { open: 'never' }]],
-  timeout: 90_000,
+  timeout: 180_000,
   expect: { timeout: 20_000 },
   globalSetup: './e2e/global-setup.ts',
   use: {

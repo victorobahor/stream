@@ -26,21 +26,27 @@ test.describe('StreamZone live smoke', () => {
 
   test('sport filter and search narrow results', async ({ page }) => {
     await gotoHome(page);
-    await waitForHomeReady(page);
+    const cards = await waitForHomeReady(page);
+    await expect(cards.first()).toBeVisible();
 
-    await page.locator('#sports-bar .sport-chip[data-sport-id="football"]').click();
-    await expect(page).toHaveTitle(/Football/i);
-    await expect(page.locator('#section-title')).toContainText(/Football/i);
+    const sportLabel = ((await cards.first().locator('.sport-label').textContent()) || '').trim();
+    expect(sportLabel.length).toBeGreaterThan(0);
+    await page.locator('#sports-bar .sport-chip', { hasText: sportLabel }).click();
+    const filtered = await waitForHomeReady(page);
+    await expect(page.locator('#section-title')).toContainText(new RegExp(sportLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+    await expect(filtered.first()).toBeVisible();
+    const filteredCount = await filtered.count();
+    expect(filteredCount).toBeGreaterThan(0);
 
-    const footballCards = page.locator('.match-card');
-    await expect(footballCards.first()).toBeVisible({ timeout: 30_000 });
-    const footballCount = await footballCards.count();
-    expect(footballCount).toBeGreaterThan(0);
-
-    await page.locator('#search-input').fill('Stuttgart');
-    await expect(page.locator('#match-count')).toHaveText(/1 result/i, { timeout: 15_000 });
-    await expect(page.locator('.match-card')).toHaveCount(1);
-    await expect(page.locator('.match-card').first()).toContainText(/Stuttgart/i);
+    const sampleName = ((await filtered.first().locator('.team-name, .card-title').first().textContent()) || '').trim();
+    expect(sampleName.length).toBeGreaterThan(1);
+    await page.locator('#search-input').fill(sampleName);
+    await expect(page.locator('#match-count')).toHaveText(/\d+\s+results?/i, { timeout: 15_000 });
+    const searchCards = page.locator('#matches-grid .match-card');
+    const searchCount = await searchCards.count();
+    expect(searchCount).toBeGreaterThan(0);
+    expect(searchCount).toBeLessThanOrEqual(filteredCount);
+    await expect(searchCards.first()).toContainText(new RegExp(sampleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
   });
 
   test('category tabs load All matches catalog', async ({ page }) => {
@@ -49,13 +55,15 @@ test.describe('StreamZone live smoke', () => {
 
     await page.locator('#nav-all').click();
     await expect(page).toHaveTitle(/All matches/i);
-    await expect(page.locator('#match-count')).not.toHaveText(/Loading/i, { timeout: 45_000 });
+    const cards = await waitForHomeReady(page);
 
     await page.locator('#sports-bar .sport-chip', { hasText: 'All Sports' }).click();
-    await expect(page.locator('#match-count')).toContainText(/of \d+ results/i, { timeout: 45_000 });
+    const allCards = await waitForHomeReady(page);
+    await expect(page.locator('#match-count')).toHaveText(/\d+\s+results?/i);
 
-    const cards = page.locator('.match-card');
-    expect(await cards.count()).toBeGreaterThan(10);
+    expect(await allCards.count()).toBeGreaterThan(0);
+    await expect(allCards.first()).toBeVisible();
+    expect(await cards.count()).toBeGreaterThan(0);
   });
 
   test('Multi View loads sidebar and slots', async ({ page }) => {

@@ -30,6 +30,35 @@ test.describe('responsive layout', () => {
     expect(metrics.cardW).toBeLessThanOrEqual(metrics.inner);
   });
 
+  test('match cards keep both teams inside the mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoHome(page);
+    await waitForHomeReady(page);
+
+    const result = await page.evaluate(() => {
+      const vw = window.innerWidth;
+      const card = [...document.querySelectorAll('.match-card')].find(
+        c => c.querySelectorAll('.team').length === 2,
+      );
+      if (!card) return { ok: false, reason: 'no two-team card' };
+      const teams = [...card.querySelectorAll('.team')].map(t => {
+        const r = t.getBoundingClientRect();
+        return {
+          name: t.querySelector('.team-name')?.textContent ?? '',
+          left: Math.round(r.left),
+          right: Math.round(r.right),
+        };
+      });
+      return {
+        ok: teams.length === 2 && teams.every(t => t.left >= 0 && t.right <= vw + 1 && t.name.length > 0),
+        teams,
+        vw,
+      };
+    });
+
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+  });
+
   test('Multi View grid snaps to the remaining desktop window', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoHome(page);

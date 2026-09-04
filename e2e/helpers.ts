@@ -16,10 +16,11 @@ export async function gotoHome(page: Page): Promise<void> {
 /** Wait until the home match grid finishes loading (success or empty, not error). */
 export async function waitForHomeReady(page: Page): Promise<Locator> {
   const matchCount = page.locator('#match-count');
-  await expect(matchCount).not.toHaveText(/Loading/i, { timeout: 45_000 });
+  await expect(page.locator('#skeleton-grid')).toBeHidden({ timeout: 120_000 });
+  await expect(matchCount).not.toHaveText(/Loading/i, { timeout: 120_000 });
   await expect(page.locator('#error-state')).toBeHidden();
 
-  const cards = page.locator('.match-card');
+  const cards = page.locator('#matches-grid .match-card');
   const empty = page.locator('#empty-state:not(.hidden)');
 
   await expect

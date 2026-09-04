@@ -60,6 +60,7 @@ body.app-shell {
   min-width: 0;
   position: relative;
   isolation: isolate;
+  overflow-x: clip;
 }
 
 .area-header,
@@ -99,7 +100,7 @@ body.app-shell {
 }
 .scroll-x::-webkit-scrollbar { display: none; }
 
-html { scroll-behavior: smooth; overflow-x: hidden; }
+html { scroll-behavior: smooth; overflow-x: clip; }
 
 body {
   background: var(--bg);
@@ -108,7 +109,7 @@ body {
   font-size: 15px;
   line-height: 1.6;
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100%;
 }
 
@@ -121,6 +122,17 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 img { display: block; max-width: 100%; }
 .hidden { display: none !important; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ---------- Ambient orbs (prototype orb-field) ---------- */
 .orb-field {
@@ -388,14 +400,19 @@ img { display: block; max-width: 100%; }
   font-weight: 500;
 }
 
-/* ---------- Matches Grid (modern-web-guidance: auto-fill + subgrid) ---------- */
+/* ---------- Matches Grid (modern-web-guidance: auto-fill + minmax that cannot overflow) ---------- */
 .matches-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   grid-auto-rows: auto;
-  grid-template-rows: repeat(3, auto);
-  gap: 18px;
+  gap: var(--space-4, 18px);
   align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .matches-grid {
+    grid-template-rows: repeat(3, auto);
+  }
 }
 
 /* ---------- Match Card ---------- */
@@ -404,10 +421,9 @@ img { display: block; max-width: 100%; }
   content-visibility: auto;
   contain-intrinsic-size: auto 220px;
   display: grid;
-  /* Fallback rows when subgrid is unsupported. */
   grid-template-rows: auto 1fr auto;
-  grid-template-rows: subgrid;
-  grid-row: span 3;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   gap: 14px;
   background: var(--gradient-surface);
   box-shadow: var(--shadow-elevated);
@@ -418,6 +434,12 @@ img { display: block; max-width: 100%; }
   transition: all var(--transition);
   position: relative;
   overflow: hidden;
+}
+@media (min-width: 768px) {
+  .match-card {
+    grid-template-rows: subgrid;
+    grid-row: span 3;
+  }
 }
 .match-card::before {
   content: ''; position: absolute;
@@ -510,13 +532,23 @@ img { display: block; max-width: 100%; }
 }
 
 
-/* Teams display */
+/* Teams — Lovable/size-aware: stacked by default, 3-col when the card is wide enough */
 .card-teams {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  min-inline-size: 0;
 }
 .team {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  flex: 1; text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+  text-align: start;
+}
+.team.away-team {
+  justify-content: start;
 }
 .team-badge-wrap {
   width: 52px; height: 52px; border-radius: 50%;
@@ -537,11 +569,39 @@ img { display: block; max-width: 100%; }
   font-weight: 600;
   color: var(--text); line-height: 1.2;
   max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.vs-wrap {
+  display: none;
 }
 .vs-separator {
   font-family: var(--font-display);
   font-size: 1.1rem; font-weight: 800;
-  color: var(--text3); flex-shrink: 0;
+  color: var(--text3);
+}
+
+@container (min-width: 260px) {
+  .card-teams {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 10px;
+  }
+  .team {
+    flex-direction: column;
+    text-align: center;
+    justify-content: center;
+  }
+  .team.away-team {
+    justify-content: center;
+    text-align: center;
+    flex-direction: column;
+  }
+  .vs-wrap { display: block; }
+}
+
+@container (max-width: 22rem) {
+  .team-badge-wrap { width: 40px; height: 40px; }
+  .team-badge-wrap img { width: 32px; height: 32px; }
+  .vs-separator { font-size: 0.9rem; }
 }
 
 /* Card Title (for non-team matches) */
@@ -648,6 +708,7 @@ img { display: block; max-width: 100%; }
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-inline-size: 0;
 }
 .player-aside-badges {
   display: flex;
@@ -679,14 +740,25 @@ img { display: block; max-width: 100%; }
 }
 .related-section .related-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   gap: 16px;
 }
 .match-teams-display {
-  display: flex; align-items: center; gap: 14px; flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-inline-size: 0;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  flex-wrap: wrap;
 }
 .player-team {
-  display: flex; align-items: center; gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-inline-size: 0;
 }
 .player-badge {
   width: 38px; height: 38px; border-radius: 50%;
@@ -694,7 +766,7 @@ img { display: block; max-width: 100%; }
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 .player-badge img { width: 28px; height: 28px; object-fit: contain; }
-.player-team-name { font-weight: 700; font-size: 1rem; }
+.player-team-name { font-weight: 700; font-size: 1rem; min-inline-size: 0; overflow-wrap: anywhere; }
 .player-vs { color: var(--text3); font-weight: 700; font-size: 0.9rem; }
 .player-title { font-weight: 700; font-size: 1.05rem; }
 .match-badges { display: flex; gap: 8px; flex-shrink: 0; }
@@ -987,7 +1059,7 @@ img { display: block; max-width: 100%; }
 /* ---------- Responsive ---------- */
 @media (max-width: 1100px) {
   .related-section .related-list {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   }
 }
 
@@ -1003,6 +1075,14 @@ img { display: block; max-width: 100%; }
   .search-input,
   .search-input:focus { width: 100%; }
   #section-title { font-size: 1.1rem; }
+  .category-chip,
+  .sport-chip,
+  .source-chip,
+  .mobile-menu-btn,
+  .watch-btn,
+  .back-btn {
+    min-block-size: 44px;
+  }
 }
 
 @media (max-width: 480px) {
