@@ -2,3 +2,7 @@ node_modules/
 dist/
 codebase_review.md
 .env
+playwright-report/
+test-results/
+blob-report/
+e2e/.reachable

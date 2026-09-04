@@ -11,10 +11,14 @@
     "start": "node embed-proxy/server.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:live": "BASE_URL=https://stream.vicktalk.online playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "lint": "eslint src/"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.0.0",
     "esbuild": "^0.28.0",
     "eslint": "^9.0.0",

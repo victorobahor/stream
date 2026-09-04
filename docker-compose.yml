@@ -18,4 +18,6 @@ services:
       HLS_OPEN_WAIT_MS: "45000"
       # Share mint cookies/playlist for the same embed across viewers.
       HLS_MINT_CACHE_TTL_MS: "120000"
+      # Enable when container clock is wrong (Playwright ERR_CERT_DATE_INVALID on embed.st).
+      HLS_IGNORE_TLS: "1"
     restart: unless-stopped

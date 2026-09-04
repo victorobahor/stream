@@ -403,6 +403,8 @@ async function newStealthContext(browserInstance, storageState) {
   const opts = {
     viewport: { width: 1100, height: 700 },
     userAgent: UA,
+    // Set HLS_IGNORE_TLS=1 in Docker when the host clock is skewed (ERR_CERT_DATE_INVALID).
+    ignoreHTTPSErrors: process.env.HLS_IGNORE_TLS === '1',
     ...(storageState ? { storageState } : {}),
   };
   const context = await browserInstance.newContext(opts);
