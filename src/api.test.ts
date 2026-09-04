@@ -259,6 +259,43 @@ describe('filterToPlayableMatches', () => {
       { source: 'sportsrc', id: 'x', category: 'football' },
     ]);
   });
+
+  it('should retain sportsrc on dual-provider cards when its probe fails but Streamed works', async () => {
+    mockStreamResponses({
+      '/api/stream/admin/live': [
+        { id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' },
+      ],
+      '/api/sportsrc/stream/football/x': [],
+    });
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/sportsrc/stream/')) {
+        throw new Error('SportSRC probe timeout');
+      }
+      if (url.includes('/api/stream/admin/live')) {
+        return new Response(
+          JSON.stringify([
+            { id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' },
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+    const matches: APIMatch[] = [
+      {
+        ...base,
+        id: '1',
+        sources: [
+          { source: 'admin', id: 'live' },
+          { source: 'sportsrc', id: 'x', category: 'football' },
+        ],
+      },
+    ];
+    const result = await filterToPlayableMatches(matches);
+    expect(result).toHaveLength(1);
+    expect(result[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
+  });
 });
 
 describe('mergeMatchLists', () => {

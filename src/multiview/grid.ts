@@ -1,6 +1,6 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
-import { el, sanitizeUrl, applyEmbed, clearEmbed, log, resolveEmbedForPlayback } from '../helpers';
+import { el, sanitizeUrl, applyEmbed, clearEmbed, log, resolveEmbedForPlayback, embedUrlForIframe } from '../helpers';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from '../hlsPlayer';
 import { mountPlayGate } from '../adShield';
 import { getMatchById, loadMatches } from '../api';
@@ -220,7 +220,6 @@ function mountSlotIframe(
   const iframe = document.createElement('iframe');
   iframe.className = 'mv-iframe';
   iframe.dataset.embedUrl = desiredUrl;
-  iframe.allowFullscreen = true;
   iframe.setAttribute('scrolling', 'no');
 
   const reveal = () => {
@@ -305,11 +304,12 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
 
     const requestUrl = desiredUrl;
     void (async () => {
-      const playUrl = await resolveEmbedForPlayback(requestUrl);
+      const hlsUrl = await resolveEmbedForPlayback(requestUrl);
+      const iframeUrl = embedUrlForIframe(requestUrl, hlsUrl);
       // Slot may have been cleared / switched while unwrap ran.
       if (state.multiviewSlots[i]?.stream?.embedUrl !== requestUrl) return;
 
-      const ok = await playNativeHls(playUrl, {
+      const ok = await playNativeHls(hlsUrl, {
         key: mvPlayerKey(i),
         video,
         onReady: () => {
@@ -323,7 +323,7 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
       if (ok) return;
 
       video.remove();
-      mountSlotIframe(slotEl, i, playUrl, overlayEl);
+      mountSlotIframe(slotEl, i, iframeUrl, overlayEl);
     })();
   }
 

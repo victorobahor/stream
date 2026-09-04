@@ -15,6 +15,7 @@ import {
   toProxiedEmbedUrl,
   shouldProxyEmbed,
   resolveEmbedForPlayback,
+  embedUrlForIframe,
 } from './helpers';
 import { state } from './state';
 import type { APIMatch } from './types';
@@ -238,6 +239,19 @@ describe('resolveEmbedForPlayback', () => {
     );
     const url = 'https://embed.streamapi.cc/sport/abc/';
     await expect(resolveEmbedForPlayback(url)).resolves.toBe(url);
+  });
+});
+
+describe('embedUrlForIframe', () => {
+  it('should keep streamapi wrappers proxied for iframe fallback', () => {
+    const original = 'https://embed.streamapi.cc/sport/abc/';
+    const nested = 'https://embed.st/embed/admin/ppv-middlesbrough-vs-wrexham/1';
+    expect(embedUrlForIframe(original, nested)).toBe(original);
+  });
+
+  it('should use the resolved URL for direct embed.st streams', () => {
+    const url = 'https://embed.st/embed/admin/x/1';
+    expect(embedUrlForIframe(url, url)).toBe(url);
   });
 });
 

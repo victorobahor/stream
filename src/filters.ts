@@ -12,7 +12,7 @@ import {
 import { getSportEmoji, formatSportLabel } from './format';
 import { syncSportChips, ALL_SPORTS } from './chips';
 import { renderMatches } from './cards';
-import { showHome, showSkeleton, hideError, showError } from './ui';
+import { showHome, showSkeleton, hideError, showError, setActiveCategory } from './ui';
 import { loadMatches } from './api';
 
 /**
@@ -74,6 +74,7 @@ export function filterCategory(cat: string): void {
   const searchInput = el('search-input') as HTMLInputElement | null;
   if (searchInput) searchInput.value = '';
   syncSportChips(el('sports-bar'), ALL_SPORTS);
+  setActiveCategory(cat);
   showHome();
   void loadMatchesWithUI();
 }
@@ -108,10 +109,10 @@ export function applyFilters(): void {
 
 export function updateSectionTitle(): void {
   const titles: Record<string, string> = {
-    live: 'Live Matches',
-    all: 'All Matches',
-    today: "Today's Matches",
-    popular: '🔥 Popular Matches',
+    live: 'Live matches',
+    all: 'All matches',
+    today: "Today's matches",
+    popular: 'Popular matches',
   };
   let title = titles[state.currentCategory] || 'Matches';
   if (state.currentSport !== ALL_SPORTS) {

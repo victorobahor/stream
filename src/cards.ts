@@ -211,7 +211,7 @@ export function renderMatches(matches: APIMatch[]): void {
     grid.replaceChildren();
     grid.classList.add('hidden');
     empty.classList.remove('hidden');
-    if (matchCount) matchCount.textContent = '0 matches';
+    if (matchCount) matchCount.textContent = '0 results';
     return;
   }
   empty.classList.add('hidden');
@@ -222,8 +222,8 @@ export function renderMatches(matches: APIMatch[]): void {
   if (matchCount) {
     matchCount.textContent =
       total > MATCH_GRID_RENDER_LIMIT
-        ? `Showing ${visible.length} of ${total}`
-        : `${total} match${total !== 1 ? 'es' : ''}`;
+        ? `${visible.length} of ${total} results`
+        : `${total} result${total !== 1 ? 's' : ''}`;
   }
 
   const frag = document.createDocumentFragment();

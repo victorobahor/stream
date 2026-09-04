@@ -1,11 +1,16 @@
 import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
-import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log, resolveEmbedForPlayback } from './helpers';
+import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log, resolveEmbedForPlayback, embedUrlForIframe } from './helpers';
 import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
-import { loadStreams as fetchStreams, pickPreferredStream } from './api';
+import {
+  loadStreams as fetchStreams,
+  pickPreferredStream,
+  invalidateStreamsCache,
+  isSportsrcSource,
+} from './api';
 import { badgeImagePath } from './state';
 import { mountPlayGate } from './adShield';
-import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
+import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls, isHlsUnsupportedEmbed } from './hlsPlayer';
 
 // ── Module level state for caching active elements ──
 let activeStreamTab: HTMLElement | null = null;
@@ -17,10 +22,11 @@ let allowHlsSourceFailover = false;
 export function updateSourceBarActive(idx: number): void {
   const bar = el('source-bar');
   if (!bar) return;
-  const currentActive = bar.querySelector('.source-chip.active');
-  if (currentActive) currentActive.classList.remove('active');
-  const target = bar.children[idx + 1]; // +1 because the first child is the label span
-  if (target) target.classList.add('active');
+  bar.querySelectorAll<HTMLButtonElement>('.source-chip').forEach((chip, i) => {
+    const active = i === idx;
+    chip.classList.toggle('active', active);
+    chip.setAttribute('aria-pressed', String(active));
+  });
 }
 
 // ── Stream tabs ──
@@ -37,7 +43,8 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
 
     const sourceSpan = document.createElement('span');
     sourceSpan.className = 'tab-source';
-    sourceSpan.textContent = `${capitalize(stream.source || source)} #${stream.streamNo || i + 1}`;
+    const tabSource = isSportsrcSource(source) ? 'SportSRC' : capitalize(stream.source || source);
+    sourceSpan.textContent = `${tabSource} #${stream.streamNo || i + 1}`;
     tab.appendChild(sourceSpan);
 
     const langSpan = document.createElement('span');
@@ -76,8 +83,14 @@ export function renderSourceButtons(sources: StreamSource[]): void {
   const fragment = document.createDocumentFragment();
   sources.forEach((src, i) => {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'source-chip' + (i === state.activeSourceIndex ? ' active' : '');
-    btn.textContent = capitalize(src.source);
+    btn.setAttribute('aria-pressed', String(i === state.activeSourceIndex));
+    const dot = document.createElement('span');
+    dot.className = 'source-chip-dot' + (isSportsrcSource(src) ? ' sportsrc' : ' streamed');
+    dot.setAttribute('aria-hidden', 'true');
+    btn.appendChild(dot);
+    btn.appendChild(document.createTextNode(isSportsrcSource(src) ? 'SportSRC' : capitalize(src.source)));
     btn.onclick = () => {
       if (i === state.activeSourceIndex) return;
       state.activeSourceIndex = i;
@@ -94,6 +107,10 @@ export function renderSourceButtons(sources: StreamSource[]): void {
 
 let streamLoadRequestId = 0;
 
+function playableStreams(streams: Stream[]): Stream[] {
+  return streams.filter(s => !!s?.embedUrl);
+}
+
 async function loadAndDisplayStreams(src: { source: string; id: string; category?: string }): Promise<void> {
   const requestId = ++streamLoadRequestId;
   const streamsLoading = el('streams-loading');
@@ -107,13 +124,15 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
   if (streamCount) streamCount.textContent = '';
 
   try {
-    const streams = await fetchStreams(src.source, src.id, src.category);
+    let streams = await fetchStreams(src.source, src.id, src.category);
+    streams = playableStreams(streams);
 
     // Discard stale response if user navigated away
     if (requestId !== streamLoadRequestId) return;
 
     if (streamsLoading) streamsLoading.classList.add('hidden');
     if (streams.length === 0) {
+      invalidateStreamsCache(src.source, src.id, src.category);
       if (tryNextSource()) return;
       if (noStreams) {
         noStreams.classList.remove('hidden');
@@ -133,6 +152,7 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
   } catch (err) {
     if (requestId !== streamLoadRequestId) return;
     if (streamsLoading) streamsLoading.classList.add('hidden');
+    invalidateStreamsCache(src.source, src.id, src.category);
     if (tryNextSource()) return;
     if (noStreams) {
       noStreams.classList.remove('hidden');
@@ -145,14 +165,24 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
 // ── Select stream ──
 
 const EMBED_LOAD_TIMEOUT_MS = 5000;
+/** After iframe reveal, wait before auto-advancing to the next catalog source. */
+const EMBED_FAILOVER_MS = 15_000;
 
 /** Live timer for the current embed's load fallback — one at a time. */
 let embedLoadTimer: ReturnType<typeof setTimeout> | null = null;
+let embedFailoverTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearEmbedLoadTimer(): void {
   if (embedLoadTimer !== null) {
     clearTimeout(embedLoadTimer);
     embedLoadTimer = null;
+  }
+}
+
+function clearEmbedFailoverTimer(): void {
+  if (embedFailoverTimer !== null) {
+    clearTimeout(embedFailoverTimer);
+    embedFailoverTimer = null;
   }
 }
 
@@ -178,17 +208,24 @@ function startLoadingStages(): void {
   );
 }
 
-function playViaIframe(embedUrl: string): void {
+function playViaIframe(
+  embedUrl: string,
+  opts?: { onEmbedFailed?: () => void },
+): void {
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
   const playerLoading = el('player-loading');
   if (!iframe) return;
 
   iframe.classList.add('hidden');
   clearEmbedLoadTimer();
+  clearEmbedFailoverTimer();
   const container = el('player-container');
   container?.querySelectorAll('.player-gate').forEach(g => g.remove());
 
+  let revealed = false;
   const reveal = () => {
+    if (revealed) return;
+    revealed = true;
     clearEmbedLoadTimer();
     clearLoadingStages();
     playerLoading?.classList.add('hidden');
@@ -196,6 +233,12 @@ function playViaIframe(embedUrl: string): void {
     iframe.classList.remove('hidden');
     // Gate sits above the iframe so the embed's first PopUnder gesture is ours.
     if (container) mountPlayGate(container);
+    if (opts?.onEmbedFailed) {
+      embedFailoverTimer = setTimeout(() => {
+        embedFailoverTimer = null;
+        opts.onEmbedFailed?.();
+      }, EMBED_FAILOVER_MS);
+    }
   };
 
   iframe.onload = reveal;
@@ -205,6 +248,7 @@ function playViaIframe(embedUrl: string): void {
 
 export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   if (!stream?.embedUrl) {
+    if (allowHlsSourceFailover && tryNextSource()) return;
     showToast('No embed URL available for this stream.', 'error');
     return;
   }
@@ -229,6 +273,7 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   stopNativeHls(MAIN_PLAYER_KEY);
   if (iframe) {
     clearEmbedLoadTimer();
+    clearEmbedFailoverTimer();
     iframe.onload = null;
     clearEmbed(iframe);
     iframe.classList.add('hidden');
@@ -240,11 +285,12 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   const video = el('stream-video') as HTMLVideoElement | null;
 
   void (async () => {
-    // SportSRC streamapi wrappers → unwrap nested embed.st for native HLS.
-    const playUrl = await resolveEmbedForPlayback(stream.embedUrl);
+    // SportSRC streamapi wrappers → unwrap nested embed.st for native HLS only.
+    const hlsUrl = await resolveEmbedForPlayback(stream.embedUrl);
+    const iframeUrl = embedUrlForIframe(stream.embedUrl, hlsUrl);
     if (state.selectedStream !== stream) return;
 
-    const nativeOk = !!video && (await playNativeHls(playUrl, {
+    const nativeOk = !!video && (await playNativeHls(hlsUrl, {
       key: MAIN_PLAYER_KEY,
       video,
       onReady: () => {
@@ -259,12 +305,26 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
       showToast(`${toast} · native`, 'success');
       return;
     }
-    // Delta (and similar) often time out on playlist mint — try the next
-    // match source (e.g. admin) before falling back to the ads iframe.
-    if (allowHlsSourceFailover && tryNextSource()) return;
+    // SportSRC/streamapi embeds skip native HLS by design — go straight to the
+    // proxied iframe. Delta shells are often empty — skip iframe and failover.
+    const hlsWasSkipped = isHlsUnsupportedEmbed(stream.embedUrl);
+    if (
+      allowHlsSourceFailover &&
+      !hlsWasSkipped &&
+      stream.source === 'delta' &&
+      tryNextSource()
+    ) {
+      return;
+    }
     setLoadingStage('Starting embed player…');
-    // Prefer unwrapped embed.st iframe; otherwise proxied streamapi shell.
-    playViaIframe(playUrl);
+    // SportSRC: proxied streamapi shell. Streamed: direct embed.st iframe.
+    playViaIframe(iframeUrl, {
+      onEmbedFailed: () => {
+        if (state.selectedStream !== stream) return;
+        if (!allowHlsSourceFailover || hlsWasSkipped) return;
+        tryNextSource();
+      },
+    });
     showToast(toast, 'success');
   })();
 }
@@ -276,9 +336,14 @@ function tryNextSource(): boolean {
   if (!match?.sources) return false;
   const next = state.activeSourceIndex + 1;
   if (next >= match.sources.length) return false;
+  const prev = match.sources[state.activeSourceIndex];
+  if (prev) invalidateStreamsCache(prev.source, prev.id, prev.category);
   state.activeSourceIndex = next;
   updateSourceBarActive(next);
-  showToast(`Trying ${capitalize(match.sources[next].source)}\u2026`, 'error');
+  const label = isSportsrcSource(match.sources[next].source)
+    ? 'SportSRC'
+    : capitalize(match.sources[next].source);
+  showToast(`Streamed source unavailable — trying ${label}\u2026`, 'error');
   void loadAndDisplayStreams(match.sources[next]);
   return true;
 }
@@ -306,6 +371,7 @@ export function openPlayer(match: APIMatch): void {
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
   if (iframe) {
     clearEmbedLoadTimer();
+    clearEmbedFailoverTimer();
     clearEmbed(iframe); // also nulls onload, so the about:blank load is not mistaken for the embed
     iframe.classList.add('hidden');
   }

@@ -19,80 +19,76 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-  <!-- Animated Background -->
-  <div class="bg-orbs">
-    <div class="orb orb-1"></div>
-    <div class="orb orb-2"></div>
-    <div class="orb orb-3"></div>
-  </div>
+<body class="app-shell">
+  <div class="orb-field" aria-hidden="true"></div>
 
-  <!-- Header / Nav -->
-  <header id="main-header">
+  <!-- Header -->
+  <header id="main-header" class="area-header glass">
     <div class="header-inner">
-      <a href="#" class="logo" id="logo-btn" data-action="showHome" aria-label="Home">
+      <a href="#" class="logo" id="logo-btn" data-action="showHome" aria-label="StreamZone home">
         <div class="logo-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="2"></circle>
+            <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path>
           </svg>
         </div>
-        <span>StreamZone</span>
+        <span class="logo-text">Stream<span class="text-gradient">Zone</span></span>
       </a>
 
-      <nav class="main-nav" id="main-nav">
-        <a href="#" class="nav-link active" id="nav-live" data-action="filterCategory" data-value="live">
-          <span class="live-dot"></span>Live
-        </a>
-        <a href="#" class="nav-link" id="nav-all" data-action="filterCategory" data-value="all">All Matches</a>
-        <a href="#" class="nav-link" id="nav-today" data-action="filterCategory" data-value="today">Today</a>
-        <a href="#" class="nav-link" id="nav-popular" data-action="filterCategory" data-value="popular">🔥 Popular</a>
-        <a href="#" class="nav-link" id="nav-multiview" data-action="showMultiview">📺 Multi View</a>
+      <nav class="header-nav" aria-label="Main">
+        <a href="#" class="header-nav-link" data-action="showMultiview">Multi View</a>
       </nav>
 
-      <div class="header-actions">
-        <div class="search-wrap">
-          <input type="text" id="search-input" class="search-input" aria-label="Search matches" placeholder="Search matches… (Press /)">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-        </div>
-        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle mobile menu" data-action="toggleMobileMenu">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
-          </svg>
-        </button>
-      </div>
+      <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle mobile menu" data-action="toggleMobileMenu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
     </div>
-    <!-- Mobile Nav -->
     <div class="mobile-nav" id="mobile-nav">
-      <a href="#" data-action="filterCategory" data-value="live">🔴 Live</a>
+      <a href="#" data-action="filterCategory" data-value="live">Live</a>
       <a href="#" data-action="filterCategory" data-value="all">All Matches</a>
       <a href="#" data-action="filterCategory" data-value="today">Today</a>
-      <a href="#" data-action="filterCategory" data-value="popular">🔥 Popular</a>
-      <a href="#" data-action="showMultiview">📺 Multi View</a>
+      <a href="#" data-action="filterCategory" data-value="popular">Popular</a>
+      <a href="#" data-action="showMultiview">Multi View</a>
     </div>
   </header>
 
-  <!-- Sports Filter Bar -->
-  <div class="sports-bar-wrap" id="sports-bar-wrap">
-    <div class="sports-bar" id="sports-bar">
-      <button class="sport-chip active" data-action="filterSport" data-value="all">All Sports</button>
-      <!-- Sports chips will be injected here -->
+  <!-- Category + sports filters -->
+  <div class="sports-bar-wrap area-sports-bar glass" id="sports-bar-wrap">
+    <div class="sports-bar-inner">
+      <nav class="category-nav scroll-x" id="category-nav" aria-label="Categories">
+        <button type="button" class="category-chip active" id="nav-live" data-action="filterCategory" data-value="live">Live</button>
+        <button type="button" class="category-chip" id="nav-all" data-action="filterCategory" data-value="all">All</button>
+        <button type="button" class="category-chip" id="nav-today" data-action="filterCategory" data-value="today">Today</button>
+        <button type="button" class="category-chip" id="nav-popular" data-action="filterCategory" data-value="popular">Popular</button>
+      </nav>
+      <div class="sports-bar-tools">
+        <div class="sports-bar scroll-x" id="sports-bar">
+          <button class="sport-chip active" data-action="filterSport" data-value="all">All Sports</button>
+        </div>
+        <div class="search-wrap">
+          <input type="search" id="search-input" class="search-input" aria-label="Search matches" placeholder="Search matches… (Press /)">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Main Content -->
-  <main class="main-content" id="main-content">
+  <main class="main-content area-main" id="main-content">
 
-    <!-- Home / Match List View -->
-    <section id="home-view">
+    <section id="home-view" aria-labelledby="section-title">
       <div class="section-header">
-        <h1 id="section-title">Live Matches</h1>
-        <span class="match-count" id="match-count" aria-live="polite">Loading…</span>
+        <h2 id="section-title" class="section-title">Live matches</h2>
+        <p class="match-count" id="match-count" aria-live="polite">Loading…</p>
       </div>
 
       <!-- Loading Skeleton -->
@@ -124,28 +120,24 @@
       </div>
     </section>
 
-    <!-- Player View -->
     <section id="player-view" class="hidden">
-      <button class="back-btn" data-action="showHome" aria-label="Back to Matches">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <button class="back-btn" data-action="showHome" aria-label="Back to matches">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
           <polyline points="15 18 9 12 15 6"></polyline>
         </svg>
-        Back to Matches
+        All matches
       </button>
 
-      <div class="player-layout">
-        <!-- Left: Player -->
-        <div class="player-column">
-          <div class="match-info-bar" id="player-match-info">
-            <div class="match-teams-display" id="player-teams">
-              <!-- filled by JS -->
-            </div>
-            <div class="match-badges">
-              <span class="badge-live" id="player-live-badge">LIVE</span>
-              <span class="badge-sport" id="player-sport-badge"></span>
-            </div>
+      <div class="player-grid">
+        <aside class="player-aside glass" id="player-aside" aria-label="Match details">
+          <div class="match-teams-display" id="player-teams"></div>
+          <div class="match-badges player-aside-badges">
+            <span class="badge-live" id="player-live-badge" aria-live="polite">LIVE</span>
+            <span class="badge-sport" id="player-sport-badge"></span>
           </div>
+        </aside>
 
+        <div class="player-main">
           <div class="player-container" id="player-container">
             <div class="player-poster-bg" id="player-poster-bg" style="display:none"></div>
             <div class="player-placeholder" id="player-placeholder">
@@ -159,7 +151,7 @@
             <!-- Native HLS (experiment): same-origin proxy + hls.js. Iframe is the fallback. -->
             <video id="stream-video" class="hidden" controls playsinline></video>
             <!-- allow/referrerpolicy/src are set together by applyEmbed(); no sandbox by design -->
-            <iframe id="stream-iframe" class="hidden" title="Stream player" allowfullscreen scrolling="no"></iframe>
+            <iframe id="stream-iframe" class="hidden" title="Stream player" scrolling="no"></iframe>
             <div class="player-loading hidden" id="player-loading" aria-live="polite" aria-busy="true">
               <div class="spinner"></div>
               <p id="player-loading-text">Loading stream…</p>
@@ -191,15 +183,12 @@
             </div>
           </div>
         </div>
-
-        <!-- Right: Related Matches -->
-        <div class="related-column">
-          <h3 class="related-title">More Matches</h3>
-          <div class="related-list" id="related-list">
-            <!-- filled by JS -->
-          </div>
-        </div>
       </div>
+
+      <section class="related-section" aria-labelledby="related-title">
+        <h2 id="related-title" class="related-title">More matches</h2>
+        <div class="related-list" id="related-list"></div>
+      </section>
     </section>
 
     <!-- Multi View View -->
@@ -309,7 +298,7 @@
   <!-- Toast notification -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <footer class="site-footer">
+  <footer class="site-footer area-footer">
     <p>StreamZone — Powered by <a href="https://streamed.pk" target="_blank" rel="noopener">Streamed</a> + <a href="https://www.sportsrc.org/" target="_blank" rel="noopener">SportSRC</a>. For entertainment purposes only.</p>
   </footer>
 

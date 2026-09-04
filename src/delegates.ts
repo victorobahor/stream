@@ -87,6 +87,9 @@ export function attachGlobalDelegates(): void {
       const navLink = target.classList.contains('nav-link') ? target : target.closest('.nav-link') as HTMLElement;
       setActiveNav(navLink);
     }
+    if (target.classList.contains('category-chip')) {
+      setActiveNav(target);
+    }
 
     if (action === 'setActiveNav') {
       setActiveNav(target);
@@ -94,7 +97,11 @@ export function attachGlobalDelegates(): void {
     }
 
     if (action === 'filterCategory' && value) {
-      if (target.classList.contains('nav-link') || target.closest('.mobile-nav')) {
+      if (
+        target.classList.contains('nav-link') ||
+        target.classList.contains('category-chip') ||
+        target.closest('.mobile-nav')
+      ) {
         closeMobileMenu();
       }
     }

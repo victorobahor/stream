@@ -303,6 +303,15 @@ export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
  * SportSRC streamapi pages wrap embed.st. Ask the embed proxy for the nested
  * player URL so we can mint native HLS instead of framing the ad shell.
  */
+/**
+ * Iframe fallback URL after native HLS fails. SportSRC streamapi wrappers keep
+ * the original proxied shell instead of jumping to a nested embed.st iframe.
+ */
+export function embedUrlForIframe(originalUrl: string, resolvedForHls: string): string {
+  if (shouldProxyEmbed(originalUrl)) return originalUrl;
+  return resolvedForHls;
+}
+
 export async function resolveEmbedForPlayback(embedUrl: string): Promise<string> {
   const safe = sanitizeUrl(embedUrl);
   if (!safe || safe === 'about:blank') return embedUrl;

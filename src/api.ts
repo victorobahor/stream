@@ -166,6 +166,13 @@ export function isSportsrcSource(source: StreamSource | string): boolean {
   return String(name || '').toLowerCase() === 'sportsrc';
 }
 
+/** Stable probe/cache key for a catalog source stub. */
+export function sourceProbeKey(source: StreamSource): string {
+  return isSportsrcSource(source)
+    ? `sportsrc:${source.id}:${source.category || ''}`
+    : `${source.source}:${source.id}`;
+}
+
 function normalizeTitleKey(title: string): string {
   return String(title || '')
     .toLowerCase()
@@ -363,9 +370,7 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
   for (const match of matches) {
     for (const source of match.sources || []) {
       if (!source?.source || !source?.id) continue;
-      const key = isSportsrcSource(source)
-        ? `sportsrc:${source.id}:${source.category || ''}`
-        : `${source.source}:${source.id}`;
+      const key = sourceProbeKey(source);
       if (!uniqueSources.has(key)) uniqueSources.set(key, source);
     }
   }
@@ -388,12 +393,17 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
 
   const playable: APIMatch[] = [];
   for (const match of matches) {
+    const hasWorkingStreamed = (match.sources || []).some(
+      s => !isSportsrcSource(s) && workingKeys.has(sourceProbeKey(s)),
+    );
     const sources = rankSources(
       (match.sources || []).filter(s => {
-        const key = isSportsrcSource(s)
-          ? `sportsrc:${s.id}:${s.category || ''}`
-          : `${s.source}:${s.id}`;
-        return workingKeys.has(key);
+        const key = sourceProbeKey(s);
+        if (workingKeys.has(key)) return true;
+        // Keep SportSRC on dual-provider cards so playback can fail over when
+        // Streamed embeds are down even if the SportSRC probe missed (timeout).
+        if (isSportsrcSource(s) && hasWorkingStreamed) return true;
+        return false;
       }),
     );
     if (sources.length === 0) continue;
@@ -524,6 +534,11 @@ const streamsCache = new Map<string, { data: Stream[]; ts: number }>();
 
 export function clearStreamsCache(): void {
   streamsCache.clear();
+}
+
+/** Drop cached stream lists for one source so failover re-fetches live embeds. */
+export function invalidateStreamsCache(source: string, id: string, category?: string): void {
+  streamsCache.delete(`${source}:${id}:${category || ''}`);
 }
 
 export async function loadStreams(

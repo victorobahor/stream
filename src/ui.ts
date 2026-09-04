@@ -51,11 +51,16 @@ export function retryLoad(): void {
 // ── Navigation ──
 
 export function setActiveNav(linkEl: HTMLElement | null): void {
-  // Cleared by query rather than from a cached reference: the mobile nav can be
-  // rebuilt, and a retained node would both miss the live link and leak the
-  // detached one.
-  document.querySelectorAll('.nav-link.active').forEach(l => l.classList.remove('active'));
+  document.querySelectorAll('.nav-link.active, .category-chip.active').forEach(l =>
+    l.classList.remove('active'),
+  );
   if (linkEl) linkEl.classList.add('active');
+}
+
+export function setActiveCategory(cat: string): void {
+  document.querySelectorAll('.category-chip').forEach(chip => {
+    chip.classList.toggle('active', (chip as HTMLElement).dataset.value === cat);
+  });
 }
 
 export function toggleMobileMenu(): void {
