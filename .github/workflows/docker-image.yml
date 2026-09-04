@@ -1,4 +1,4 @@
-name: Docker Image CI
+name: Docker Image CI/CD
 
 on:
   push:
@@ -67,3 +67,21 @@ jobs:
           ${{ secrets.DOCKERHUB_USERNAME }}/streamzone:latest
           ghcr.io/${{ github.repository_owner }}/streamzone:sha-${{ github.sha }}
           ghcr.io/${{ github.repository_owner }}/streamzone:latest
+
+    # 4. Authenticate to Google Cloud
+    - name: Authenticate to Google Cloud
+      if: github.event_name != 'pull_request'
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+    # 5. Deploy to Cloud Run
+    - name: Deploy to Cloud Run
+      if: github.event_name != 'pull_request'
+      uses: google-github-actions/deploy-cloudrun@v2
+      with:
+        service: streamzone
+        region: europe-west1
+        # You can use either the Docker Hub or GHCR image here.
+        # Using GHCR is often faster for GitHub Actions.
+        image: ghcr.io/${{ github.repository_owner }}/streamzone:sha-${{ github.sha }}
