@@ -59,6 +59,33 @@ test.describe('responsive layout', () => {
     expect(result.ok, JSON.stringify(result)).toBe(true);
   });
 
+  test('source count badge stays on one line on narrow and wide cards', async ({ page }) => {
+    for (const width of [390, 1280] as const) {
+      await page.setViewportSize({ width, height: 844 });
+      await gotoHome(page);
+      await waitForHomeReady(page);
+
+      const labels = await page.evaluate(() =>
+        [...document.querySelectorAll('#matches-grid .source-label')].map(el => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const rects = [...range.getClientRects()];
+          return {
+            text: el.textContent?.trim() ?? '',
+            lines: rects.length,
+            height: Math.round(el.getBoundingClientRect().height),
+          };
+        }),
+      );
+
+      expect(labels.length, `width ${width}`).toBeGreaterThan(0);
+      for (const label of labels) {
+        expect(label.lines, JSON.stringify({ width, ...label })).toBe(1);
+        expect(label.height, JSON.stringify({ width, ...label })).toBeLessThan(28);
+      }
+    }
+  });
+
   test('Multi View grid snaps to the remaining desktop window', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoHome(page);
