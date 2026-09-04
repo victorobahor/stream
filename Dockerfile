@@ -18,7 +18,7 @@ RUN npm run build
 # Stage 2: Node + Playwright Chromium for native HLS resolve (/api/hls/*).
 # Alpine cannot run Chromium reliably; without this the client always falls
 # back to the ad-heavy iframe embed (503: playwright not installed).
-FROM mcr.microsoft.com/playwright:v1.49.0-jammy
+FROM mcr.microsoft.com/playwright:v1.62.0-jammy
 
 WORKDIR /app
 

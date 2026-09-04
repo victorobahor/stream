@@ -51,11 +51,24 @@ body.app-shell {
     "main"
     "footer";
   grid-template-rows: auto auto 1fr auto;
+  /* auto columns size to max-content (header/main max-width: 1280px), so the
+     page stays 1280px wide on phones. Lock the track to the viewport. */
+  grid-template-columns: minmax(0, 1fr);
   min-block-size: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   position: relative;
   isolation: isolate;
 }
 
+.area-header,
+.area-sports-bar,
+.area-main,
+.area-footer {
+  min-width: 0;
+  max-width: 100%;
+}
 .area-header { grid-area: header; }
 .area-sports-bar { grid-area: sports-bar; }
 .area-main { grid-area: main; }
@@ -78,13 +91,15 @@ body.app-shell {
 .scroll-x {
   display: flex;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
   padding-block: 2px;
 }
 .scroll-x::-webkit-scrollbar { display: none; }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; overflow-x: hidden; }
 
 body {
   background: var(--bg);
@@ -94,6 +109,7 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   overflow-x: hidden;
+  max-width: 100%;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -152,6 +168,7 @@ img { display: block; max-width: 100%; }
 }
 .header-inner {
   max-width: 1280px;
+  width: 100%;
   margin: 0 auto;
   min-height: var(--header-h);
   display: flex;
@@ -271,11 +288,16 @@ img { display: block; max-width: 100%; }
 }
 .sports-bar-inner {
   max-width: 1280px;
+  width: 100%;
   margin: 0 auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.sports-bar-inner > * {
+  min-width: 0;
+  max-width: 100%;
 }
 .category-nav {
   display: flex;
@@ -309,6 +331,7 @@ img { display: block; max-width: 100%; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 .sports-bar {
   display: flex;
@@ -975,6 +998,10 @@ img { display: block; max-width: 100%; }
   .matches-grid { grid-template-columns: 1fr; }
   .main-content { padding: 24px 16px 48px; }
   .sports-bar-inner { padding: 12px 16px; }
+  .sports-bar-tools { flex-direction: column; align-items: stretch; }
+  .search-wrap,
+  .search-input,
+  .search-input:focus { width: 100%; }
   #section-title { font-size: 1.1rem; }
 }
 
@@ -1746,7 +1773,7 @@ img { display: block; max-width: 100%; }
 }
 
 /* Responsive adjustments */
-@media (max-width: 1024px) {
+@media (max-width: 768px) {
   .multiview-workspace {
     flex-direction: column;
   }
@@ -1791,11 +1818,20 @@ img { display: block; max-width: 100%; }
    Full-Screen Viewport Scaling overrides for Multi View
    ===================================================== */
 
-body.multiview-active {
-  overflow: hidden;
+body.player-active .sports-bar-wrap {
+  display: none !important;
 }
 
-body.multiview-active .sports-bar-wrap {
+body.multiview-active {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  grid-template-areas: "header" "main";
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+body.multiview-active .sports-bar-wrap,
+body.multiview-active .site-footer {
   display: none !important;
 }
 
@@ -1810,24 +1846,28 @@ body.multiview-active .multiview-sidebar.collapsed {
 body.multiview-active .main-content {
   max-width: none;
   width: 100%;
-  min-height: calc(100dvh - var(--header-h));
-  padding: 16px;
+  min-height: 0;
+  height: auto;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
   margin: 0;
+  overflow: hidden;
 }
 
 body.multiview-active #multiview-view {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: auto;
   gap: 12px;
 }
 
 body.multiview-active .multiview-workspace {
-  flex: 1;
-  height: calc(100% - 64px); /* Subtract toolbar height */
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   display: flex;
   gap: 16px;
   overflow: hidden;
@@ -1835,8 +1875,10 @@ body.multiview-active .multiview-workspace {
 }
 
 body.multiview-active .multiview-grid-container {
-  flex: 1;
-  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
   display: grid;
   gap: 12px;
 }
@@ -1844,13 +1886,17 @@ body.multiview-active .multiview-grid-container {
 /* Let grid layout control the height of slots */
 body.multiview-active .mv-slot {
   aspect-ratio: auto;
-  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
   width: 100%;
 }
 
 body.multiview-active .multiview-sidebar {
-  height: 100%;
+  height: auto;
   max-height: none;
+  min-height: 0;
+  align-self: stretch;
   position: static;
   width: 300px;
   overflow-y: hidden;
@@ -1882,22 +1928,29 @@ body.multiview-active .multiview-grid-container.layout-2x2 {
   grid-template-rows: 1fr 1fr;
 }
 
-/* Tablet & Mobile responsive fallback to standard scroll */
-@media (max-width: 1024px) {
+/* Phone: stacked 16:9 slots. Tablets keep the viewport-filling grid. */
+@media (max-width: 768px) {
   body.multiview-active {
+    height: auto;
+    max-height: none;
     overflow: auto;
+    grid-template-rows: auto minmax(0, auto);
   }
   body.multiview-active .main-content {
     height: auto;
-    padding: calc(var(--header-h) + 24px) 16px 60px;
+    min-height: 0;
+    overflow: visible;
+    padding: 12px 16px 48px;
   }
   body.multiview-active .multiview-workspace {
     height: auto;
+    min-height: 0;
     flex-direction: column;
     overflow: visible;
   }
   body.multiview-active .multiview-grid-container {
     height: auto;
+    min-height: 0;
   }
   body.multiview-active .mv-slot {
     aspect-ratio: 16/9;
