@@ -326,6 +326,12 @@ export function allowsInPageEvaluate(url) {
   }
 }
 
+/**
+ * credentials: 'include' CORS-fails strmd playlists on Cloud Run
+ * (`page.evaluate: TypeError: Failed to fetch`). The old mint path used omit.
+ */
+export const HLS_IN_PAGE_FETCH_CREDENTIALS = 'omit';
+
 /** Streamed variant playlists are …/high|low/mono.m3u8 — WASM often only fetches one. */
 export function alternateHlsVariantUrl(url) {
   const s = String(url || '');
@@ -504,13 +510,15 @@ async function waitForEvaluateSlot() {
 async function cookieHeaderForUrl(session, url) {
   if (session.page) {
     try {
-      return cookieHeaderFromCookies(await session.page.context().cookies(url));
+      const scoped = cookieHeaderFromCookies(await session.page.context().cookies(url));
+      if (scoped) return scoped;
     } catch {
       /* fall through to stored cookies */
     }
   }
   if (Array.isArray(session.cookies) && session.cookies.length) {
-    return cookieHeaderFromCookies(cookiesForUrl(session.cookies, url));
+    const scoped = cookieHeaderFromCookies(cookiesForUrl(session.cookies, url));
+    if (scoped) return scoped;
   }
   return session.cookieHeader || '';
 }
@@ -523,8 +531,9 @@ async function cookieHeaderForUrl(session, url) {
 async function fetchViaEvaluate(page, url) {
   await waitForEvaluateSlot();
   try {
-    const data = await page.evaluate(async u => {
-      const r = await fetch(u, { credentials: 'include' });
+    const credentials = HLS_IN_PAGE_FETCH_CREDENTIALS;
+    const data = await page.evaluate(async ({ u, credentials }) => {
+      const r = await fetch(u, { credentials });
       if (!r.ok) throw new Error(`upstream ${r.status}`);
       const bytes = new Uint8Array(await r.arrayBuffer());
       let s = '';
@@ -536,7 +545,7 @@ async function fetchViaEvaluate(page, url) {
         ct: r.headers.get('content-type') || '',
         b64: btoa(s),
       };
-    }, url);
+    }, { u: url, credentials });
     return {
       ct: data.ct,
       buf: Buffer.from(data.b64, 'base64'),
@@ -680,7 +689,7 @@ async function fetchViaPageNetwork(page, url) {
   const [res] = await Promise.all([
     page.waitForResponse(r => r.url() === url && r.status() === 200, { timeout: 20_000 }),
     page.evaluate(u => {
-      void fetch(u, { credentials: 'include' }).catch(() => {});
+      void fetch(u, { credentials: 'omit' }).catch(() => {});
     }, url),
   ]);
   return {
@@ -705,6 +714,19 @@ async function fetchMedia(session, url) {
   const extraHeaders = mergeUpstreamHeaders(session, cookieHeader);
   /** @type {Error | null} */
   let lastErr = null;
+
+  // m3u8: omit-credential in-page fetch is the path that returned 200 on
+  // Cloud Run before credentials:include CORS-failed. Never evaluate TS.
+  if (session.page && allowsInPageEvaluate(url)) {
+    try {
+      const data = await fetchViaEvaluate(session.page, url);
+      rememberMedia(session, url, data);
+      return data;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      logSafe(`hop evaluate: ${lastErr.message}`);
+    }
+  }
 
   if (session.page) {
     try {
@@ -775,17 +797,6 @@ async function fetchMedia(session, url) {
     if (cached) {
       logSafe('hop cache');
       return cached;
-    }
-  }
-
-  if (session.page && allowsInPageEvaluate(url)) {
-    try {
-      const data = await fetchViaEvaluate(session.page, url);
-      rememberMedia(session, url, data);
-      return data;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      logSafe(`hop evaluate: ${lastErr.message}`);
     }
   }
 
@@ -1274,4 +1285,5 @@ export const __test = {
   alternateHlsVariantUrl,
   isFreshCacheHit,
   nodeUpstreamHeaders,
+  HLS_IN_PAGE_FETCH_CREDENTIALS,
 };

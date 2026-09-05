@@ -19,6 +19,7 @@ const {
   alternateHlsVariantUrl,
   isFreshCacheHit,
   nodeUpstreamHeaders,
+  HLS_IN_PAGE_FETCH_CREDENTIALS,
 } = __test;
 
 describe('hlsNative helpers', () => {
@@ -143,6 +144,7 @@ describe('hlsNative helpers', () => {
     expect(allowsInPageEvaluate('https://lb1.strmd.st/secure/x/1/seg.m4s')).toBe(false);
     expect(allowsInPageEvaluate('https://lb1.strmd.st/secure/x/1/high/mono.m3u8')).toBe(true);
     expect(allowsInPageEvaluate('https://lb1.strmd.st/secure/x/1/playlist.m3u8')).toBe(true);
+    expect(HLS_IN_PAGE_FETCH_CREDENTIALS).toBe('omit');
   });
 
   it('should proxy strmd playlists and segments with Node cookies, not page.evaluate', () => {
