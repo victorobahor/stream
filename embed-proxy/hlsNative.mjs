@@ -5,6 +5,9 @@
  *
  * Scaling knobs (env): HLS_MAX_SESSIONS, HLS_MAX_OPENS, HLS_OPEN_RATE_MAX,
  * HLS_OPEN_WAIT_MS (queue busy opens), HLS_MINT_CACHE_TTL_MS (share mints).
+ * Playwright is used only to mint playlist cookies; playback is Node fetch.
+ * Keep HLS_MAX_OPENS low (default 2) so four-slot multiview cannot spawn
+ * four WASM embed.st pages at once.
  *
  * Requires a local Chrome (`CHROME_PATH` or /usr/bin/google-chrome) and the
  * `playwright` package. Without them, /api/hls/* returns 503 and the client
@@ -19,7 +22,10 @@ const SESSION_TTL_MS = 3 * 60 * 1000;
 const RESOLVE_TIMEOUT_MS = 45_000;
 // Defaults sized for a single beefy host (not a tiny VPS). Override via env.
 const MAX_SESSIONS = Math.max(1, Number(process.env.HLS_MAX_SESSIONS || 24));
-const MAX_OPENS_IN_FLIGHT = Math.max(1, Number(process.env.HLS_MAX_OPENS || 6));
+// One WASM mint is expensive; two concurrent is enough. Four parallel
+// embed.st pages plus page.evaluate of .ts segments crash Chromium and
+// cycle-buffer multiview. Media after mint does not use Playwright.
+const MAX_OPENS_IN_FLIGHT = Math.max(1, Number(process.env.HLS_MAX_OPENS || 2));
 const OPEN_RATE_WINDOW_MS = 60_000;
 const OPEN_RATE_MAX = Math.max(1, Number(process.env.HLS_OPEN_RATE_MAX || 48));
 /** Wait for an open slot instead of immediately 429 when resolves are busy. */
@@ -37,9 +43,14 @@ const ALLOWED_CDN_SUFFIXES = [
   '.tiktokv.eu',
   '.tiktokv.com',
 ];
+/** Exact hosts only — never allow *.workers.dev (open proxy). */
+const ALLOWED_MEDIA_EXACT_HOSTS = new Set([
+  'data.corsservices.workers.dev',
+  'corsservices.workers.dev',
+]);
 
-/** @typedef {{ id: string, embedUrl: string, playlistUrl: string, page: import('playwright').Page, context: import('playwright').BrowserContext, lastAccess: number, closed: boolean }} HlsSession */
-/** @typedef {{ playlistUrl: string, storageState: object, expires: number }} MintCacheEntry */
+/** @typedef {{ id: string, embedUrl: string, playlistUrl: string, page: import('playwright').Page | null, context: import('playwright').BrowserContext | null, cookies: object[], cookieHeader: string, playerHeaders: Record<string, string>, playlistBuf: Buffer | null, bodyCache: Map<string, { buf: Buffer, ct: string }>, lastAccess: number, closed: boolean }} HlsSession */
+/** @typedef {{ playlistUrl: string, storageState: object, expires: number, playerHeaders?: Record<string, string>, playlistBuf?: Buffer | null }} MintCacheEntry */
 
 /** @type {import('playwright').Browser | null} */
 let browser = null;
@@ -63,6 +74,7 @@ export function isAllowedMediaHost(hostname) {
   const host = String(hostname || '').toLowerCase();
   if (!host) return false;
   if (host === 'strmd.st' || host.endsWith('.strmd.st')) return true;
+  if (ALLOWED_MEDIA_EXACT_HOSTS.has(host)) return true;
   return ALLOWED_CDN_SUFFIXES.some(suffix => host.endsWith(suffix) || host === suffix.slice(1));
 }
 
@@ -214,6 +226,120 @@ export function isAllowedEmbedUrl(raw) {
   }
 }
 
+export function cookieHeaderFromCookies(cookies) {
+  if (!Array.isArray(cookies) || cookies.length === 0) return '';
+  return cookies
+    .filter(c => c && typeof c.name === 'string' && c.name.length > 0)
+    .map(c => `${c.name}=${c.value ?? ''}`)
+    .join('; ');
+}
+
+export function cookieHeaderFromStorageState(storageState) {
+  return cookieHeaderFromCookies(storageState?.cookies);
+}
+
+export function cookiesForUrl(cookies, url) {
+  if (!Array.isArray(cookies)) return [];
+  let parsed;
+  try {
+    parsed = new URL(String(url || ''));
+  } catch {
+    return [];
+  }
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname || '/';
+  return cookies.filter(c => {
+    if (!c || typeof c.name !== 'string' || !c.name) return false;
+    let domain = String(c.domain || '').toLowerCase();
+    if (domain.startsWith('.')) domain = domain.slice(1);
+    if (domain && host !== domain && !host.endsWith(`.${domain}`)) return false;
+    const cpath = c.path || '/';
+    if (cpath !== '/' && !path.startsWith(cpath)) return false;
+    if (c.secure && parsed.protocol !== 'https:') return false;
+    return true;
+  });
+}
+
+/** After mint, playlists and segments go through Node — never page.evaluate. */
+export function mediaTransportFor(_url) {
+  return 'node';
+}
+
+export function canServeMediaWithoutPage(session) {
+  if (!session) return false;
+  if (session.page) return true;
+  return Boolean(session.cookieHeader || session.playlistBuf);
+}
+
+const PLAYER_HEADER_MAP = [
+  ['user-agent', 'User-Agent'],
+  ['referer', 'Referer'],
+  ['origin', 'Origin'],
+  ['accept', 'Accept'],
+  ['accept-language', 'Accept-Language'],
+];
+
+function headerLookup(headers, name) {
+  if (!headers || typeof headers !== 'object') return undefined;
+  if (headers[name] != null) return headers[name];
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lower) return value;
+  }
+  return undefined;
+}
+
+function headerToString(value) {
+  if (value == null) return '';
+  return Array.isArray(value) ? String(value[0] ?? '') : String(value);
+}
+
+/** Copy the WASM player's working request headers; drop anything else. */
+export function upstreamHeadersFromPlayerRequest(headers, cookieHeader) {
+  const out = {
+    'User-Agent': UA,
+    Referer: 'https://embed.st/',
+    Origin: 'https://embed.st',
+    Accept: '*/*',
+  };
+  for (const [from, dest] of PLAYER_HEADER_MAP) {
+    const raw = headerLookup(headers, from);
+    const value = headerToString(raw);
+    if (value) out[dest] = value;
+  }
+  if (cookieHeader) {
+    out.Cookie = cookieHeader;
+  } else {
+    const fromReq = headerToString(headerLookup(headers, 'cookie'));
+    if (fromReq) out.Cookie = fromReq;
+  }
+  return out;
+}
+
+/** page.evaluate of .ts/.m4s is what crashed Chromium under 4-slot multiview. */
+export function allowsInPageEvaluate(url) {
+  try {
+    const path = new URL(String(url || '')).pathname.toLowerCase();
+    return path.includes('.m3u8');
+  } catch {
+    return false;
+  }
+}
+
+/** Streamed variant playlists are …/high|low/mono.m3u8 — WASM often only fetches one. */
+export function alternateHlsVariantUrl(url) {
+  const s = String(url || '');
+  if (s.includes('/high/')) return s.replace('/high/', '/low/');
+  if (s.includes('/low/')) return s.replace('/low/', '/high/');
+  return null;
+}
+
+export function isFreshCacheHit(hit, maxAgeMs = 3_000, now = Date.now()) {
+  if (!hit?.buf?.length) return false;
+  if (hit.at == null) return false;
+  return now - hit.at < maxAgeMs;
+}
+
 function touch(session) {
   session.lastAccess = Date.now();
 }
@@ -258,6 +384,9 @@ async function getBrowser() {
         '--disable-popup-blocking',
         '--no-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--mute-audio',
+        '--disable-background-networking',
       ],
     });
     browser.on('disconnected', () => {
@@ -287,11 +416,115 @@ export async function openHlsSessionForRequest(embedUrlRaw, req = null) {
   }
 }
 
-async function fetchViaPage(page, url) {
-  // Prefer in-page fetch first (matches the WASM player’s network path).
+function embedRefererFrom(page, embedUrl) {
+  try {
+    const u = page?.url?.();
+    if (u && u.includes('embed.st')) return u;
+  } catch {
+    /* ignore */
+  }
+  if (embedUrl && String(embedUrl).includes('embed.st')) return String(embedUrl);
+  return 'https://embed.st/';
+}
+
+function mergeUpstreamHeaders(session, cookieHeader) {
+  const referer = embedRefererFrom(session?.page, session?.embedUrl);
+  return upstreamHeadersFromPlayerRequest(
+    session?.playerHeaders && Object.keys(session.playerHeaders).length
+      ? session.playerHeaders
+      : { referer, origin: 'https://embed.st' },
+    cookieHeader,
+  );
+}
+
+/**
+ * Node fetch with mint cookies. This is the playback hot path — Chromium
+ * page.evaluate of MPEG-TS (string + btoa + CDP) is what melts 4-slot
+ * multiview and closes the shared Playwright browser.
+ */
+async function fetchUpstream(url, cookieHeader, referer = 'https://embed.st/', extraHeaders = null) {
+  const headers = extraHeaders
+    ? { ...extraHeaders, ...(cookieHeader ? { Cookie: cookieHeader } : {}) }
+    : {
+        'User-Agent': UA,
+        Referer: referer,
+        Origin: 'https://embed.st',
+        Accept: '*/*',
+        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      };
+  const response = await fetch(url, {
+    headers,
+    redirect: 'manual',
+  });
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(`upstream redirect ${response.status}`);
+  }
+  if (!response.ok) {
+    throw new Error(`upstream ${response.status}`);
+  }
+  const buf = Buffer.from(await response.arrayBuffer());
+  return {
+    ct: response.headers.get('content-type') || '',
+    buf,
+  };
+}
+
+async function fetchViaPlaywrightRequest(page, url, extraHeaders = null) {
+  const resp = await page.request.get(url, {
+    headers: extraHeaders || {
+      Referer: embedRefererFrom(page),
+      Origin: 'https://embed.st',
+      Accept: '*/*',
+    },
+    timeout: 30_000,
+    maxRedirects: 0,
+  });
+  if (!resp.ok()) throw new Error(`upstream ${resp.status()}`);
+  const buf = Buffer.from(await resp.body());
+  return {
+    ct: resp.headers()['content-type'] || '',
+    buf,
+  };
+}
+
+let evaluateInFlight = 0;
+const MAX_EVALUATE_IN_FLIGHT = 2;
+
+async function waitForEvaluateSlot() {
+  const deadline = Date.now() + 30_000;
+  while (evaluateInFlight >= MAX_EVALUATE_IN_FLIGHT) {
+    if (Date.now() >= deadline) {
+      throw new Error('Playwright evaluate busy');
+    }
+    await new Promise(r => setTimeout(r, 50));
+  }
+  evaluateInFlight++;
+}
+
+async function cookieHeaderForUrl(session, url) {
+  if (session.page) {
+    try {
+      return cookieHeaderFromCookies(await session.page.context().cookies(url));
+    } catch {
+      /* fall through to stored cookies */
+    }
+  }
+  if (Array.isArray(session.cookies) && session.cookies.length) {
+    return cookieHeaderFromCookies(cookiesForUrl(session.cookies, url));
+  }
+  return session.cookieHeader || '';
+}
+
+/**
+ * In-page fetch matches the WASM player. Used only when Node / page.request
+ * 403. Never run more than two large evaluates at once — that is what
+ * closed Chromium under 4-slot multiview.
+ */
+async function fetchViaEvaluate(page, url) {
+  await waitForEvaluateSlot();
   try {
     const data = await page.evaluate(async u => {
-      const r = await fetch(u, { credentials: 'omit' });
+      const r = await fetch(u, { credentials: 'include' });
       if (!r.ok) throw new Error(`upstream ${r.status}`);
       const bytes = new Uint8Array(await r.arrayBuffer());
       let s = '';
@@ -304,46 +537,259 @@ async function fetchViaPage(page, url) {
         b64: btoa(s),
       };
     }, url);
-    const buf = Buffer.from(data.b64, 'base64');
-    const isPlaylist = url.includes('.m3u8') || (data.ct || '').includes('mpegurl');
-    if (isPlaylist || isLikelyMediaSegment(buf)) return data;
-    // Fall through — high/*.ts sometimes 200s a tiny "Not found".
+    return {
+      ct: data.ct,
+      buf: Buffer.from(data.b64, 'base64'),
+    };
+  } finally {
+    evaluateInFlight--;
+  }
+}
+
+function takeCachedMedia(session, url) {
+  const hit = session?.bodyCache?.get(url);
+  if (!hit?.buf?.length) return null;
+  return { ct: hit.ct || '', buf: hit.buf };
+}
+
+function playlistFromCache(session, url, { allowStale = true } = {}) {
+  const pick = u => {
+    if (!u) return null;
+    const hit = session?.bodyCache?.get(u);
+    if (!hit?.buf?.length) return null;
+    if (!allowStale && !isFreshCacheHit(hit)) return null;
+    return { ct: hit.ct || '', buf: hit.buf };
+  };
+  return pick(url) || pick(alternateHlsVariantUrl(url));
+}
+
+function rememberMedia(session, url, data) {
+  if (!session || !url || !data?.buf?.length) return;
+  if (!session.bodyCache) session.bodyCache = new Map();
+  session.bodyCache.set(url, { buf: data.buf, ct: data.ct || '', at: Date.now() });
+}
+
+async function capturePlaylistFromResponse(res) {
+  let requestHeaders = {};
+  try {
+    requestHeaders = res.request().headers();
   } catch {
-    /* try Node fetch with mint cookies below */
+    /* ignore */
+  }
+  let body = null;
+  try {
+    body = Buffer.from(await res.body());
+  } catch {
+    /* body may already be consumed */
+  }
+  return { url: res.url(), body, requestHeaders };
+}
+
+function attachPageBodyCache(session) {
+  const page = session?.page;
+  if (!page || session._cacheListener) return;
+  if (!session.bodyCache) session.bodyCache = new Map();
+  const onResponse = res => {
+    if (session.closed || res.status() !== 200) return;
+    const u = res.url();
+    let host;
+    let path;
+    try {
+      const parsed = new URL(u);
+      host = parsed.hostname;
+      path = parsed.pathname.toLowerCase();
+    } catch {
+      return;
+    }
+    if (!isAllowedMediaHost(host)) return;
+    if (!path.includes('.m3u8') && !path.endsWith('.ts') && !path.endsWith('.m4s') && !path.endsWith('.mp4')) {
+      return;
+    }
+    void res
+      .body()
+      .then(buf => {
+        if (session.closed) return;
+        rememberMedia(session, u, { buf: Buffer.from(buf), ct: res.headers()['content-type'] || '' });
+      })
+      .catch(() => {});
+  };
+  page.on('response', onResponse);
+  session._cacheListener = onResponse;
+}
+
+async function quietMintPage(page) {
+  if (!page) return;
+  await page
+    .evaluate(() => {
+      document.querySelectorAll('video, audio').forEach(el => {
+        try {
+          el.muted = true;
+          void el.play();
+        } catch {
+          /* ignore */
+        }
+      });
+    })
+    .catch(() => {});
+}
+
+/** Use Chromium's network stack without serializing TS through page.evaluate. */
+async function fetchViaCdp(page, url) {
+  const client = await page.context().newCDPSession(page);
+  try {
+    await client.send('Network.enable').catch(() => {});
+    const { frameTree } = await client.send('Page.getFrameTree');
+    const frameId = frameTree?.frame?.id;
+    if (!frameId) throw new Error('cdp missing frame');
+    const { resource } = await client.send('Network.loadNetworkResource', {
+      frameId,
+      url,
+      options: { disableCache: false, includeCredentials: true },
+    });
+    if (!resource?.success) {
+      throw new Error(`cdp ${resource?.httpStatusCode || 'fail'}`);
+    }
+    let buf;
+    if (resource.stream) {
+      const chunks = [];
+      for (;;) {
+        const chunk = await client.send('IO.read', { handle: resource.stream, size: 262144 });
+        if (chunk.data) {
+          chunks.push(Buffer.from(chunk.data, chunk.base64Encoded ? 'base64' : 'utf8'));
+        }
+        if (chunk.eof) break;
+      }
+      await client.send('IO.close', { handle: resource.stream }).catch(() => {});
+      buf = Buffer.concat(chunks);
+    } else {
+      throw new Error('cdp empty body');
+    }
+    const headers = resource.headers || {};
+    const ct = headers['content-type'] || headers['Content-Type'] || '';
+    return { ct, buf };
+  } finally {
+    await client.detach().catch(() => {});
+  }
+}
+
+/**
+ * Kick an in-page fetch (no body returned through CDP) and read the
+ * browser's network response. Avoids the TS string/btoa crash.
+ */
+async function fetchViaPageNetwork(page, url) {
+  const [res] = await Promise.all([
+    page.waitForResponse(r => r.url() === url && r.status() === 200, { timeout: 20_000 }),
+    page.evaluate(u => {
+      void fetch(u, { credentials: 'include' }).catch(() => {});
+    }, url),
+  ]);
+  return {
+    ct: res.headers()['content-type'] || '',
+    buf: Buffer.from(await res.body()),
+  };
+}
+
+async function fetchMedia(session, url) {
+  const isPlaylist = String(url).toLowerCase().includes('.m3u8');
+  if (!isPlaylist) {
+    const cached = takeCachedMedia(session, url);
+    if (cached) {
+      session.bodyCache?.delete(url);
+      logSafe('hop cache');
+      return cached;
+    }
   }
 
-  const embedReferer = (() => {
+  const referer = embedRefererFrom(session.page, session.embedUrl);
+  const cookieHeader = await cookieHeaderForUrl(session, url);
+  const extraHeaders = mergeUpstreamHeaders(session, cookieHeader);
+  /** @type {Error | null} */
+  let lastErr = null;
+
+  if (session.page) {
     try {
-      const u = page.url();
-      if (u && u.includes('embed.st')) return u;
-    } catch {
-      /* ignore */
+      const data = await fetchViaPlaywrightRequest(session.page, url, extraHeaders);
+      rememberMedia(session, url, data);
+      return data;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      logSafe(`hop page.request: ${lastErr.message}`);
     }
-    return 'https://embed.st/';
-  })();
-  const cookies = await page.context().cookies(url);
-  const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': UA,
-      Referer: embedReferer,
-      Origin: 'https://embed.st',
-      Accept: '*/*',
-      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-    },
-    redirect: 'manual',
-  });
-  if (response.status >= 300 && response.status < 400) {
-    throw new Error(`upstream redirect ${response.status}`);
   }
-  if (!response.ok) {
-    throw new Error(`upstream ${response.status}`);
+
+  try {
+    const data = await fetchUpstream(url, cookieHeader, referer, extraHeaders);
+    rememberMedia(session, url, data);
+    return data;
+  } catch (err) {
+    lastErr = err instanceof Error ? err : new Error(String(err));
+    logSafe(`hop node: ${lastErr.message}`);
   }
-  const buf = Buffer.from(await response.arrayBuffer());
-  return {
-    ct: response.headers.get('content-type') || '',
-    b64: buf.toString('base64'),
-  };
+
+  if (isPlaylist) {
+    const fresh = playlistFromCache(session, url, { allowStale: false });
+    if (fresh) {
+      logSafe('hop cache');
+      return fresh;
+    }
+    if (session.page) {
+      const deadline = Date.now() + 4_000;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 250));
+        const waited = playlistFromCache(session, url, { allowStale: false });
+        if (waited) {
+          logSafe('hop cache-wait');
+          return waited;
+        }
+      }
+    }
+    const stale = playlistFromCache(session, url, { allowStale: true });
+    if (stale) {
+      logSafe('hop cache-stale');
+      return stale;
+    }
+  }
+
+  if (session.page) {
+    try {
+      const data = await fetchViaCdp(session.page, url);
+      rememberMedia(session, url, data);
+      return data;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      logSafe(`hop cdp: ${lastErr.message}`);
+    }
+
+    try {
+      const data = await fetchViaPageNetwork(session.page, url);
+      rememberMedia(session, url, data);
+      return data;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      logSafe(`hop page.network: ${lastErr.message}`);
+    }
+  }
+
+  if (isPlaylist) {
+    const cached = playlistFromCache(session, url);
+    if (cached) {
+      logSafe('hop cache');
+      return cached;
+    }
+  }
+
+  if (session.page && allowsInPageEvaluate(url)) {
+    try {
+      const data = await fetchViaEvaluate(session.page, url);
+      rememberMedia(session, url, data);
+      return data;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      logSafe(`hop evaluate: ${lastErr.message}`);
+    }
+  }
+
+  throw lastErr || new Error('HLS media fetch failed');
 }
 
 async function tryClickPlay(page) {
@@ -367,41 +813,57 @@ async function tryClickPlay(page) {
 }
 
 async function resolvePlaylist(page, embedUrl) {
+  /** @type {{ url: string, body: Buffer | null, requestHeaders: Record<string, string> } | null} */
   let playlist = null;
-  const onResponse = res => {
-    if (playlist) return;
-    const u = res.url();
-    if (isCandidatePlaylistUrl(u, res.status())) {
-      playlist = u;
-    }
+  /** @type {Promise<{ url: string, body: Buffer | null, requestHeaders: Record<string, string> }> | null} */
+  let pending = null;
+
+  const beginCapture = res => {
+    if (playlist || pending) return;
+    if (!isCandidatePlaylistUrl(res.url(), res.status())) return;
+    pending = capturePlaylistFromResponse(res).then(cap => {
+      playlist = cap;
+      return cap;
+    });
   };
-  page.on('response', onResponse);
+
+  page.on('response', beginCapture);
 
   try {
     await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await page.waitForTimeout(800);
 
     const deadline = Date.now() + RESOLVE_TIMEOUT_MS;
     let clicks = 0;
-    while (!playlist && Date.now() < deadline) {
+    while (!playlist && !pending && Date.now() < deadline) {
       if (clicks < 4) {
         await tryClickPlay(page);
         clicks++;
       }
-      await page.waitForTimeout(400);
+      try {
+        const res = await page.waitForResponse(
+          r => isCandidatePlaylistUrl(r.url(), r.status()),
+          { timeout: 2_000 },
+        );
+        beginCapture(res);
+      } catch {
+        /* click / wait again until deadline */
+      }
     }
-    if (!playlist) {
+    if (pending && !playlist) {
+      await pending.catch(() => null);
+    }
+    if (!playlist?.url) {
       throw httpError('Timed out waiting for playlist.m3u8', 503);
     }
     return playlist;
   } finally {
-    page.off('response', onResponse);
+    page.off('response', beginCapture);
   }
 }
 
 async function newStealthContext(browserInstance, storageState) {
   const opts = {
-    viewport: { width: 1100, height: 700 },
+    viewport: { width: 640, height: 360 },
     userAgent: UA,
     // Default on: embed.st often serves an expired cert; set HLS_IGNORE_TLS=0 to enforce.
     ignoreHTTPSErrors: process.env.HLS_IGNORE_TLS !== '0',
@@ -414,18 +876,36 @@ async function newStealthContext(browserInstance, storageState) {
   return context;
 }
 
-function registerSession(embedKey, playlistUrl, page, context) {
+function registerSession(embedKey, playlistUrl, page, context, cookieHeader, cookies, extra = {}) {
   const id = randomBytes(12).toString('hex');
+  const cookieList = Array.isArray(cookies) ? cookies : [];
   /** @type {HlsSession} */
   const session = {
     id,
     embedUrl: embedKey,
     playlistUrl,
-    page,
-    context,
+    page: page || null,
+    context: context || null,
+    cookies: cookieList,
+    cookieHeader: cookieHeader || cookieHeaderFromCookies(cookieList),
+    playerHeaders: extra.playerHeaders || {},
+    playlistBuf: extra.playlistBuf || null,
+    bodyCache: extra.bodyCache || new Map(),
     lastAccess: Date.now(),
     closed: false,
   };
+  if (session.playlistBuf) {
+    rememberMedia(session, playlistUrl, {
+      buf: session.playlistBuf,
+      ct: 'application/vnd.apple.mpegurl',
+    });
+  }
+  if (extra.cacheOwner) {
+    session._cacheOwner = extra.cacheOwner;
+    session._cacheListener = extra.cacheOwner._cacheListener;
+  } else if (session.page) {
+    attachPageBodyCache(session);
+  }
   sessions.set(id, session);
   return {
     sessionId: id,
@@ -433,17 +913,36 @@ function registerSession(embedKey, playlistUrl, page, context) {
   };
 }
 
-/** Fast path: clone cookies from a recent mint and skip Chromium click-to-play. */
+/** Fast path: reuse mint cookies. Node fetch when the CDN allows it; otherwise
+ *  clone the mint into a live page without another click-to-play. */
 async function openFromMintCache(browserInstance, embedKey, mint) {
-  const context = await newStealthContext(browserInstance, mint.storageState);
-  const page = await context.newPage();
+  const cookies = mint.storageState?.cookies || [];
+  const cookieHeader = cookieHeaderFromCookies(cookies);
+  const extra = {
+    playerHeaders: mint.playerHeaders || {},
+    playlistBuf: mint.playlistBuf || null,
+  };
+  const cookieForPlaylist = cookieHeaderFromCookies(cookiesForUrl(cookies, mint.playlistUrl));
+  const headers = upstreamHeadersFromPlayerRequest(
+    extra.playerHeaders && Object.keys(extra.playerHeaders).length
+      ? extra.playerHeaders
+      : { referer: embedKey, origin: 'https://embed.st' },
+    cookieForPlaylist,
+  );
   try {
-    await fetchViaPage(page, mint.playlistUrl);
-    return registerSession(embedKey, mint.playlistUrl, page, context);
-  } catch (err) {
-    await context.close().catch(() => {});
-    mintCache.delete(embedKey);
-    throw err;
+    await fetchUpstream(mint.playlistUrl, cookieForPlaylist, embedKey, headers);
+    return registerSession(embedKey, mint.playlistUrl, null, null, cookieHeader, cookies, extra);
+  } catch {
+    const context = await newStealthContext(browserInstance, mint.storageState);
+    const page = await context.newPage();
+    try {
+      await page.goto(embedKey, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => {});
+      await quietMintPage(page);
+      return registerSession(embedKey, mint.playlistUrl, page, context, cookieHeader, cookies, extra);
+    } catch (err) {
+      await context.close().catch(() => {});
+      throw err;
+    }
   }
 }
 
@@ -475,6 +974,8 @@ export async function openHlsSession(embedUrlRaw) {
 
   const context = await newStealthContext(b, null);
   const page = await context.newPage();
+  const cacheOwner = { page, bodyCache: new Map(), closed: false };
+  attachPageBodyCache(cacheOwner);
 
   /** @type {{ resolve: (v: MintCacheEntry | null) => void } | null} */
   let settle = null;
@@ -487,20 +988,51 @@ export async function openHlsSession(embedUrlRaw) {
   }
 
   try {
-    const playlistUrl = await resolvePlaylist(page, embedKey);
+    const captured = await resolvePlaylist(page, embedKey);
+    const hasVariant = () =>
+      [...cacheOwner.bodyCache.keys()].some(k => String(k).includes('mono.m3u8'));
+    if (!hasVariant()) {
+      await page
+        .waitForResponse(r => {
+          try {
+            return r.status() === 200 && new URL(r.url()).pathname.toLowerCase().includes('mono.m3u8');
+          } catch {
+            return false;
+          }
+        }, { timeout: 8_000 })
+        .catch(() => {});
+    }
+    const playlistUrl = captured.url;
+    const playerHeaders = captured.requestHeaders || {};
+    const playlistBuf = captured.body;
     const storageState = await context.storageState();
+    const cookies = storageState?.cookies || [];
+    const cookieHeader = cookieHeaderFromCookies(cookies);
     /** @type {MintCacheEntry} */
     const entry = {
       playlistUrl,
       storageState,
       expires: Date.now() + MINT_CACHE_TTL_MS,
+      playerHeaders,
+      playlistBuf,
     };
     if (MINT_CACHE_TTL_MS > 0) {
       mintCache.set(embedKey, entry);
     }
     failCache.delete(embedKey);
     settle?.resolve(entry);
-    return registerSession(embedKey, playlistUrl, page, context);
+    const extra = { playerHeaders, playlistBuf, bodyCache: cacheOwner.bodyCache, cacheOwner };
+    const cookieForPlaylist = cookieHeaderFromCookies(cookiesForUrl(cookies, playlistUrl));
+    const headers = upstreamHeadersFromPlayerRequest(playerHeaders, cookieForPlaylist);
+    try {
+      await fetchUpstream(playlistUrl, cookieForPlaylist, embedKey, headers);
+      cacheOwner.closed = true;
+      await context.close().catch(() => {});
+      return registerSession(embedKey, playlistUrl, null, null, cookieHeader, cookies, extra);
+    } catch {
+      await quietMintPage(page);
+      return registerSession(embedKey, playlistUrl, page, context, cookieHeader, cookies, extra);
+    }
   } catch (err) {
     settle?.resolve(null);
     markResolveFailed(embedKey);
@@ -520,8 +1052,11 @@ export async function closeSession(id) {
   const session = sessions.get(id);
   if (!session || session.closed) return;
   session.closed = true;
+  if (session._cacheOwner) session._cacheOwner.closed = true;
   sessions.delete(id);
-  await session.context.close().catch(() => {});
+  if (session.context) {
+    await session.context.close().catch(() => {});
+  }
 }
 
 /**
@@ -537,12 +1072,23 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
   const proxyPrefix = `/api/hls/${sessionId}/p`;
 
   if (pathname.endsWith('/master.m3u8')) {
-    const data = await fetchViaPage(session.page, session.playlistUrl);
-    const text = rewriteM3uForProxy(
-      Buffer.from(data.b64, 'base64').toString('utf8'),
-      session.playlistUrl,
-      proxyPrefix,
-    );
+    let buf = null;
+    try {
+      buf = (await fetchMedia(session, session.playlistUrl)).buf;
+    } catch (err) {
+      if (session.playlistBuf?.length) {
+        buf = session.playlistBuf;
+        logSafe('hop mint-playlist');
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          status: 502,
+          type: 'text/plain; charset=utf-8',
+          body: Buffer.from(msg.startsWith('upstream ') ? `CDN ${msg.slice('upstream '.length)}` : msg),
+        };
+      }
+    }
+    const text = rewriteM3uForProxy(buf.toString('utf8'), session.playlistUrl, proxyPrefix);
     return {
       status: 200,
       type: 'application/vnd.apple.mpegurl',
@@ -567,37 +1113,28 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
       return { status: 400, type: 'text/plain; charset=utf-8', body: Buffer.from('Host not allowed') };
     }
 
-    const isStrmd = host === 'strmd.st' || host.endsWith('.strmd.st');
-
     // Use the raw target string for fetches — URL#href can re-encode query tokens.
     const mediaUrl = target;
     let buf;
     let ct = '';
-    if (isStrmd) {
-      const data = await fetchViaPage(session.page, mediaUrl);
-      buf = Buffer.from(data.b64, 'base64');
+    try {
+      const data = await fetchMedia(session, mediaUrl);
+      buf = data.buf;
       ct = data.ct;
-    } else {
-      const r = await fetch(mediaUrl, {
-        headers: { 'User-Agent': UA, Referer: 'https://embed.st/', Accept: '*/*' },
-        redirect: 'manual',
-      });
-      if (r.status >= 300 && r.status < 400) {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('redirect')) {
         return {
           status: 400,
           type: 'text/plain; charset=utf-8',
           body: Buffer.from('Redirects not allowed'),
         };
       }
-      if (!r.ok) {
-        return {
-          status: 502,
-          type: 'text/plain; charset=utf-8',
-          body: Buffer.from(`CDN HTTP ${r.status}`),
-        };
-      }
-      buf = Buffer.from(await r.arrayBuffer());
-      ct = r.headers.get('content-type') || '';
+      return {
+        status: 502,
+        type: 'text/plain; charset=utf-8',
+        body: Buffer.from(msg.startsWith('upstream ') ? `CDN ${msg.slice('upstream '.length)}` : msg),
+      };
     }
 
     if (mediaUrl.includes('.m3u8') || ct.includes('mpegurl')) {
@@ -727,4 +1264,13 @@ export const __test = {
   isAllowedMediaHost,
   isCandidatePlaylistUrl,
   isLikelyMediaSegment,
+  cookieHeaderFromCookies,
+  cookieHeaderFromStorageState,
+  cookiesForUrl,
+  mediaTransportFor,
+  canServeMediaWithoutPage,
+  allowsInPageEvaluate,
+  upstreamHeadersFromPlayerRequest,
+  alternateHlsVariantUrl,
+  isFreshCacheHit,
 };

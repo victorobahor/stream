@@ -141,20 +141,25 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
     return !!live && live.generation === generation && generations.get(key) === generation;
   };
 
+  const compact = key.startsWith('mv-');
+
   try {
-    // Retry transient capacity responses — server may queue, but bursts still 429.
-    let res: Response | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (!isCurrent()) return false;
-      res = await fetch(`/api/hls/open?u=${encodeURIComponent(embedUrl)}`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!isCurrent()) return false;
-      if (res.ok || res.status !== 429 || attempt === 2) break;
-      const delay = 400 * 2 ** attempt + Math.floor(Math.random() * 250);
-      log('warn', 'HLS open busy, retrying', key, res.status, `attempt ${attempt + 1}`);
-      await new Promise(r => setTimeout(r, delay));
-    }
+    // Retry transient capacity / Playwright-crash responses.
+    const res = await withHlsOpenSlot(async (): Promise<Response | null> => {
+      let response: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!isCurrent()) return null;
+        response = await fetch(`/api/hls/open?u=${encodeURIComponent(embedUrl)}`, {
+          headers: { Accept: 'application/json' },
+        });
+        if (!isCurrent()) return null;
+        if (response.ok || !shouldRetryHlsOpen(response.status) || attempt === 2) break;
+        const delay = 400 * 2 ** attempt + Math.floor(Math.random() * 250);
+        log('warn', 'HLS open busy, retrying', key, response.status, `attempt ${attempt + 1}`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      return response;
+    });
     if (!res || !isCurrent()) return false;
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -180,7 +185,7 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
       // Streamed CDN playlists are standard live HLS (often …/high|low/mono.m3u8),
       // not LL-HLS. lowLatencyMode starves the buffer and makes audio crackle;
       // a conservative ABR estimate also strandes us on the low/mono rung.
-      const hls = new Hls(nativeHlsConfig());
+      const hls = new Hls(nativeHlsConfig({ compact }));
       inst.hls = hls;
 
       hls.on(Hls.Events.ERROR, (_e, info) => {
@@ -203,9 +208,11 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
         if (key === MAIN_PLAYER_KEY) {
           video.classList.remove('hidden');
         }
-        video.muted = false;
-        if (typeof video.volume === 'number' && video.volume < 0.2) {
-          video.volume = 1;
+        if (!shouldStartMuted(key)) {
+          video.muted = false;
+          if (typeof video.volume === 'number' && video.volume < 0.2) {
+            video.volume = 1;
+          }
         }
         onReady?.();
         void video.play().catch(() => {
@@ -227,24 +234,62 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
 }
 
 /** Shared hls.js knobs for Streamed live (exported for unit tests). */
-export function nativeHlsConfig(): Record<string, unknown> {
+export type NativeHlsConfigOptions = {
+  /** Multiview: shorter live buffer and a low-rung ABR start so 4 panes stay playable. */
+  compact?: boolean;
+};
+
+export function shouldRetryHlsOpen(status: number): boolean {
+  return status === 429 || status === 503;
+}
+
+/** Multiview starts muted so four panes can autoplay; the slot audio button unmutes one. */
+export function shouldStartMuted(key: string): boolean {
+  return key.startsWith('mv-');
+}
+
+const MAX_CLIENT_HLS_OPENS = 2;
+let clientHlsOpens = 0;
+const clientHlsWaiters: Array<() => void> = [];
+
+/** Four-slot multiview must not mint four Playwright sessions at once. */
+export async function withHlsOpenSlot<T>(work: () => Promise<T>): Promise<T> {
+  while (clientHlsOpens >= MAX_CLIENT_HLS_OPENS) {
+    await new Promise<void>(resolve => {
+      clientHlsWaiters.push(resolve);
+    });
+  }
+  clientHlsOpens += 1;
+  try {
+    return await work();
+  } finally {
+    clientHlsOpens -= 1;
+    clientHlsWaiters.shift()?.();
+  }
+}
+
+export function nativeHlsConfig(opts: NativeHlsConfigOptions = {}): Record<string, unknown> {
+  const compact = !!opts.compact;
   return {
     enableWorker: true,
     lowLatencyMode: false,
-    // ~2 Mbps prior: try above the 700kbps low rung without insisting on
-    // the often-gated 8 Mbps high/*.ts variant through the proxy.
-    abrEwmaDefaultEstimate: 2_000_000,
-    abrEwmaFastLive: 3,
-    abrEwmaSlowLive: 9,
-    abrBandWidthFactor: 0.85,
-    abrBandWidthUpFactor: 0.7,
-    maxBufferLength: 30,
-    maxMaxBufferLength: 60,
+    // ~2 Mbps prior on the main player; compact starts on the ~700kbps low rung
+    // so four panes do not all chase high/*.ts through the proxy.
+    abrEwmaDefaultEstimate: compact ? 700_000 : 2_000_000,
+    abrEwmaFastLive: compact ? 4 : 3,
+    abrEwmaSlowLive: compact ? 12 : 9,
+    abrBandWidthFactor: compact ? 0.7 : 0.85,
+    abrBandWidthUpFactor: compact ? 0.5 : 0.7,
+    maxBufferLength: compact ? 8 : 30,
+    maxMaxBufferLength: compact ? 12 : 60,
+    maxBufferSize: compact ? 8_000_000 : 60_000_000,
+    capLevelToPlayerSize: compact,
     liveSyncDurationCount: 3,
-    liveMaxLatencyDurationCount: 12,
+    liveMaxLatencyDurationCount: compact ? 8 : 12,
     manifestLoadingTimeOut: 20_000,
     levelLoadingTimeOut: 20_000,
-    fragLoadingTimeOut: 30_000,
+    fragLoadingTimeOut: compact ? 20_000 : 30_000,
+    startFragPrefetch: !compact,
   };
 }
 

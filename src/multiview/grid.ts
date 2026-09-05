@@ -309,7 +309,7 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
       // Slot may have been cleared / switched while unwrap ran.
       if (state.multiviewSlots[i]?.stream?.embedUrl !== requestUrl) return;
 
-      const ok = await playNativeHls(hlsUrl, {
+      const playOpts = {
         key: mvPlayerKey(i),
         video,
         onReady: () => {
@@ -317,7 +317,13 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
           overlayEl.remove();
           slotEl.querySelectorAll('.player-gate').forEach(g => g.remove());
         },
-      });
+      };
+      let ok = await playNativeHls(hlsUrl, playOpts);
+      // One retry: a sibling mint can briefly crash Playwright; iframe fallback
+      // is worse for four-pane CPU than a second native open.
+      if (!ok && state.multiviewSlots[i]?.stream?.embedUrl === requestUrl) {
+        ok = await playNativeHls(hlsUrl, playOpts);
+      }
       // Slot may have been cleared / switched while resolve ran.
       if (state.multiviewSlots[i]?.stream?.embedUrl !== requestUrl) return;
       if (ok) return;

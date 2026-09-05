@@ -85,3 +85,9 @@ jobs:
         # You can use either the Docker Hub or GHCR image here.
         # Using GHCR is often faster for GitHub Actions.
         image: ghcr.io/${{ github.repository_owner }}/streamzone:sha-${{ github.sha }}
+        env_vars: |-
+          HLS_MAX_OPENS=2
+          HLS_MAX_SESSIONS=24
+          HLS_OPEN_WAIT_MS=45000
+          HLS_OPEN_RATE_MAX=48
+          HLS_MINT_CACHE_TTL_MS=120000

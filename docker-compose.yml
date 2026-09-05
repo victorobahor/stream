@@ -10,9 +10,9 @@ services:
     # Chromium needs real /dev/shm; default 64MB causes flaky HLS resolves.
     shm_size: "2gb"
     environment:
-      # Sized for a single host with headroom for multiview (up to 4 slots/user).
+      # Serialized WASM mints. Media playback is Node-side (no live Chrome tab).
       HLS_MAX_SESSIONS: "24"
-      HLS_MAX_OPENS: "6"
+      HLS_MAX_OPENS: "2"
       HLS_OPEN_RATE_MAX: "48"
       # Queue behind busy resolves instead of immediate iframe fallback.
       HLS_OPEN_WAIT_MS: "45000"

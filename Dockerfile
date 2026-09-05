@@ -27,6 +27,10 @@ ENV PORT=80
 ENV DIST_DIR=/app/dist
 # Use the browser bundle shipped in this image (do not download at runtime).
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Four-slot Multi View must not mint four WASM Chromium pages at once.
+ENV HLS_MAX_OPENS=2
+ENV HLS_MAX_SESSIONS=24
+ENV HLS_OPEN_WAIT_MS=45000
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
