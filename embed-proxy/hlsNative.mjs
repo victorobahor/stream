@@ -437,21 +437,25 @@ function mergeUpstreamHeaders(session, cookieHeader) {
   );
 }
 
+/** Stable browser headers. Copying the WASM request's Accept/UA 403s Cloud Run. */
+export function nodeUpstreamHeaders(cookieHeader, referer = 'https://embed.st/') {
+  return {
+    'User-Agent': UA,
+    Referer: referer || 'https://embed.st/',
+    Origin: 'https://embed.st',
+    Accept: '*/*',
+    ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+  };
+}
+
 /**
  * Node fetch with mint cookies. This is the playback hot path — Chromium
  * page.evaluate of MPEG-TS (string + btoa + CDP) is what melts 4-slot
  * multiview and closes the shared Playwright browser.
  */
 async function fetchUpstream(url, cookieHeader, referer = 'https://embed.st/', extraHeaders = null) {
-  const headers = extraHeaders
-    ? { ...extraHeaders, ...(cookieHeader ? { Cookie: cookieHeader } : {}) }
-    : {
-        'User-Agent': UA,
-        Referer: referer,
-        Origin: 'https://embed.st',
-        Accept: '*/*',
-        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-      };
+  const headers = nodeUpstreamHeaders(cookieHeader, referer);
+  if (extraHeaders?.Referer) headers.Referer = extraHeaders.Referer;
   const response = await fetch(url, {
     headers,
     redirect: 'manual',
@@ -471,11 +475,7 @@ async function fetchUpstream(url, cookieHeader, referer = 'https://embed.st/', e
 
 async function fetchViaPlaywrightRequest(page, url, extraHeaders = null) {
   const resp = await page.request.get(url, {
-    headers: extraHeaders || {
-      Referer: embedRefererFrom(page),
-      Origin: 'https://embed.st',
-      Accept: '*/*',
-    },
+    headers: nodeUpstreamHeaders('', extraHeaders?.Referer || embedRefererFrom(page)),
     timeout: 30_000,
     maxRedirects: 0,
   });
@@ -1273,4 +1273,5 @@ export const __test = {
   upstreamHeadersFromPlayerRequest,
   alternateHlsVariantUrl,
   isFreshCacheHit,
+  nodeUpstreamHeaders,
 };

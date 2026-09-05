@@ -18,6 +18,7 @@ const {
   upstreamHeadersFromPlayerRequest,
   alternateHlsVariantUrl,
   isFreshCacheHit,
+  nodeUpstreamHeaders,
 } = __test;
 
 describe('hlsNative helpers', () => {
@@ -184,5 +185,15 @@ describe('hlsNative helpers', () => {
     expect(headers.Cookie).toBe('sid=from-jar');
     expect(headers['x-evil']).toBeUndefined();
     expect(headers['X-Evil']).toBeUndefined();
+  });
+
+  it('should fetch upstream with a stable UA and */* Accept, not the WASM request headers', () => {
+    const headers = nodeUpstreamHeaders('sid=jar', 'https://embed.st/embed/admin/foo/1');
+    expect(headers.Referer).toBe('https://embed.st/embed/admin/foo/1');
+    expect(headers.Origin).toBe('https://embed.st');
+    expect(headers.Accept).toBe('*/*');
+    expect(headers.Cookie).toBe('sid=jar');
+    expect(headers['User-Agent']).toContain('Chrome/');
+    expect(headers['User-Agent']).not.toContain('player');
   });
 });
