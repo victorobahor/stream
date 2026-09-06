@@ -30,3 +30,7 @@
 ## 2024-08-01 - Date string conversions in loops
 **Learning:** Recreating `new Date(ts).toDateString()` for every element in a loop or `.filter()` callback during view rendering causes significant overhead via object allocations and string conversions. Local micro-benchmarks showed this was >30x slower than numerical boundary checks.
 **Action:** When filtering or comparing dates in a loop, pre-compute numeric timestamp boundaries (like `startOfDay` and `endOfDay`) outside the loop using `new Date()`. Then, inside the loop, use strict numeric comparisons (`ts >= startOfDay && ts < endOfDay`) to completely eliminate the allocation and string processing overhead.
+
+## 2024-08-10 - O(N) Array Searches in Formatting Helpers
+**Learning:** Formatting helper functions (like `formatSportLabel`) that perform `.find()` on global arrays (`state.sports`) during unpaginated render loops become severe performance bottlenecks. For large grids, evaluating `toLowerCase()` and `.find()` repeatedly for the exact same input keys causes unnecessary CPU overhead.
+**Action:** Implemented O(1) localized caching via a `Map` within `formatSportLabel`, utilizing a reference equality check (`state.sports !== lastSportsRef`) to safely invalidate the cache when the global state updates.
