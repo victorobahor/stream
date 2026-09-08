@@ -29,7 +29,7 @@ export async function fetchJSON<T>(urlPath: string): Promise<T> {
     const host = API_HOSTS[getActiveHostIndex()];
     const fullUrl = `${host}${urlPath}`;
     try {
-      const res = await fetch(fullUrl, { headers: { Accept: 'application/json' } });
+      const res = await fetch(fullUrl, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json() as T;
     } catch (e) {
@@ -455,7 +455,7 @@ export async function loadMatches(): Promise<APIMatch[]> {
 
   const sportsrcPromise = (async () => {
     const tryPath = async (path: string) => {
-      const res = await fetch(path, { headers: { Accept: 'application/json' } });
+      const res = await fetch(path, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
       if (!res.ok) throw new Error(`SportSRC HTTP ${res.status}`);
       const data = await res.json();
       return (Array.isArray(data) ? data : []) as APIMatch[];
@@ -548,7 +548,7 @@ export async function loadStreams(
 ): Promise<Stream[]> {
   const cacheKey = `${source}:${id}:${category || ''}`;
   const cached = streamsCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+  if (cached && Date.now() - cached.ts < (cached.data.length ? CACHE_TTL_MS : 10_000)) {
     return cached.data;
   }
 
@@ -558,7 +558,7 @@ export async function loadStreams(
     const matchId = id.replace(/^sportsrc:/, '');
     const res = await fetch(
       `/api/sportsrc/stream/${encodeURIComponent(cat)}/${encodeURIComponent(matchId)}`,
-      { headers: { Accept: 'application/json' } },
+      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) },
     );
     if (!res.ok) throw new Error(`SportSRC stream HTTP ${res.status}`);
     const data = await res.json();

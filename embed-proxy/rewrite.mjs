@@ -155,6 +155,8 @@ export async function readUpstream(url) {
     /* keep default */
   }
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(10_000),
+    redirect: 'manual',
     headers: {
       Accept: 'text/html,application/xhtml+xml',
       'User-Agent':
@@ -164,6 +166,7 @@ export async function readUpstream(url) {
   });
   return {
     status: res.status,
+    location: res.headers.get('location'),
     body: await res.text(),
     contentType: res.headers.get('content-type') || 'text/html; charset=utf-8',
   };

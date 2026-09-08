@@ -49,39 +49,11 @@ export async function waitForStreamTabs(page: Page): Promise<Locator> {
   return tabs;
 }
 
-const EMBED_SRC =
-  /^(\/__embed\?|https:\/\/(?:www\.)?(?:embed\.st|embed\.streamapi\.cc|embed\.sportsrc\.org|football77\.org))/;
-
-/** True when iframe has a real embed URL (not the cleared about:blank placeholder). */
-export function isValidEmbedSrc(src: string | null): boolean {
-  if (!src || src === 'about:blank') return false;
-  return EMBED_SRC.test(src);
-}
-
-/**
- * Player picks native HLS when possible; otherwise iframe + click gate.
- * Returns which playback path is active after settling.
- */
-export async function waitForPlaybackSurface(
-  page: Page,
-): Promise<'native' | 'iframe-gate' | 'iframe-ready'> {
-  const video = page.locator('#stream-video:not(.hidden)');
-  const gate = page.locator('.player-gate');
-  const iframe = page.locator('#stream-iframe');
-
-  const deadline = Date.now() + 45_000;
-  while (Date.now() < deadline) {
-    if (await video.isVisible()) return 'native';
-    if (await gate.isVisible()) {
-      const src = await iframe.getAttribute('src');
-      if (isValidEmbedSrc(src)) return 'iframe-gate';
-    }
-    if (await iframe.isVisible()) {
-      const src = await iframe.getAttribute('src');
-      if (isValidEmbedSrc(src)) return 'iframe-ready';
-    }
-    await page.waitForTimeout(500);
-  }
-
-  throw new Error('Timed out waiting for native HLS or iframe embed surface');
+/** A visible iframe is no longer a successful playback surface. */
+export async function waitForPlaybackSurface(page: Page): Promise<'native'> {
+  await expect(page.locator('#stream-video')).toBeVisible({ timeout: 150_000 });
+  await expect.poll(() => page.locator('#stream-video').evaluate(video =>
+    (video as HTMLVideoElement).readyState), { timeout: 45_000 }).toBeGreaterThanOrEqual(2);
+  await expect(page.locator('iframe')).toHaveCount(0);
+  return 'native';
 }

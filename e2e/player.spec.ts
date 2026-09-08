@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import {
   e2eReachable,
   gotoHome,
-  isValidEmbedSrc,
   openFirstMatch,
   waitForPlaybackSurface,
   waitForStreamTabs,
@@ -26,32 +25,16 @@ test.describe('StreamZone player & embed', () => {
     await expect(page.locator('#source-bar .source-chip').first()).toBeVisible();
   });
 
-  test('embed iframe gets a real src before and after the click gate', async ({ page }) => {
+  test('plays native video without creating iframe players or popup windows', async ({ page, context }) => {
     await gotoHome(page);
     await openFirstMatch(page);
     await waitForStreamTabs(page);
-
-    const surface = await waitForPlaybackSurface(page);
-
-    if (surface === 'native') {
-      await expect(page.locator('#stream-video')).toBeVisible();
-      return;
-    }
-
-    const iframe = page.locator('#stream-iframe');
-    const gate = page.locator('.player-gate');
-
-    if (surface === 'iframe-gate') {
-      const srcBefore = await iframe.getAttribute('src');
-      expect(isValidEmbedSrc(srcBefore)).toBe(true);
-
-      await gate.click();
-      await expect(gate).toBeHidden();
-    }
-
-    await expect(iframe).toBeVisible();
-    const srcAfter = await iframe.getAttribute('src');
-    expect(isValidEmbedSrc(srcAfter)).toBe(true);
+    await waitForPlaybackSurface(page);
+    const video = page.locator('#stream-video');
+    await expect(video).toBeVisible();
+    await expect.poll(() => video.evaluate(v => (v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
+    await expect(page.locator('iframe')).toHaveCount(0);
+    expect(context.pages()).toHaveLength(1);
   });
 
   test('source tabs switch without error state', async ({ page }) => {

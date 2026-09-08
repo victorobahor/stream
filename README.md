@@ -8,8 +8,8 @@ Live sports streaming web application — browse, search, and watch live sports 
 - **Browse matches** by category: Live, All Matches, Today, Popular
 - **Filter by sport** — dynamically loaded sports list with emoji icons
 - **Search** matches by title, team name, or category
-- **Watch streams** — native HLS for Streamed `embed.st` when possible; SportSRC/`embed.streamapi.cc` via ad-stripped embed proxy
-- **Multi-View mode** — watch up to 4 streams simultaneously in 1x2 or 2x2 layouts
+- **Ad-free player** — both providers use native video; SportSRC wrappers are resolved on the server, and iframe playback is blocked by CSP. Ads already embedded in the broadcast itself are not removed.
+- **Multi-View mode** — watch up to 4 streams with adaptive quality, a 24-second forward buffer target, bounded back buffers, and independent recovery.
 - **Drag-and-drop** matches into stream slots, with session persistence via localStorage
 - **EPL detection** — Premier League matches get a special badge and priority sorting
 - **Live auto-refresh** — updates every 60 seconds in the Live category
@@ -43,7 +43,7 @@ Changes to any `.ts` file in `src/` refresh instantly via HMR. The Vite plugin m
 
 ```bash
 npm run build        # typecheck + bundle → dist/
-npm run preview      # preview production build locally
+PORT=8080 npm start   # full production server, including both providers and HLS
 ```
 
 ### Docker
@@ -65,7 +65,9 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
 |---|---|
 | `npm run dev` | Vite dev server with HMR + embed/SportSRC proxy |
 | `npm run build` | TypeScript check + Vite production build → `dist/` |
-| `npm run preview` | Preview production build locally |
+| `PORT=8080 npm start` | Full production server with HLS and provider endpoints |
+| `npm run preview` | Static assets only; does not run the playback backend |
+| `npm run test:e2e:local` | Real HLS playback with generated video, delays, and failures (requires FFmpeg + Playwright Chromium) |
 | `npm run typecheck` | TypeScript check only (`tsc --noEmit`) |
 | `npm test` | Run Vitest tests |
 
@@ -96,7 +98,7 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
     ├── cards.ts             # Match cards / render
     ├── filters.ts           # Category + sport filters on merged list
     ├── player.ts            # openPlayer(), stream selection
-    ├── hlsPlayer.ts         # Native HLS (skips SportSRC / streamapi embeds)
+    ├── hlsPlayer.ts         # Native video lifecycle, reconnect, and buffering
     ├── related.ts           # Related matches
     ├── ui.ts                # Home, skeleton, sports bar
     ├── delegates.ts         # Global event delegation
@@ -107,8 +109,8 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
 
 | Provider | Catalog | Streams | Playback |
 |---|---|---|---|
-| **Streamed** | Direct browser → `streamed.pk` / `strmd.link` | `/api/stream/...` | Prefer native HLS for `embed.st`; else iframe (+ optional `/__embed`) |
-| **SportSRC** | Browser → `/api/sportsrc/*` (server BFF) | Same BFF for stream list | Always `/__embed` with ad strip (`embed.streamapi.cc` → nested `embed.st`) |
+| **Streamed** | Direct browser → `streamed.pk` / `strmd.link` | `/api/stream/...` | Native video via `/api/hls/*`; try another stream on failure |
+| **SportSRC** | Browser → `/api/sportsrc/*` (server BFF) | Same BFF for stream list | Server unwraps the provider page → same native HLS path |
 
 Matches present in both catalogs are merged into one card with both sources (Admin-style Streamed sources ranked above SportSRC). SportSRC-only rows use ids prefixed with `sportsrc:`.
 
@@ -117,7 +119,25 @@ Optional env (see `.env.example`):
 - `SPORTSRC_BASE_URL` — default `https://api.sportsrc.org/`
 - `SPORTSRC_API_KEY` — unused for public V1; reserved for keyed variants
 - `SPORTSRC_CACHE_TTL_MS` — BFF response cache (default 30s)
-- `VITE_HLS_NATIVE` — native HLS for Streamed embeds (default on)
+- Native playback is mandatory. The old `VITE_HLS_NATIVE=0` iframe fallback is no longer supported.
+
+## Playback reliability
+
+The server resolves provider pages with Playwright when required, then prefers Node media fetching. CDNs that require a browser retain a paused resolver page and use a remembered working transport. The app never receives provider scripts or iframe documents during playback. Unsupported wrappers show an unavailable/retry state.
+
+Each player closes its server session when stopped, including late responses from abandoned opens. Multi View waits for eight seconds of video before starting; the main player waits for four. This adds startup time in exchange for protection against immediate stalls. Network failures after startup trigger at most two session renewals per two minutes, then try the remaining streams/providers. A 20-second no-progress watchdog catches stalled live playlists. Multi View retains unaffected video elements during source and layout changes.
+
+Media caches are limited to 16 MiB / 64 entries per session. Concurrent identical requests share a fetch; live playlists expire after one second. Expired live playlists and a different quality's playlist are never substituted to conceal upstream failures. AES key, initialization map, and audio playlist URLs remain behind the proxy.
+
+For Cloud Run, the deployment enables [session affinity](https://docs.cloud.google.com/run/docs/configuring/session-affinity) because resolver sessions live in process memory. Affinity is best effort; the client reconnects if an instance loses a session. A long-lived container on a single host is also supported by Docker Compose. Provision enough memory for the two concurrent Chromium resolvers plus active sessions. Upstream outages, broadcast content, and viewer bandwidth still affect playback.
+
+Run a real-provider check against a local production server after `npm run build` and `PORT=8080 npm start`:
+
+```bash
+BASE_URL=http://localhost:8080 PLAYBACK_MATCHES='Club Brugge|AEK Athens|NEC Nijmegen|Porto' npx playwright test e2e/multiview-playback.spec.ts
+```
+
+Use four unique titles from the current Today catalog; schedules and source availability change. The test selects SportSRC on two panes, requires all four to advance throughout a full minute, rejects iframe fallback, and attaches playback metrics. Local deterministic tests use generated HLS and need no live sports availability.
 
 ## Security
 

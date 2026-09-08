@@ -57,6 +57,8 @@ export type MultiviewLayout = '1x2' | '2x2';
 export type LogLevel = 'debug' | 'warn' | 'error' | 'none';
 
 export interface MultiviewSlot {
+  failedEmbeds?: string[];
+  playbackError?: string;
   match: APIMatch;
   sourceName: string;
   streamIndex: number;

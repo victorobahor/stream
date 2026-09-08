@@ -1,82 +1,70 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { e2eReachable, gotoHome, waitForHomeReady } from './helpers';
 
-type SlotHealth = {
-  title: string;
-  hasVideo: boolean;
-  hasIframe: boolean;
-  paused: boolean;
-  readyState: number;
-  currentTime: number;
-};
-
-async function readSlots(page: import('@playwright/test').Page): Promise<SlotHealth[]> {
-  return page.evaluate(() =>
-    [...document.querySelectorAll('.mv-slot')].map(slot => {
-      const video = slot.querySelector('video');
-      return {
-        title: (slot.querySelector('.mv-slot-title')?.textContent || '').trim(),
-        hasVideo: !!video,
-        hasIframe: !!slot.querySelector('iframe'),
-        paused: video ? video.paused : true,
-        readyState: video ? video.readyState : 0,
-        currentTime: video ? video.currentTime : 0,
-      };
-    }),
-  );
+async function readSlots(page: Page) {
+  return page.locator('.mv-slot').evaluateAll(slots => slots.map(slot => {
+    const video = slot.querySelector('video');
+    return {
+      title: slot.querySelector('.mv-slot-title')?.textContent || '',
+      source: slot.querySelector('select')?.value || '',
+      hasIframe: !!slot.querySelector('iframe'),
+      paused: video?.paused ?? true,
+      readyState: video?.readyState ?? 0,
+      currentTime: video?.currentTime ?? 0,
+      buffered: video?.buffered.length ? video.buffered.end(video.buffered.length - 1) - video.currentTime : 0,
+    };
+  }));
 }
 
-function playingNative(slots: SlotHealth[]): SlotHealth[] {
-  return slots.filter(s => s.hasVideo && !s.paused && s.readyState >= 2 && s.currentTime > 1);
-}
-
-test.describe('Multi View four-pane playback', () => {
-  test.beforeEach(() => {
-    test.skip(!e2eReachable, 'Live site unreachable from this runner');
-  });
-
-  test('2x2 native streams keep advancing without cycling stalls', async ({ page }) => {
-    test.setTimeout(180_000);
-    await gotoHome(page);
-    await waitForHomeReady(page);
-
-    await page.locator('[data-action="showMultiview"]').first().click();
-    await expect(page).toHaveTitle(/Multi View/i);
-    await page.locator('[data-layout="2x2"]').click();
-    await expect(page.locator('.mv-slot')).toHaveCount(4);
-
-    const loadButtons = page.locator('#multiview-match-list button', { hasText: /load stream/i });
-    await expect(loadButtons.first()).toBeVisible({ timeout: 30_000 });
-    const n = Math.min(4, await loadButtons.count());
-    test.skip(n < 4, 'Need four sidebar matches to fill 2x2');
-
-    for (let i = 0; i < 4; i++) {
-      await loadButtons.nth(i).click();
-      await page.waitForTimeout(500);
+test('four native streams keep advancing with both providers and no ad frames', async ({ page, context }, info) => {
+  test.setTimeout(300_000);
+  test.skip(!e2eReachable, 'Site unreachable from this runner');
+  await gotoHome(page);
+  const category = process.env.PLAYBACK_CATEGORY || 'today';
+  if (!['live', 'today', 'all', 'popular'].includes(category)) throw new Error('Invalid PLAYBACK_CATEGORY');
+  await page.locator(`#nav-${category}`).click();
+  await waitForHomeReady(page);
+  await page.locator('[data-action="showMultiview"]').first().click();
+  await page.locator('[data-layout="2x2"]').click();
+  const titles = process.env.PLAYBACK_MATCHES?.split('|').map(s => s.trim()).filter(Boolean);
+  if (titles && titles.length !== 4) throw new Error('PLAYBACK_MATCHES must contain four | separated titles');
+  const buttons = page.locator('#multiview-match-list button', { hasText: /load stream/i });
+  await expect(buttons.first()).toBeVisible();
+  test.skip(!titles && await buttons.count() < 4, 'Need four available matches');
+  for (let i = 0; i < 4; i++) {
+    if (titles) {
+      await page.locator('#multiview-search').fill(titles[i]);
+      await expect(page.locator('#multiview-match-list')).toContainText(titles[i]);
+      await expect(buttons).toHaveCount(1);
+      await buttons.first().click();
+    } else { await buttons.nth(i).click(); }
+  }
+  for (const i of [1, 3]) {
+    const source = page.locator('.mv-slot').nth(i).locator('select').first();
+    await expect(source).toBeVisible();
+    // Force SportSRC on two panes so the live test cannot silently cover only Streamed.
+    await expect(source.locator('option[value="sportsrc"]')).toHaveCount(1);
+    await source.selectOption('sportsrc');
+  }
+  await expect.poll(async () => (await readSlots(page)).filter(s => !s.paused && s.currentTime > 1).length,
+    { timeout: 150_000, message: 'All four native panes must actually play' }).toBe(4);
+  let previous = await readSlots(page);
+  const samples = [];
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(5_000);
+    const current = await readSlots(page);
+    samples.push(current);
+    for (let slot = 0; slot < 4; slot++) {
+      expect(current[slot].currentTime - previous[slot].currentTime,
+        `Slot ${slot + 1} stopped advancing: ${JSON.stringify(current[slot])}`).toBeGreaterThan(4);
+      expect(current[slot].hasIframe).toBe(false);
+      expect(current[slot].paused).toBe(false);
     }
-
-    await expect.poll(async () => (await readSlots(page)).filter(s => s.title).length, {
-      timeout: 45_000,
-    }).toBe(4);
-
-    // Two serialized Playwright mints can take a while; then media should flow.
-    await page.waitForTimeout(50_000);
-    const first = await readSlots(page);
-    await page.waitForTimeout(12_000);
-    const second = await readSlots(page);
-
-    const playing = playingNative(second);
-    const iframes = second.filter(s => s.hasIframe && !s.hasVideo).length;
-    const advanced = second.filter((s, i) => {
-      const prev = first[i];
-      return s.hasVideo && prev && s.currentTime > prev.currentTime + 2;
-    });
-
-    expect(
-      playing.length,
-      `expected ≥3 native panes playing, got ${JSON.stringify(second)}`,
-    ).toBeGreaterThanOrEqual(3);
-    expect(advanced.length, 'playing panes should keep advancing, not stall/cycle').toBeGreaterThanOrEqual(2);
-    expect(iframes, 'native HLS should not fall back to iframes on most panes').toBeLessThanOrEqual(1);
-  });
+    previous = current;
+  }
+  expect(context.pages()).toHaveLength(1);
+  await expect(page.locator('iframe')).toHaveCount(0);
+  await info.attach('four-stream-health', { body: JSON.stringify(samples, null, 2), contentType: 'application/json' });
+  await info.attach('four-streams', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.locator('[data-action="showHome"]').first().click();
 });

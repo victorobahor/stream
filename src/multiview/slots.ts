@@ -1,8 +1,8 @@
-import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData } from '../types';
+import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData, MultiviewSlot } from '../types';
 import { state } from '../state';
 import { el, log } from '../helpers';
 import { showToast } from '../format';
-import { loadStreams, getMatchById, fetchJSON, pickPreferredStream } from '../api';
+import { loadStreams, getMatchById, fetchJSON, pickPreferredStream, invalidateStreamsCache } from '../api';
 import { renderMultiviewGrid, renderMultiviewSlot, getNumSlotsForLayout } from './grid';
 import { MULTIVIEW_STORAGE_KEY } from './storageKey';
 
@@ -135,6 +135,7 @@ function nextRequestId(slotIndex: number): number {
 export type LoadSlotOptions = {
   /** Suppress toasts — used for background restore on page refresh. */
   silent?: boolean;
+  failedEmbeds?: string[];
 };
 
 export async function loadMultiviewSlotStream(
@@ -170,10 +171,15 @@ export async function loadMultiviewSlotStream(
   const isStale = () => slotRequestIds.get(slotIndex) !== requestId;
 
   const clearSlotQuietly = (reason: string): void => {
-    state.multiviewSlots[slotIndex] = null;
+    // A temporary provider outage must not erase the viewer's selected match.
+    state.multiviewSlots[slotIndex] = {
+      match, sourceName: activeSource, streamIndex: 0, streams: [], loading: false,
+      failedEmbeds: opts.failedEmbeds || [],
+      playbackError: 'No ad-free stream is available. Try again shortly.',
+    };
     renderMultiviewSlot(slotIndex);
+    saveMultiviewState();
     if (silent) {
-      saveMultiviewState();
       log('warn', reason);
       return;
     }
@@ -188,13 +194,14 @@ export async function loadMultiviewSlotStream(
       match,
       match.sources[nextSourceIdx].source,
       0,
-      { silent },
+      { silent, failedEmbeds: opts.failedEmbeds },
     );
     return true;
   };
 
   try {
-    const streams = await loadStreams(activeSource, activeId, sourceObj.category);
+    const streams = (await loadStreams(activeSource, activeId, sourceObj.category))
+      .filter(s => s.embedUrl && !opts.failedEmbeds?.includes(s.embedUrl));
     if (isStale()) return;
 
     if (streams.length === 0) {
@@ -215,6 +222,7 @@ export async function loadMultiviewSlotStream(
       stream: selectedStream,
       streams,
       loading: false,
+      failedEmbeds: opts.failedEmbeds || [],
     };
 
     renderMultiviewSlot(slotIndex);
@@ -234,6 +242,32 @@ export async function loadMultiviewSlotStream(
   }
 }
 
+/** Try every stream and then provider once; never mount a third-party iframe. */
+export function failMultiviewSlot(i: number, slot: MultiviewSlot): void {
+  if (state.multiviewSlots[i] !== slot) return;
+  const activeSource = slot.match.sources.find(source => source.source === slot.sourceName);
+  if (activeSource) invalidateStreamsCache(activeSource.source, activeSource.id, activeSource.category);
+  const failed = new Set(slot.failedEmbeds || []);
+  if (slot.stream) failed.add(slot.stream.embedUrl);
+  slot.failedEmbeds = [...failed];
+  const next = slot.streams.find(stream => !failed.has(stream.embedUrl));
+  if (next) {
+    slot.stream = next;
+    slot.streamIndex = slot.streams.indexOf(next);
+    renderMultiviewSlot(i);
+    saveMultiviewState();
+    return;
+  }
+  const sourceIndex = slot.match.sources.findIndex(s => s.source === slot.sourceName);
+  const source = slot.match.sources[sourceIndex + 1];
+  if (source) {
+    void loadMultiviewSlotStream(i, slot.match, source.source, 0, { failedEmbeds: [...failed] });
+    return;
+  }
+  slot.playbackError = 'No ad-free stream is available. Try again shortly.';
+  renderMultiviewSlot(i);
+}
+
 // ── Slot source/stream change ──
 
 export function changeSlotSource(slotIndex: number, sourceName: string): void {
@@ -250,8 +284,10 @@ export function changeSlotStreamIndex(slotIndex: number, streamIndex: number): v
 
   slot.streamIndex = streamIndex;
   slot.stream = selectedStream;
+  slot.failedEmbeds = [];
+  slot.playbackError = undefined;
 
-  // The slot renderer swaps the iframe only because the embed URL changed, and
+  // The slot renderer swaps the video only because the embed URL changed, and
   // handles the loading overlay for us.
   renderMultiviewSlot(slotIndex);
   saveMultiviewState();

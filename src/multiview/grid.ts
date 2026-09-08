@@ -1,8 +1,7 @@
 import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
-import { el, sanitizeUrl, applyEmbed, clearEmbed, log, resolveEmbedForPlayback, embedUrlForIframe } from '../helpers';
-import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from '../hlsPlayer';
-import { mountPlayGate } from '../adShield';
+import { el, sanitizeUrl, clearEmbed, log } from '../helpers';
+import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls, hasNativeHls } from '../hlsPlayer';
 import { getMatchById, loadMatches } from '../api';
 import { setActiveNav } from '../ui';
 import { ALL_SPORTS, syncSportChips } from '../chips';
@@ -15,6 +14,7 @@ import {
   clearMultiviewSlot,
   saveMultiviewState,
   markActiveSlotPicked,
+  failMultiviewSlot,
 } from './slots';
 import { openMvModal } from './modal';
 
@@ -26,19 +26,6 @@ export function getNumSlotsForLayout(layout: MultiviewLayout): number {
     '2x2': 4,
   };
   return map[layout] || 2;
-}
-
-const EMBED_LOAD_TIMEOUT_MS = 8000;
-
-/** Per-slot load-fallback timers, so stream switches cannot pile them up. */
-const slotLoadTimers = new Map<number, ReturnType<typeof setTimeout>>();
-
-function clearSlotLoadTimer(i: number): void {
-  const timer = slotLoadTimers.get(i);
-  if (timer !== undefined) {
-    clearTimeout(timer);
-    slotLoadTimers.delete(i);
-  }
 }
 
 // ── Markup templates (parsed once) ──
@@ -132,6 +119,11 @@ function attachSlotEvents(slotEl: HTMLDivElement, i: number): void {
           control.setAttribute('aria-pressed', video.muted ? 'false' : 'true');
           return;
         }
+        case 'retry': {
+          const slot = state.multiviewSlots[i];
+          if (slot) void loadMultiviewSlotStream(i, slot.match, slot.match.sources[0].source, 0);
+          return;
+        }
         case 'clear':
           clearMultiviewSlot(i);
           return;
@@ -201,7 +193,6 @@ function mvPlayerKey(i: number): string {
 }
 
 function clearSlotMedia(slotEl: HTMLDivElement, i: number): void {
-  clearSlotLoadTimer(i);
   stopNativeHls(mvPlayerKey(i));
   slotEl.querySelectorAll<HTMLIFrameElement>('.mv-iframe').forEach(clearEmbed);
   slotEl.querySelectorAll<HTMLVideoElement>('.mv-video').forEach(v => {
@@ -211,34 +202,10 @@ function clearSlotMedia(slotEl: HTMLDivElement, i: number): void {
   });
 }
 
-function mountSlotIframe(
-  slotEl: HTMLDivElement,
-  i: number,
-  desiredUrl: string,
-  overlayEl: HTMLElement,
-): void {
-  const iframe = document.createElement('iframe');
-  iframe.className = 'mv-iframe';
-  iframe.dataset.embedUrl = desiredUrl;
-  iframe.setAttribute('scrolling', 'no');
-
-  const reveal = () => {
-    clearSlotLoadTimer(i);
-    overlayEl.remove();
-    mountPlayGate(slotEl, { message: 'Click to start' });
-  };
-  iframe.onload = reveal;
-
-  slotEl.appendChild(iframe);
-  if (!overlayEl.isConnected) slotEl.appendChild(overlayEl);
-  applyEmbed(iframe, desiredUrl);
-  slotLoadTimers.set(i, setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS));
-}
-
 /**
  * Bring one slot element in line with `state.multiviewSlots[i]`.
  *
- * Live media (native video or iframe) is only replaced when the embed URL
+ * Live video is only replaced when the embed URL
  * changes — re-parenting would restart every other stream on any grid render.
  */
 function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
@@ -254,15 +221,11 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
 
   slotEl.classList.remove('empty');
 
-  const desiredUrl = !slot.loading && slot.stream?.embedUrl ? sanitizeUrl(slot.stream.embedUrl) : '';
+  const desiredUrl = !slot.loading && !slot.playbackError && slot.stream?.embedUrl ? sanitizeUrl(slot.stream.embedUrl) : '';
   const existingVideo = slotEl.querySelector<HTMLVideoElement>('.mv-video');
-  const existingIframe = slotEl.querySelector<HTMLIFrameElement>('.mv-iframe');
   const existingMedia =
-    (existingVideo && existingVideo.dataset.embedUrl === desiredUrl && desiredUrl
+    (existingVideo && hasNativeHls(mvPlayerKey(i)) && existingVideo.dataset.embedUrl === desiredUrl && desiredUrl
       ? existingVideo
-      : null) ||
-    (existingIframe && existingIframe.dataset.embedUrl === desiredUrl && desiredUrl
-      ? existingIframe
       : null);
   const keepExisting = !!existingMedia;
 
@@ -276,12 +239,9 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
     ) {
       continue;
     }
-    if (child === existingIframe) clearEmbed(existingIframe);
     if (child === existingVideo) stopNativeHls(mvPlayerKey(i));
     child.remove();
   }
-
-  if (!keepExisting) clearSlotLoadTimer(i);
 
   slotEl.appendChild(buildSlotHeader(slot));
 
@@ -302,35 +262,27 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
     slotEl.appendChild(video);
     slotEl.appendChild(overlayEl);
 
-    const requestUrl = desiredUrl;
-    void (async () => {
-      const hlsUrl = await resolveEmbedForPlayback(requestUrl);
-      const iframeUrl = embedUrlForIframe(requestUrl, hlsUrl);
-      // Slot may have been cleared / switched while unwrap ran.
-      if (state.multiviewSlots[i]?.stream?.embedUrl !== requestUrl) return;
+    const current = () => document.body.classList.contains('multiview-active') && state.multiviewSlots[i] === slot && video.isConnected;
+    const failed = () => { if (current()) failMultiviewSlot(i, slot); };
+    void playNativeHls(desiredUrl, {
+      key: mvPlayerKey(i), video,
+      onReady: () => { if (current()) overlayEl.remove(); },
+      onError: failed,
+    }).then(ok => { if (!ok) failed(); }).catch(failed);
+  }
 
-      const playOpts = {
-        key: mvPlayerKey(i),
-        video,
-        onReady: () => {
-          clearSlotLoadTimer(i);
-          overlayEl.remove();
-          slotEl.querySelectorAll('.player-gate').forEach(g => g.remove());
-        },
-      };
-      let ok = await playNativeHls(hlsUrl, playOpts);
-      // One retry: a sibling mint can briefly crash Playwright; iframe fallback
-      // is worse for four-pane CPU than a second native open.
-      if (!ok && state.multiviewSlots[i]?.stream?.embedUrl === requestUrl) {
-        ok = await playNativeHls(hlsUrl, playOpts);
-      }
-      // Slot may have been cleared / switched while resolve ran.
-      if (state.multiviewSlots[i]?.stream?.embedUrl !== requestUrl) return;
-      if (ok) return;
-
-      video.remove();
-      mountSlotIframe(slotEl, i, iframeUrl, overlayEl);
-    })();
+  if (slot.playbackError) {
+    const error = document.createElement('div');
+    error.className = 'mv-loading';
+    error.setAttribute('role', 'status');
+    const message = document.createElement('span');
+    message.textContent = slot.playbackError;
+    const retry = document.createElement('button');
+    retry.className = 'mv-slot-add-btn';
+    retry.textContent = 'Retry stream';
+    retry.dataset.slotAction = 'retry';
+    error.append(message, retry);
+    slotEl.appendChild(error);
   }
 
   if (slot.loading) {
@@ -353,6 +305,7 @@ function createSlotElement(i: number): HTMLDivElement {
  * touch the other slots.
  */
 export function renderMultiviewSlot(i: number): void {
+  if (!document.body.classList.contains('multiview-active')) return;
   const container = el('multiview-grid-container');
   const slotEl = container?.querySelector<HTMLDivElement>(`.mv-slot[data-index="${i}"]`);
   if (!slotEl) {
@@ -392,6 +345,8 @@ export function renderMultiviewGrid(): void {
 // ── Show multiview ──
 
 export function showMultiview(): void {
+  state.currentMatch = null;
+  state.selectedStream = null;
   document.body.classList.add('multiview-active', 'bg-paused');
   document.body.classList.remove('player-active');
   el('home-view')?.classList.add('hidden');

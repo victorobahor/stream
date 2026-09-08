@@ -1,236 +1,236 @@
-import { log } from './helpers';
+import type Hls from 'hls.js';
+import { log, isAllowedEmbedHost } from './helpers';
 import { registerNativeStop } from './mediaStop';
 
 export const MAIN_PLAYER_KEY = 'main';
 
 interface NativeInstance {
-  hls: { destroy: () => void } | null;
+  hls: Hls | null;
   sessionId: string | null;
-  generation: number;
   video: HTMLVideoElement;
+  dispose: () => void;
 }
 
 const instances = new Map<string, NativeInstance>();
-/** Monotonic per-key counter so in-flight opens cannot attach to a newer play. */
-const generations = new Map<string, number>();
 
-export function isHlsNativeEnabled(): boolean {
-  const flag = import.meta.env.VITE_HLS_NATIVE;
-  // Default ON for Streamed embed.st; set VITE_HLS_NATIVE=0 to force iframe.
-  if (flag === '0' || flag === 'false') return false;
-  return true;
-}
+// Playback always stays in our video element. Never expose upstream ad scripts.
+export function isHlsNativeEnabled(): boolean { return true; }
 
-/** True when this embed host cannot be minted by Playwright HLS (SportSRC wrappers). */
 export function isHlsUnsupportedEmbed(embedUrl: string): boolean {
-  try {
-    const host = new URL(embedUrl).hostname.toLowerCase();
-    return (
-      host === 'embed.streamapi.cc' ||
-      host === 'streamapi.cc' ||
-      host.endsWith('.streamapi.cc') ||
-      host === 'football77.org' ||
-      host === 'www.football77.org' ||
-      host === 'embed.sportsrc.org' ||
-      host.endsWith('.sportsrc.org')
-    );
-  } catch {
-    return false;
-  }
-}
-
-function bumpGeneration(key: string): number {
-  const next = (generations.get(key) ?? 0) + 1;
-  generations.set(key, next);
-  return next;
+  return !isAllowedEmbedHost(embedUrl);
 }
 
 function closeRemoteSession(sessionId: string | null): void {
   if (!sessionId) return;
   const url = `/api/hls/${sessionId}/close`;
   try {
-    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-      navigator.sendBeacon(url);
-      return;
-    }
-  } catch {
-    /* fall through */
-  }
+    if (navigator.sendBeacon?.(url)) return;
+  } catch { /* use keepalive */ }
   void fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
 }
 
-function destroyKey(key: string): void {
-  bumpGeneration(key);
-  const inst = instances.get(key);
-  if (!inst) return;
-  const sessionId = inst.sessionId;
-  if (inst.hls) {
-    inst.hls.destroy();
-    inst.hls = null;
-  }
-  inst.sessionId = null;
-  const video = inst.video;
-  if (video) {
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
-    if (key === MAIN_PLAYER_KEY) {
-      video.classList.add('hidden');
-    }
-  }
-  instances.delete(key);
-  closeRemoteSession(sessionId);
-}
-
-/** Stop one native player (`main`, `mv-0`, …) or every instance when omitted. */
 export function stopNativeHls(key?: string): void {
-  if (key) {
-    destroyKey(key);
-    return;
-  }
-  for (const k of [...instances.keys()]) {
-    destroyKey(k);
+  for (const [k, inst] of instances) {
+    if (key && key !== k) continue;
+    instances.delete(k);
+    inst.dispose();
+    inst.hls?.destroy();
+    closeRemoteSession(inst.sessionId);
+    inst.video.pause();
+    inst.video.removeAttribute('src');
+    inst.video.load();
+    if (k === MAIN_PLAYER_KEY) inst.video.classList.add('hidden');
   }
 }
-
 registerNativeStop(stopNativeHls);
+
+export function hasNativeHls(key: string): boolean { return instances.has(key); }
 
 export type PlayNativeOptions = {
   video: HTMLVideoElement;
   key: string;
-  /** Called once the manifest is ready (before play resolves). */
   onReady?: () => void;
+  /** Called after playback started and bounded recovery has been exhausted. */
+  onError?: () => void;
 };
 
-/**
- * Resolve embed → same-origin master playlist via /api/hls, then play with hls.js.
- * Returns true on success; false means caller should use the iframe fallback.
- */
+/** Native playback with owned sessions, bounded recovery, and no iframe fallback. */
 export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): Promise<boolean> {
-  if (!isHlsNativeEnabled()) return false;
-  if (isHlsUnsupportedEmbed(embedUrl)) return false;
+  const { video, key, onReady, onError } = opts;
+  stopNativeHls(key);
+  if (!video || !key || isHlsUnsupportedEmbed(embedUrl)) return false;
 
-  // Lazy-load hls.js so the home grid does not pay for it on first paint.
-  const { default: Hls } = await import('hls.js');
-  if (!Hls.isSupported()) return false;
-
-  const { video, key, onReady } = opts;
-  if (!video || !key) return false;
-
-  const prev = instances.get(key);
-  if (prev?.hls) {
-    prev.hls.destroy();
-    prev.hls = null;
-  }
-  if (prev) {
-    closeRemoteSession(prev.sessionId);
-    instances.delete(key);
-  }
-
-  const generation = bumpGeneration(key);
+  let settled = false;
+  let started = false;
+  let disposed = false;
+  let reopening = false;
+  let recoveries = 0;
+  let recoveryWindow = Date.now();
+  let lastTime = video.currentTime;
+  let lastProgress = Date.now();
+  let startupTimer: ReturnType<typeof setTimeout> | undefined;
+  let watchdog: ReturnType<typeof setInterval> | undefined;
+  let resolveResult: (ok: boolean) => void = () => {};
+  const result = new Promise<boolean>(resolve => { resolveResult = resolve; });
+  const settle = (ok: boolean) => {
+    if (settled) return;
+    settled = true;
+    resolveResult(ok);
+  };
   const inst: NativeInstance = {
-    hls: null,
-    sessionId: null,
-    generation,
-    video,
+    hls: null, sessionId: null, video,
+    dispose: () => {
+      disposed = true;
+      clearTimeout(startupTimer);
+      clearInterval(watchdog);
+      video.removeEventListener('playing', ready);
+      video.removeEventListener('loadeddata', ready);
+      video.removeEventListener('error', fail);
+      settle(false);
+    },
   };
   instances.set(key, inst);
+  const current = () => !disposed && instances.get(key) === inst;
 
-  const isCurrent = () => {
-    const live = instances.get(key);
-    return !!live && live.generation === generation && generations.get(key) === generation;
-  };
+  function ready(): void {
+    if (!current()) return;
+    clearTimeout(startupTimer);
+    lastProgress = Date.now();
+    if (started) return;
+    started = true;
+    onReady?.();
+    settle(true);
+  }
+  function fail(): void {
+    if (!current()) return;
+    const wasPlaying = started;
+    stopNativeHls(key);
+    if (wasPlaying) onError?.();
+  }
+  video.addEventListener('playing', ready);
+  video.muted = shouldStartMuted(key);
 
-  const compact = key.startsWith('mv-');
-
-  try {
-    // Retry transient capacity / Playwright-crash responses.
-    const res = await withHlsOpenSlot(async (): Promise<Response | null> => {
-      let response: Response | null = null;
+  // An obsolete open still needs its response read so its server session can be
+  // closed. Stops settle immediately; the bounded open cleans up in the background.
+  async function openSession(refresh = false): Promise<{ sessionId: string; masterUrl: string } | null> {
+    return withHlsOpenSlot(async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
-        if (!isCurrent()) return null;
-        response = await fetch(`/api/hls/open?u=${encodeURIComponent(embedUrl)}`, {
-          headers: { Accept: 'application/json' },
+        if (!current()) return null;
+        const response = await fetch(`/api/hls/open?u=${encodeURIComponent(embedUrl)}${refresh ? '&refresh=1' : ''}`, {
+          headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(100_000),
         });
-        if (!isCurrent()) return null;
-        if (response.ok || !shouldRetryHlsOpen(response.status) || attempt === 2) break;
-        const delay = 400 * 2 ** attempt + Math.floor(Math.random() * 250);
-        log('warn', 'HLS open busy, retrying', key, response.status, `attempt ${attempt + 1}`);
-        await new Promise(r => setTimeout(r, delay));
-      }
-      return response;
-    });
-    if (!res || !isCurrent()) return false;
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      log('warn', 'HLS open failed', key, res.status, body.slice(0, 200));
-      if (isCurrent()) destroyKey(key);
-      return false;
-    }
-    const data = (await res.json()) as { sessionId?: string; masterUrl?: string };
-    if (!data.sessionId || !data.masterUrl) {
-      if (isCurrent()) destroyKey(key);
-      return false;
-    }
-    if (!isCurrent()) return false;
-
-    inst.sessionId = data.sessionId;
-
-    await new Promise<void>((resolve, reject) => {
-      if (!isCurrent()) {
-        resolve();
-        return;
-      }
-
-      // Streamed CDN playlists are standard live HLS (often …/high|low/mono.m3u8),
-      // not LL-HLS. lowLatencyMode starves the buffer and makes audio crackle;
-      // a conservative ABR estimate also strandes us on the low/mono rung.
-      const hls = new Hls(nativeHlsConfig({ compact }));
-      inst.hls = hls;
-
-      hls.on(Hls.Events.ERROR, (_e, info) => {
-        if (!info.fatal) return;
-        log('warn', 'HLS fatal', key, info.type, info.details);
-        hls.destroy();
-        if (instances.get(key)?.hls === hls) {
-          const still = instances.get(key);
-          if (still) still.hls = null;
+        if (!response.ok) {
+          if (!current()) return null;
+          if (!shouldRetryHlsOpen(response.status) || attempt === 2) throw new Error(`HLS open ${response.status}`);
+          await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
+          continue;
         }
-        reject(new Error(`HLS ${info.details}`));
-      });
+        const data = await response.json() as { sessionId?: string; masterUrl?: string };
+        if (!current() || !data.sessionId || !data.masterUrl ||
+            !/^\/api\/hls\/[a-f0-9]+\/master\.m3u8$/.test(data.masterUrl)) {
+          closeRemoteSession(data.sessionId ?? null);
+          return null;
+        }
+        return { sessionId: data.sessionId, masterUrl: data.masterUrl };
+      }
+      return null;
+    });
+  }
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (!isCurrent()) {
-          hls.destroy();
-          resolve();
+  async function recover(): Promise<void> {
+    if (!current() || reopening) return;
+    if (Date.now() - recoveryWindow > 120_000) { recoveries = 0; recoveryWindow = Date.now(); }
+    if (++recoveries > 2) { fail(); return; }
+    reopening = true;
+    try {
+      const data = await openSession(true);
+      if (!current() || !data) { if (current()) fail(); return; }
+      closeRemoteSession(inst.sessionId);
+      inst.sessionId = data.sessionId;
+      inst.hls?.loadSource(data.masterUrl);
+      inst.hls?.startLoad(-1);
+      lastProgress = Date.now();
+    } catch (error) {
+      log('warn', 'Stream reconnect failed', error);
+      fail();
+    } finally { reopening = false; }
+  }
+
+  void (async () => {
+    try {
+      const { default: Hls } = await import('hls.js');
+      if (!current()) return;
+      const supported = Hls.isSupported();
+      if (!supported && !video.canPlayType('application/vnd.apple.mpegurl')) { fail(); return; }
+      const data = await openSession();
+      if (!current() || !data) { if (current()) fail(); return; }
+      inst.sessionId = data.sessionId;
+      startupTimer = setTimeout(fail, 45_000);
+      video.classList.remove('hidden');
+      const startVideo = () => {
+        if (!current()) return;
+        void video.play().catch(() => {
+          // Autoplay may require a user gesture. Expose the native controls.
+          if (video.readyState >= 2) ready();
+          else video.addEventListener('loadeddata', ready, { once: true });
+        });
+      };
+      if (supported) {
+        const hls = new Hls(nativeHlsConfig({ compact: key.startsWith('mv-') }));
+        inst.hls = hls;
+        let mediaRecoveries = 0;
+        let playRequested = false;
+        const startWhenBuffered = () => {
+          if (!current() || playRequested) return;
+          let ahead = 0;
+          for (let i = 0; i < video.buffered.length; i++) {
+            if (video.currentTime >= video.buffered.start(i) - 0.5 && video.currentTime < video.buffered.end(i)) {
+              ahead = video.buffered.end(i) - video.currentTime;
+              break;
+            }
+          }
+          const target = key.startsWith('mv-') ? 8 : 4;
+          const shortVod = Number.isFinite(video.duration) && video.duration > 0 && ahead >= video.duration - video.currentTime - 0.1;
+          if (ahead < target && !shortVod) return;
+          playRequested = true;
+          startVideo();
+        };
+        hls.on(Hls.Events.ERROR, (_event, info) => {
+          if (!current() || !info.fatal) return;
+          log('warn', 'HLS playback error', key, info.type, info.details);
+          if (info.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries++ < 1) {
+            hls.recoverMediaError();
+          } else if (started && info.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            void recover();
+          } else { fail(); }
+        });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => { playRequested = false; });
+        hls.on(Hls.Events.BUFFER_APPENDED, startWhenBuffered);
+        hls.loadSource(data.masterUrl);
+        hls.attachMedia(video);
+      } else {
+        video.addEventListener('error', fail);
+        video.src = data.masterUrl;
+        startVideo();
+      }
+      watchdog = setInterval(() => {
+        if (!current() || !started || reopening) return;
+        if (video.paused || video.seeking || video.currentTime > lastTime + 0.1) {
+          lastProgress = Date.now();
+          lastTime = video.currentTime;
           return;
         }
-        if (key === MAIN_PLAYER_KEY) {
-          video.classList.remove('hidden');
+        if (Date.now() - lastProgress > 20_000) {
+          // Native Safari has no hls.js recovery controller; move to another source.
+          if (!inst.hls) fail(); else void recover();
         }
-        if (!shouldStartMuted(key)) {
-          video.muted = false;
-          if (typeof video.volume === 'number' && video.volume < 0.2) {
-            video.volume = 1;
-          }
-        }
-        onReady?.();
-        void video.play().catch(() => {
-          /* controls remain for a manual gesture */
-        });
-        resolve();
-      });
-
-      hls.loadSource(data.masterUrl!);
-      hls.attachMedia(video);
-    });
-
-    return isCurrent() && instances.get(key)?.hls !== null;
-  } catch (err) {
-    log('warn', 'Native HLS failed, will fall back to iframe:', key, err);
-    if (isCurrent()) destroyKey(key);
-    return false;
-  }
+      }, 3_000);
+    } catch (error) {
+      log('warn', 'Native stream unavailable', error);
+      fail();
+    }
+  })();
+  return result;
 }
 
 /** Shared hls.js knobs for Streamed live (exported for unit tests). */
@@ -280,11 +280,12 @@ export function nativeHlsConfig(opts: NativeHlsConfigOptions = {}): Record<strin
     abrEwmaSlowLive: compact ? 12 : 9,
     abrBandWidthFactor: compact ? 0.7 : 0.85,
     abrBandWidthUpFactor: compact ? 0.5 : 0.7,
-    maxBufferLength: compact ? 8 : 30,
-    maxMaxBufferLength: compact ? 12 : 60,
-    maxBufferSize: compact ? 8_000_000 : 60_000_000,
+    maxBufferLength: compact ? 24 : 30,
+    maxMaxBufferLength: compact ? 36 : 60,
+    maxBufferSize: compact ? 24_000_000 : 60_000_000,
+    backBufferLength: compact ? 15 : 30,
     capLevelToPlayerSize: compact,
-    liveSyncDurationCount: 3,
+    liveSyncDurationCount: compact ? 5 : 3,
     liveMaxLatencyDurationCount: compact ? 8 : 12,
     manifestLoadingTimeOut: 20_000,
     levelLoadingTimeOut: 20_000,

@@ -5,15 +5,17 @@
  *
  * Scaling knobs (env): HLS_MAX_SESSIONS, HLS_MAX_OPENS, HLS_OPEN_RATE_MAX,
  * HLS_OPEN_WAIT_MS (queue busy opens), HLS_MINT_CACHE_TTL_MS (share mints).
- * Playwright is used only to mint playlist cookies; playback is Node fetch.
+ * Prefer Node media fetch; retain a paused browser context for CDNs that require it.
  * Keep HLS_MAX_OPENS low (default 2) so four-slot multiview cannot spawn
  * four WASM embed.st pages at once.
  *
  * Requires a local Chrome (`CHROME_PATH` or /usr/bin/google-chrome) and the
  * `playwright` package. Without them, /api/hls/* returns 503 and the client
- * falls back to the iframe player.
+ * tries another source without exposing an iframe player.
  */
 import { randomBytes } from 'node:crypto';
+import { cacheMedia, loadMedia } from './playbackCache.mjs';
+import { resolveNativeEmbed } from './resolveEmbed.mjs';
 
 const UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36';
@@ -32,7 +34,7 @@ const OPEN_RATE_MAX = Math.max(1, Number(process.env.HLS_OPEN_RATE_MAX || 48));
 const OPEN_WAIT_MS = Math.max(0, Number(process.env.HLS_OPEN_WAIT_MS || 45_000));
 /** Reuse mint cookies/playlist for the same embed across viewers (0 disables). */
 const MINT_CACHE_TTL_MS = Math.max(0, Number(process.env.HLS_MINT_CACHE_TTL_MS || 120_000));
-/** Skip reminting embeds that just timed out (lets client fall back to iframe). */
+/** Skip reminting embeds that just timed out so the client can try another source. */
 const FAIL_CACHE_TTL_MS = Math.max(0, Number(process.env.HLS_FAIL_CACHE_TTL_MS || 60_000));
 const ALLOWED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
 /** Exact suffix allowlist — never use host.includes('tiktok') (open-proxy). */
@@ -84,8 +86,8 @@ function clientIp(req) {
   return req?.socket?.remoteAddress || 'unknown';
 }
 
-function assertSessionCapacity() {
-  if (sessions.size >= MAX_SESSIONS) {
+function assertSessionCapacity(reserved = false) {
+  if (sessions.size + (reserved ? opensInFlight - 1 : 0) >= MAX_SESSIONS) {
     const err = new Error('Too many active HLS sessions');
     err.statusCode = 429;
     throw err;
@@ -107,7 +109,7 @@ function assertRateLimit(req) {
 
 /** Queue behind in-flight resolves instead of hard-rejecting under burst. */
 async function waitForOpenSlot() {
-  if (opensInFlight < MAX_OPENS_IN_FLIGHT) return;
+  if (opensInFlight < MAX_OPENS_IN_FLIGHT) { opensInFlight++; return; }
   const deadline = Date.now() + OPEN_WAIT_MS;
   while (opensInFlight >= MAX_OPENS_IN_FLIGHT) {
     if (Date.now() >= deadline) {
@@ -117,6 +119,7 @@ async function waitForOpenSlot() {
     }
     await new Promise(r => setTimeout(r, 100));
   }
+  opensInFlight++;
 }
 
 function getValidMint(embedKey) {
@@ -203,15 +206,18 @@ export function absolutizePlaylistUri(uri, baseUrl) {
 }
 
 export function rewriteM3uForProxy(text, baseUrl, proxyPrefix) {
-  return text
-    .split('\n')
-    .map(line => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return line;
-      const abs = absolutizePlaylistUri(trimmed, baseUrl);
-      return `${proxyPrefix}?u=${encodeURIComponent(abs)}`;
-    })
-    .join('\n');
+  const proxy = (uri, key = false) => `${proxyPrefix}?u=${encodeURIComponent(absolutizePlaylistUri(uri, baseUrl))}${key ? '&key=1' : ''}`;
+  return text.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (trimmed.startsWith('#')) {
+      // I-frame variants, audio renditions, initialization maps, and AES keys.
+      if (!/^#EXT-X-(KEY|SESSION-KEY|MAP|MEDIA|I-FRAME-STREAM-INF):/.test(trimmed)) return line;
+      const key = /^#EXT-X-(KEY|SESSION-KEY):/.test(trimmed);
+      return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${proxy(uri, key)}"`);
+    }
+    return proxy(trimmed);
+  }).join('\n');
 }
 
 export function isAllowedEmbedUrl(raw) {
@@ -354,6 +360,9 @@ function ensureJanitor() {
   if (janitor) return;
   janitor = setInterval(() => {
     const now = Date.now();
+    for (const [key, mint] of mintCache) if (mint.expires < now) mintCache.delete(key);
+    for (const [key, until] of failCache) if (until < now) failCache.delete(key);
+    for (const [ip, hits] of openHitsByIp) if (!hits.some(t => now - t < OPEN_RATE_WINDOW_MS)) openHitsByIp.delete(ip);
     for (const [id, session] of sessions) {
       if (now - session.lastAccess > SESSION_TTL_MS) {
         void closeSession(id);
@@ -409,14 +418,13 @@ async function getBrowser() {
 }
 
 /** @param {import('node:http').IncomingMessage | null} [req] */
-export async function openHlsSessionForRequest(embedUrlRaw, req = null) {
+export async function openHlsSessionForRequest(embedUrlRaw, req = null, options = {}) {
   assertSessionCapacity();
   assertRateLimit(req);
   await waitForOpenSlot();
-  assertSessionCapacity();
-  opensInFlight++;
   try {
-    return await openHlsSession(embedUrlRaw);
+    assertSessionCapacity(true);
+    return await openHlsSession(embedUrlRaw, options);
   } finally {
     opensInFlight--;
   }
@@ -465,6 +473,7 @@ async function fetchUpstream(url, cookieHeader, referer = 'https://embed.st/', e
   const response = await fetch(url, {
     headers,
     redirect: 'manual',
+    signal: AbortSignal.timeout(8_000),
   });
   if (response.status >= 300 && response.status < 400) {
     throw new Error(`upstream redirect ${response.status}`);
@@ -482,15 +491,13 @@ async function fetchUpstream(url, cookieHeader, referer = 'https://embed.st/', e
 async function fetchViaPlaywrightRequest(page, url, extraHeaders = null) {
   const resp = await page.request.get(url, {
     headers: nodeUpstreamHeaders('', extraHeaders?.Referer || embedRefererFrom(page)),
-    timeout: 30_000,
+    timeout: 8_000,
     maxRedirects: 0,
   });
-  if (!resp.ok()) throw new Error(`upstream ${resp.status()}`);
-  const buf = Buffer.from(await resp.body());
-  return {
-    ct: resp.headers()['content-type'] || '',
-    buf,
-  };
+  try {
+    if (!resp.ok()) throw new Error(`upstream ${resp.status()}`);
+    return { ct: resp.headers()['content-type'] || '', buf: Buffer.from(await resp.body()) };
+  } finally { await resp.dispose(); }
 }
 
 let evaluateInFlight = 0;
@@ -533,7 +540,7 @@ async function fetchViaEvaluate(page, url) {
   try {
     const credentials = HLS_IN_PAGE_FETCH_CREDENTIALS;
     const data = await page.evaluate(async ({ u, credentials }) => {
-      const r = await fetch(u, { credentials });
+      const r = await fetch(u, { credentials, signal: AbortSignal.timeout(6_000) });
       if (!r.ok) throw new Error(`upstream ${r.status}`);
       const bytes = new Uint8Array(await r.arrayBuffer());
       let s = '';
@@ -555,28 +562,7 @@ async function fetchViaEvaluate(page, url) {
   }
 }
 
-function takeCachedMedia(session, url) {
-  const hit = session?.bodyCache?.get(url);
-  if (!hit?.buf?.length) return null;
-  return { ct: hit.ct || '', buf: hit.buf };
-}
-
-function playlistFromCache(session, url, { allowStale = true } = {}) {
-  const pick = u => {
-    if (!u) return null;
-    const hit = session?.bodyCache?.get(u);
-    if (!hit?.buf?.length) return null;
-    if (!allowStale && !isFreshCacheHit(hit)) return null;
-    return { ct: hit.ct || '', buf: hit.buf };
-  };
-  return pick(url) || pick(alternateHlsVariantUrl(url));
-}
-
-function rememberMedia(session, url, data) {
-  if (!session || !url || !data?.buf?.length) return;
-  if (!session.bodyCache) session.bodyCache = new Map();
-  session.bodyCache.set(url, { buf: data.buf, ct: data.ct || '', at: Date.now() });
-}
+function rememberMedia(session, url, data) { cacheMedia(session, url, data); }
 
 async function capturePlaylistFromResponse(res) {
   let requestHeaders = {};
@@ -633,7 +619,7 @@ async function quietMintPage(page) {
       document.querySelectorAll('video, audio').forEach(el => {
         try {
           el.muted = true;
-          void el.play();
+          el.pause();
         } catch {
           /* ignore */
         }
@@ -645,6 +631,8 @@ async function quietMintPage(page) {
 /** Use Chromium's network stack without serializing TS through page.evaluate. */
 async function fetchViaCdp(page, url) {
   const client = await page.context().newCDPSession(page);
+  const timeout = setTimeout(() => { void client.detach().catch(() => {}); }, 8_000);
+  let stream;
   try {
     await client.send('Network.enable').catch(() => {});
     const { frameTree } = await client.send('Page.getFrameTree');
@@ -660,6 +648,7 @@ async function fetchViaCdp(page, url) {
     }
     let buf;
     if (resource.stream) {
+      stream = resource.stream;
       const chunks = [];
       for (;;) {
         const chunk = await client.send('IO.read', { handle: resource.stream, size: 262144 });
@@ -677,6 +666,8 @@ async function fetchViaCdp(page, url) {
     const ct = headers['content-type'] || headers['Content-Type'] || '';
     return { ct, buf };
   } finally {
+    clearTimeout(timeout);
+    if (stream) await client.send('IO.close', { handle: stream }).catch(() => {});
     await client.detach().catch(() => {});
   }
 }
@@ -699,108 +690,35 @@ async function fetchViaPageNetwork(page, url) {
 }
 
 async function fetchMedia(session, url) {
-  const isPlaylist = String(url).toLowerCase().includes('.m3u8');
-  if (!isPlaylist) {
-    const cached = takeCachedMedia(session, url);
-    if (cached) {
-      session.bodyCache?.delete(url);
-      logSafe('hop cache');
-      return cached;
+  return loadMedia(session, url, async () => {
+    const cookieHeader = await cookieHeaderForUrl(session, url);
+    const referer = embedRefererFrom(session.page, session.embedUrl);
+    const headers = mergeUpstreamHeaders(session, cookieHeader);
+    const transports = {
+      node: () => fetchUpstream(url, cookieHeader, referer, headers),
+      ...(session.page ? {
+        ...(allowsInPageEvaluate(url) ? { evaluate: () => fetchViaEvaluate(session.page, url) } : {}),
+        request: () => fetchViaPlaywrightRequest(session.page, url, headers),
+        cdp: () => fetchViaCdp(session.page, url),
+        network: () => fetchViaPageNetwork(session.page, url),
+      } : {}),
+    };
+    session.transports ??= new Map();
+    const key = new URL(url).host + (allowsInPageEvaluate(url) ? ':playlist' : ':segment');
+    const preferred = session.transports.get(key);
+    const order = [...new Set([preferred, ...Object.keys(transports)])].filter(name => transports[name]);
+    let lastError;
+    for (const name of order) {
+      try {
+        const data = await transports[name]();
+        session.transports.set(key, name);
+        return data;
+      } catch (err) { lastError = err; }
     }
-  }
-
-  const referer = embedRefererFrom(session.page, session.embedUrl);
-  const cookieHeader = await cookieHeaderForUrl(session, url);
-  const extraHeaders = mergeUpstreamHeaders(session, cookieHeader);
-  /** @type {Error | null} */
-  let lastErr = null;
-
-  // m3u8: omit-credential in-page fetch is the path that returned 200 on
-  // Cloud Run before credentials:include CORS-failed. Never evaluate TS.
-  if (session.page && allowsInPageEvaluate(url)) {
-    try {
-      const data = await fetchViaEvaluate(session.page, url);
-      rememberMedia(session, url, data);
-      return data;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      logSafe(`hop evaluate: ${lastErr.message}`);
-    }
-  }
-
-  if (session.page) {
-    try {
-      const data = await fetchViaPlaywrightRequest(session.page, url, extraHeaders);
-      rememberMedia(session, url, data);
-      return data;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      logSafe(`hop page.request: ${lastErr.message}`);
-    }
-  }
-
-  try {
-    const data = await fetchUpstream(url, cookieHeader, referer, extraHeaders);
-    rememberMedia(session, url, data);
-    return data;
-  } catch (err) {
-    lastErr = err instanceof Error ? err : new Error(String(err));
-    logSafe(`hop node: ${lastErr.message}`);
-  }
-
-  if (isPlaylist) {
-    const fresh = playlistFromCache(session, url, { allowStale: false });
-    if (fresh) {
-      logSafe('hop cache');
-      return fresh;
-    }
-    if (session.page) {
-      const deadline = Date.now() + 4_000;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 250));
-        const waited = playlistFromCache(session, url, { allowStale: false });
-        if (waited) {
-          logSafe('hop cache-wait');
-          return waited;
-        }
-      }
-    }
-    const stale = playlistFromCache(session, url, { allowStale: true });
-    if (stale) {
-      logSafe('hop cache-stale');
-      return stale;
-    }
-  }
-
-  if (session.page) {
-    try {
-      const data = await fetchViaCdp(session.page, url);
-      rememberMedia(session, url, data);
-      return data;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      logSafe(`hop cdp: ${lastErr.message}`);
-    }
-
-    try {
-      const data = await fetchViaPageNetwork(session.page, url);
-      rememberMedia(session, url, data);
-      return data;
-    } catch (err) {
-      lastErr = err instanceof Error ? err : new Error(String(err));
-      logSafe(`hop page.network: ${lastErr.message}`);
-    }
-  }
-
-  if (isPlaylist) {
-    const cached = playlistFromCache(session, url);
-    if (cached) {
-      logSafe('hop cache');
-      return cached;
-    }
-  }
-
-  throw lastErr || new Error('HLS media fetch failed');
+    // Serving an old live playlist (or another quality's playlist) conceals
+    // expired sessions and traps hls.js on segments that no longer exist.
+    throw lastError || new Error('HLS media unavailable');
+  });
 }
 
 async function tryClickPlay(page) {
@@ -884,6 +802,11 @@ async function newStealthContext(browserInstance, storageState) {
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
+  context.on('page', page => {
+    page.on('popup', popup => { void popup.close().catch(() => {}); });
+  });
+  await context.route(/enteringlacquergiant\.com|doubleclick\.net|googlesyndication\.com|histats\.com/i,
+    route => route.abort());
   return context;
 }
 
@@ -957,8 +880,8 @@ async function openFromMintCache(browserInstance, embedKey, mint) {
   }
 }
 
-export async function openHlsSession(embedUrlRaw) {
-  const embedUrl = isAllowedEmbedUrl(embedUrlRaw);
+export async function openHlsSession(embedUrlRaw, options = {}) {
+  const embedUrl = isAllowedEmbedUrl(await resolveNativeEmbed(embedUrlRaw));
   if (!embedUrl) {
     throw httpError('Invalid or disallowed embed URL', 400);
   }
@@ -974,7 +897,7 @@ export async function openHlsSession(embedUrlRaw) {
     await peer.catch(() => null);
   }
 
-  const cached = getValidMint(embedKey);
+  const cached = !options.refresh && getValidMint(embedKey);
   if (cached) {
     try {
       return await openFromMintCache(b, embedKey, cached);
@@ -1065,6 +988,8 @@ export async function closeSession(id) {
   session.closed = true;
   if (session._cacheOwner) session._cacheOwner.closed = true;
   sessions.delete(id);
+  session.bodyCache?.clear();
+  session.mediaInFlight?.clear();
   if (session.context) {
     await session.context.close().catch(() => {});
   }
@@ -1087,7 +1012,7 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
     try {
       buf = (await fetchMedia(session, session.playlistUrl)).buf;
     } catch (err) {
-      if (session.playlistBuf?.length) {
+      if (session.playlistBuf?.includes(Buffer.from('#EXT-X-STREAM-INF:'))) {
         buf = session.playlistBuf;
         logSafe('hop mint-playlist');
       } else {
@@ -1157,6 +1082,10 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
       };
     }
 
+    if (searchParams.get('key') === '1') {
+      if (buf.length !== 16) return { status: 502, type: 'text/plain', body: Buffer.from('Invalid AES key') };
+      return { status: 200, type: 'application/octet-stream', body: buf };
+    }
     buf = unwrapPngTs(buf);
     // Upstream sometimes returns HTTP 200 with a tiny "Not found" body for
     // expired/cookie-gated high-bitrate segments. Never hand that to hls.js
@@ -1170,7 +1099,7 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
     }
     return {
       status: 200,
-      type: 'video/mp2t',
+      type: buf[0] === 0x47 ? 'video/mp2t' : 'video/mp4',
       body: buf,
     };
   }
@@ -1218,7 +1147,8 @@ export async function tryHandleHlsRequest(req, res) {
       }
       const embed = parsed.searchParams.get('u') || '';
       try {
-        const opened = await openHlsSessionForRequest(embed, req);
+        const opened = await openHlsSessionForRequest(embed, req, { refresh: parsed.searchParams.get('refresh') === '1' });
+        if (res.destroyed || req.aborted) { await closeSession(opened.sessionId); return true; }
         logSafe(`open ok sessions=${sessions.size}/${MAX_SESSIONS} opens=${opensInFlight}/${MAX_OPENS_IN_FLIGHT}`);
         send(200, 'application/json; charset=utf-8', JSON.stringify(opened));
       } catch (err) {

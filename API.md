@@ -518,4 +518,4 @@ See `.env.example`:
 
 ## Playback note
 
-SportSRC embeds typically land on `embed.streamapi.cc` (often nesting `embed.st`). StreamZone always routes those through `/__embed` with ad stripping; native HLS is reserved for Streamed `embed.st` embeds.
+SportSRC embeds typically land on `embed.streamapi.cc` (often nesting `embed.st`). StreamZone sends both providers to `/api/hls/open?u=...`. The server unwraps SportSRC pages as data and resolves the nested player. The viewer receives only same-origin media; no iframe fallback is permitted.

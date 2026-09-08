@@ -12,7 +12,7 @@ COPY embed-proxy/ embed-proxy/
 COPY public/ public/
 COPY style.css index.html ./
 
-# Do not set VITE_EMBED_PROXY=1 — rewriting embeds onto our origin breaks playback.
+# Provider pages are resolved on the server; the viewer receives native HLS only.
 RUN npm run build
 
 # Stage 2: Node + Playwright Chromium for native HLS resolve (/api/hls/*).
@@ -36,7 +36,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist/ /app/dist/
-COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs embed-proxy/sportsrc.mjs embed-proxy/securityHeaders.mjs /app/embed-proxy/
+COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs embed-proxy/sportsrc.mjs embed-proxy/securityHeaders.mjs embed-proxy/playbackCache.mjs embed-proxy/resolveEmbed.mjs /app/embed-proxy/
 
 EXPOSE 80
 

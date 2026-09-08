@@ -48,6 +48,22 @@ describe('hlsNative helpers', () => {
     expect(absolutizePlaylistUri(u, 'https://lb1.strmd.st/a/playlist.m3u8')).toBe(u);
   });
 
+  it('keeps encryption keys, init segments, and alternate audio behind the proxy', () => {
+    const prefix = '/api/hls/abc/p';
+    const base = 'https://lb1.strmd.st/live/master.m3u8';
+    const rewritten = rewriteM3uForProxy([
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=AES-128,URI="key.bin"',
+      '#EXT-X-MAP:URI="init.mp4"',
+      '#EXT-X-MEDIA:TYPE=AUDIO,URI="audio.m3u8"',
+      '#EXT-X-I-FRAME-STREAM-INF:URI="iframe.m3u8"',
+    ].join('\n'), base, prefix);
+    expect(rewritten).toContain(`URI="${prefix}?u=${encodeURIComponent('https://lb1.strmd.st/live/key.bin')}&key=1"`);
+    for (const file of ['init.mp4', 'audio.m3u8', 'iframe.m3u8']) {
+      expect(rewritten).toContain(`URI="${prefix}?u=${encodeURIComponent(`https://lb1.strmd.st/live/${file}`)}"`);
+    }
+  });
+
   it('strips a PNG wrapper leaving the MPEG-TS payload', () => {
     // Minimal 1x1 PNG + fake TS sync byte
     const png = Buffer.from(

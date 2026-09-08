@@ -13,6 +13,7 @@ export function showHome(): void {
   el('multiview-view')?.classList.add('hidden');
   el('home-view')?.classList.remove('hidden');
   state.currentMatch = null;
+  state.selectedStream = null;
   stopAllIframes();
   window.scrollTo({ top: 0, behavior: 'smooth' });
   document.title = 'StreamZone — Live Sports Streaming';

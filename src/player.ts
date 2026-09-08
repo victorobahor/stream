@@ -1,6 +1,6 @@
 import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
-import { el, cssUrl, applyEmbed, clearEmbed, setHostImage, log, resolveEmbedForPlayback, embedUrlForIframe } from './helpers';
+import { el, cssUrl, clearEmbed, setHostImage, log } from './helpers';
 import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
 import {
   loadStreams as fetchStreams,
@@ -9,13 +9,14 @@ import {
   isSportsrcSource,
 } from './api';
 import { badgeImagePath } from './state';
-import { mountPlayGate } from './adShield';
-import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls, isHlsUnsupportedEmbed } from './hlsPlayer';
+import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
 
 // ── Module level state for caching active elements ──
 let activeStreamTab: HTMLElement | null = null;
-/** When true, a native HLS failure advances to the next match source before iframe. */
+/** Automatically try the remaining native streams/providers after a failure. */
 let allowHlsSourceFailover = false;
+let availableStreams: Stream[] = [];
+const failedEmbeds = new Set<string>();
 
 // ── Source bar active ──
 
@@ -60,8 +61,9 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
     }
 
     tab.onclick = () => {
-      // Manual pick: stay on this source (iframe fallback) instead of auto-advancing.
-      allowHlsSourceFailover = false;
+      // Manual picks start a fresh attempt; unavailable streams never open ad pages.
+      allowHlsSourceFailover = true;
+      failedEmbeds.clear();
       selectStream(stream, tab);
     };
     fragment.appendChild(tab);
@@ -94,6 +96,9 @@ export function renderSourceButtons(sources: StreamSource[]): void {
     btn.onclick = () => {
       if (i === state.activeSourceIndex) return;
       state.activeSourceIndex = i;
+      failedEmbeds.clear();
+      state.selectedStream = null;
+      stopNativeHls(MAIN_PLAYER_KEY);
       updateSourceBarActive(i);
       allowHlsSourceFailover = true;
       void loadAndDisplayStreams(src);
@@ -113,6 +118,7 @@ function playableStreams(streams: Stream[]): Stream[] {
 
 async function loadAndDisplayStreams(src: { source: string; id: string; category?: string }): Promise<void> {
   const requestId = ++streamLoadRequestId;
+  const match = state.currentMatch;
   const streamsLoading = el('streams-loading');
   const noStreams = el('no-streams');
   const streamTabs = el('stream-tabs');
@@ -128,7 +134,7 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
     streams = playableStreams(streams);
 
     // Discard stale response if user navigated away
-    if (requestId !== streamLoadRequestId) return;
+    if (requestId !== streamLoadRequestId || state.currentMatch !== match || !match) return;
 
     if (streamsLoading) streamsLoading.classList.add('hidden');
     if (streams.length === 0) {
@@ -139,18 +145,20 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
         const p = noStreams.querySelector('p');
         if (p) p.textContent = 'No working streams found for any source of this match.';
       }
+      showPlaybackError();
       return;
     }
+    availableStreams = streams;
     renderStreamTabs(streams, src.source);
     if (streamCount) streamCount.textContent = `${streams.length} stream${streams.length > 1 ? 's' : ''}`;
-    const best = pickPreferredStream(streams);
+    const best = pickPreferredStream(streams.filter(s => !failedEmbeds.has(s.embedUrl)));
     if (best) {
       const idx = streams.indexOf(best);
       allowHlsSourceFailover = true;
       selectStream(best, streamTabs?.querySelectorAll('.stream-tab')[idx] as HTMLButtonElement);
-    }
+    } else if (!tryNextSource()) { showPlaybackError(); }
   } catch (err) {
-    if (requestId !== streamLoadRequestId) return;
+    if (requestId !== streamLoadRequestId || state.currentMatch !== match || !match) return;
     if (streamsLoading) streamsLoading.classList.add('hidden');
     invalidateStreamsCache(src.source, src.id, src.category);
     if (tryNextSource()) return;
@@ -159,174 +167,57 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
       const p = noStreams.querySelector('p');
       if (p) p.textContent = `Failed: ${err instanceof Error ? err.message : String(err)}. No other sources available.`;
     }
+    showPlaybackError();
   }
 }
 
 // ── Select stream ──
 
-const EMBED_LOAD_TIMEOUT_MS = 5000;
-/** After iframe reveal, wait before auto-advancing to the next catalog source. */
-const EMBED_FAILOVER_MS = 15_000;
-
-/** Live timer for the current embed's load fallback — one at a time. */
-let embedLoadTimer: ReturnType<typeof setTimeout> | null = null;
-let embedFailoverTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearEmbedLoadTimer(): void {
-  if (embedLoadTimer !== null) {
-    clearTimeout(embedLoadTimer);
-    embedLoadTimer = null;
-  }
-}
-
-function clearEmbedFailoverTimer(): void {
-  if (embedFailoverTimer !== null) {
-    clearTimeout(embedFailoverTimer);
-    embedFailoverTimer = null;
-  }
-}
-
-let loadingStageTimers: ReturnType<typeof setTimeout>[] = [];
-
-function clearLoadingStages(): void {
-  for (const t of loadingStageTimers) clearTimeout(t);
-  loadingStageTimers = [];
-}
-
-function setLoadingStage(text: string): void {
-  const p = el('player-loading-text');
-  if (p) p.textContent = text;
-}
-
-function startLoadingStages(): void {
-  clearLoadingStages();
-  setLoadingStage('Opening secure stream…');
-  loadingStageTimers.push(setTimeout(() => setLoadingStage('Resolving playlist…'), 2500));
-  loadingStageTimers.push(setTimeout(() => setLoadingStage('Buffering…'), 8000));
-  loadingStageTimers.push(
-    setTimeout(() => setLoadingStage('Still working — large streams can take a moment…'), 15000),
-  );
-}
-
-function playViaIframe(
-  embedUrl: string,
-  opts?: { onEmbedFailed?: () => void },
-): void {
-  const iframe = el('stream-iframe') as HTMLIFrameElement | null;
-  const playerLoading = el('player-loading');
-  if (!iframe) return;
-
-  iframe.classList.add('hidden');
-  clearEmbedLoadTimer();
-  clearEmbedFailoverTimer();
-  const container = el('player-container');
-  container?.querySelectorAll('.player-gate').forEach(g => g.remove());
-
-  let revealed = false;
-  const reveal = () => {
-    if (revealed) return;
-    revealed = true;
-    clearEmbedLoadTimer();
-    clearLoadingStages();
-    playerLoading?.classList.add('hidden');
-    setLoadingStage('Loading stream…');
-    iframe.classList.remove('hidden');
-    // Gate sits above the iframe so the embed's first PopUnder gesture is ours.
-    if (container) mountPlayGate(container);
-    if (opts?.onEmbedFailed) {
-      embedFailoverTimer = setTimeout(() => {
-        embedFailoverTimer = null;
-        opts.onEmbedFailed?.();
-      }, EMBED_FAILOVER_MS);
-    }
-  };
-
-  iframe.onload = reveal;
-  applyEmbed(iframe, embedUrl);
-  embedLoadTimer = setTimeout(reveal, EMBED_LOAD_TIMEOUT_MS);
+function showPlaybackError(): void {
+  el('player-loading')?.classList.add('hidden');
+  const error = el('player-placeholder');
+  if (!error) return;
+  error.classList.remove('hidden');
+  const message = error.querySelector('p');
+  if (message) message.textContent = 'No ad-free stream is available right now. Try another source or stream.';
 }
 
 export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
-  if (!stream?.embedUrl) {
-    if (allowHlsSourceFailover && tryNextSource()) return;
-    showToast('No embed URL available for this stream.', 'error');
-    return;
-  }
+  if (!stream?.embedUrl) { showPlaybackError(); return; }
   state.selectedStream = stream;
   if (tabEl) {
-    if (activeStreamTab) activeStreamTab.classList.remove('active');
+    activeStreamTab?.classList.remove('active');
     tabEl.classList.add('active');
     activeStreamTab = tabEl;
   }
-
-  const iframe = el('stream-iframe') as HTMLIFrameElement | null;
-  const playerPlaceholder = el('player-placeholder');
-  const playerLoading = el('player-loading');
-
-  if (playerPlaceholder) playerPlaceholder.classList.add('hidden');
-  if (playerLoading) {
-    playerLoading.classList.remove('hidden');
-    startLoadingStages();
-  }
-
-  // Prefer native HLS (no iframe ads). Fall back to embed iframe + click-gate.
   stopNativeHls(MAIN_PLAYER_KEY);
-  if (iframe) {
-    clearEmbedLoadTimer();
-    clearEmbedFailoverTimer();
-    iframe.onload = null;
-    clearEmbed(iframe);
-    iframe.classList.add('hidden');
-  }
-  el('player-container')?.querySelectorAll('.player-gate').forEach(g => g.remove());
-
-  const streamLabel = stream.streamNo ?? 1;
-  const toast = `Stream ${streamLabel} — ${stream.language || 'Unknown'} ${stream.hd ? '(HD)' : '(SD)'}`;
+  el('player-placeholder')?.classList.add('hidden');
+  el('player-loading')?.classList.remove('hidden');
+  const loadingText = el('player-loading-text');
+  if (loadingText) loadingText.textContent = 'Connecting to stream…';
   const video = el('stream-video') as HTMLVideoElement | null;
-
-  void (async () => {
-    // SportSRC streamapi wrappers → unwrap nested embed.st for native HLS only.
-    const hlsUrl = await resolveEmbedForPlayback(stream.embedUrl);
-    const iframeUrl = embedUrlForIframe(stream.embedUrl, hlsUrl);
-    if (state.selectedStream !== stream) return;
-
-    const nativeOk = !!video && (await playNativeHls(hlsUrl, {
-      key: MAIN_PLAYER_KEY,
-      video,
-      onReady: () => {
-        el('player-container')?.querySelectorAll('.player-gate').forEach(g => g.remove());
-      },
-    }));
-    if (state.selectedStream !== stream) return;
-    if (nativeOk) {
-      clearLoadingStages();
-      setLoadingStage('Loading stream…');
-      playerLoading?.classList.add('hidden');
-      showToast(`${toast} · native`, 'success');
+  const match = state.currentMatch;
+  const current = () => state.selectedStream === stream && state.currentMatch === match && !!match;
+  const failed = () => {
+    if (!current()) return;
+    failedEmbeds.add(stream.embedUrl);
+    const source = match?.sources[state.activeSourceIndex];
+    if (source) invalidateStreamsCache(source.source, source.id, source.category);
+    const next = pickPreferredStream(availableStreams.filter(s => !failedEmbeds.has(s.embedUrl)));
+    if (allowHlsSourceFailover && next) {
+      const idx = availableStreams.indexOf(next);
+      selectStream(next, el('stream-tabs')?.querySelectorAll<HTMLButtonElement>('.stream-tab')[idx]);
       return;
     }
-    // SportSRC/streamapi embeds skip native HLS by design — go straight to the
-    // proxied iframe. Delta shells are often empty — skip iframe and failover.
-    const hlsWasSkipped = isHlsUnsupportedEmbed(stream.embedUrl);
-    if (
-      allowHlsSourceFailover &&
-      !hlsWasSkipped &&
-      stream.source === 'delta' &&
-      tryNextSource()
-    ) {
-      return;
-    }
-    setLoadingStage('Starting embed player…');
-    // SportSRC: proxied streamapi shell. Streamed: direct embed.st iframe.
-    playViaIframe(iframeUrl, {
-      onEmbedFailed: () => {
-        if (state.selectedStream !== stream) return;
-        if (!allowHlsSourceFailover || hlsWasSkipped) return;
-        tryNextSource();
-      },
-    });
-    showToast(toast, 'success');
-  })();
+    if (allowHlsSourceFailover && tryNextSource()) return;
+    showPlaybackError();
+  };
+  if (!video) { failed(); return; }
+  void playNativeHls(stream.embedUrl, {
+    key: MAIN_PLAYER_KEY, video,
+    onReady: () => { if (current()) el('player-loading')?.classList.add('hidden'); },
+    onError: failed,
+  }).then(ok => { if (!ok) failed(); }).catch(failed);
 }
 
 // ── Try next source ──
@@ -343,7 +234,7 @@ function tryNextSource(): boolean {
   const label = isSportsrcSource(match.sources[next].source)
     ? 'SportSRC'
     : capitalize(match.sources[next].source);
-  showToast(`Streamed source unavailable — trying ${label}\u2026`, 'error');
+  showToast(`Stream unavailable — trying ${label}\u2026`, 'error');
   void loadAndDisplayStreams(match.sources[next]);
   return true;
 }
@@ -354,6 +245,7 @@ export function openPlayer(match: APIMatch): void {
   if (!match) return;
   state.currentMatch = match;
   state.selectedStream = null;
+  failedEmbeds.clear();
   state.activeSourceIndex = 0;
 
   document.body.classList.remove('multiview-active');
@@ -367,11 +259,9 @@ export function openPlayer(match: APIMatch): void {
   renderPlayerInfo(match);
 
   // Reset player
-  stopNativeHls(MAIN_PLAYER_KEY);
+  stopNativeHls();
   const iframe = el('stream-iframe') as HTMLIFrameElement | null;
   if (iframe) {
-    clearEmbedLoadTimer();
-    clearEmbedFailoverTimer();
     clearEmbed(iframe); // also nulls onload, so the about:blank load is not mistaken for the embed
     iframe.classList.add('hidden');
   }

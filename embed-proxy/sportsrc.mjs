@@ -81,7 +81,7 @@ async function upstream(params) {
   const headers = { Accept: 'application/json' };
   if (API_KEY) headers['X-API-KEY'] = API_KEY;
 
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(12_000) });
   const text = await res.text();
   let body;
   try {

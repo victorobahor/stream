@@ -15,14 +15,11 @@ describe('Content Security Policy', () => {
     expect(csp).not.toContain('frame-src *');
   });
 
-  it('should allow Streamed and SportSRC embed hosts', () => {
-    expect(csp).toContain(
-      "frame-src 'self' https://embed.st https://www.embed.st https://embed.streamapi.cc https://football77.org https://www.football77.org https://embed.sportsrc.org",
-    );
-    const frameSrc = csp.split(';').map(s => s.trim()).find(s => s.startsWith('frame-src'));
-    expect(frameSrc).toBe(
-      "frame-src 'self' https://embed.st https://www.embed.st https://embed.streamapi.cc https://football77.org https://www.football77.org https://embed.sportsrc.org",
-    );
+  it('blocks iframe players so neither provider can execute ads in the app', () => {
+    expect(csp).toContain("frame-src 'none'");
+    for (const file of ['../vite.config.ts', '../embed-proxy/securityHeaders.mjs']) {
+      expect(readFileSync(resolve(__dirname, file), 'utf8')).toContain("frame-src 'none'");
+    }
   });
 
   it('should keep script-src locked to self', () => {
