@@ -1,0 +1,3 @@
+## 2024-05-18 - Caching Array lookups in formatters
+**Learning:** Formatting functions like `formatSportLabel` are called repeatedly for each item during UI render loops. When they rely on an O(N) array search over global state (`state.sports.find()`), the render cost scales quadratically (O(N*M)) which can cause severe jank in vanilla JS apps without pagination or virtualization.
+**Action:** Implement localized O(1) Map caching inside frequently accessed helper functions. Invalidate the cache using a lightweight reference equality check (`state.array !== lastRef`) to keep the overhead minimal and maintain correctness without requiring complex architectural changes.
