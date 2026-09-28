@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-async function fixtures(page: Page, options: { failPrimary?: boolean; failAll?: boolean; emptyFallback?: boolean } = {}) {
+async function fixtures(page: Page, options: { failPrimary?: boolean; failAll?: boolean; emptyFallback?: boolean; failureStatus?: number } = {}) {
   let nextId = 0;
   let opening = 0;
   let peakOpens = 0;
@@ -37,7 +37,7 @@ async function fixtures(page: Page, options: { failPrimary?: boolean; failAll?: 
       await new Promise(r => setTimeout(r, 150));
       opening--;
       if (options.failAll || (options.failPrimary && embed.includes('embed.st/'))) {
-        return route.fulfill({ status: 422, json: { error: 'No playable source' } });
+        return route.fulfill({ status: options.failureStatus ?? 422, json: { error: 'No playable source' } });
       }
       const sessionId = (++nextId).toString(16).padStart(24, '0');
       return json({ sessionId, masterUrl: `/api/hls/${sessionId}/master.m3u8` });
@@ -126,7 +126,7 @@ test('four actual videos tolerate delayed segments and 503s without ads or resta
 });
 
 test('a failed provider moves to SportSRC; an unavailable match never opens ad frames', async ({ page, context }) => {
-  await fixtures(page, { failPrimary: true });
+  await fixtures(page, { failPrimary: true, failureStatus: 502 });
   await fillFour(page);
   await expect.poll(async () => (await health(page)).filter(v => v.time > 1).length).toBe(4);
   for (let i = 0; i < 4; i++) await expect(page.locator('.mv-slot').nth(i).locator('select').first()).toHaveValue('sportsrc');
@@ -134,10 +134,21 @@ test('a failed provider moves to SportSRC; an unavailable match never opens ad f
   expect(context.pages()).toHaveLength(1);
 });
 
+test('the main player explains provider outages after trying each source once', async ({ page, context }) => {
+  const fixture = await fixtures(page, { failAll: true, failureStatus: 502 });
+  await page.locator('.match-card').first().click();
+  await expect(page.locator('#player-placeholder')).toContainText('The stream provider is temporarily unavailable');
+  await expect(page.locator('#player-loading')).toBeHidden();
+  expect(fixture.requests.filter(url => url.includes('/api/hls/open?'))).toHaveLength(2);
+  await expect(page.locator('iframe')).toHaveCount(0);
+  expect(context.pages()).toHaveLength(1);
+});
+
 test('unavailable sources show a retry action instead of falling back to ads', async ({ page, context }) => {
-  await fixtures(page, { failAll: true });
+  await fixtures(page, { failAll: true, failureStatus: 502 });
   await fillFour(page);
   await expect(page.getByRole('button', { name: 'Retry stream' })).toHaveCount(4);
+  await expect(page.getByText('The stream provider is temporarily unavailable. Try another stream or retry later.', { exact: true })).toHaveCount(4);
   await expect(page.locator('iframe')).toHaveCount(0);
   expect(context.pages()).toHaveLength(1);
 });

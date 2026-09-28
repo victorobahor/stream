@@ -44,6 +44,18 @@ beforeEach(() => {
 afterEach(() => { stopNativeHls(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('native playback lifecycle', () => {
+  it('reports an upstream outage once and immediately releases the slot for failover', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      code: 'HLS_UPSTREAM_ERROR', upstreamStatus: 500, error: '<script>untrusted provider text</script>',
+    }), { status: 502 }));
+    vi.stubGlobal('fetch', fetch);
+    const onUnavailable = vi.fn();
+    await expect(playNativeHls(url, { video: video(), key: 'main', onUnavailable })).resolves.toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(onUnavailable).toHaveBeenCalledWith('The stream provider is temporarily unavailable. Try another stream or retry later.');
+    expect(getActiveHlsSessionId('main')).toBeNull();
+    expect(mock.players).toHaveLength(0);
+  });
   it('waits for a startup buffer before requesting video playback', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response('abc1')));
     vi.mocked(Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'buffered')!.get!)

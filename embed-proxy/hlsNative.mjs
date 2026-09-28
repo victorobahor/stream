@@ -66,7 +66,7 @@ const openHitsByIp = new Map();
 const mintCache = new Map();
 /** @type {Map<string, Promise<MintCacheEntry | null>>} */
 const mintInFlight = new Map();
-/** @type {Map<string, number>} embedKey → fail-until timestamp */
+/** @type {Map<string, { until: number, message: string, statusCode: number, code?: string, upstreamStatus?: number }>} */
 const failCache = new Map();
 let opensInFlight = 0;
 
@@ -134,20 +134,26 @@ function getValidMint(embedKey) {
 }
 
 function assertNotRecentlyFailed(embedKey) {
-  const until = failCache.get(embedKey);
-  if (!until) return;
-  if (until <= Date.now()) {
+  const failure = failCache.get(embedKey);
+  if (!failure) return;
+  if (failure.until <= Date.now()) {
     failCache.delete(embedKey);
     return;
   }
-  const err = new Error('Recent HLS resolve failed for this embed');
-  err.statusCode = 503;
-  throw err;
+  throw Object.assign(new Error(failure.message), {
+    statusCode: failure.statusCode, code: failure.code, upstreamStatus: failure.upstreamStatus,
+  });
 }
 
-function markResolveFailed(embedKey) {
+function markResolveFailed(embedKey, err) {
   if (FAIL_CACHE_TTL_MS <= 0) return;
-  failCache.set(embedKey, Date.now() + FAIL_CACHE_TTL_MS);
+  failCache.set(embedKey, {
+    until: Date.now() + FAIL_CACHE_TTL_MS,
+    message: err instanceof Error ? err.message : 'HLS resolve failed',
+    statusCode: err?.statusCode || 503,
+    code: err?.code,
+    upstreamStatus: err?.upstreamStatus,
+  });
 }
 
 /** True when a network response is a usable HLS playlist (not an ad beacon). */
@@ -361,7 +367,7 @@ function ensureJanitor() {
   janitor = setInterval(() => {
     const now = Date.now();
     for (const [key, mint] of mintCache) if (mint.expires < now) mintCache.delete(key);
-    for (const [key, until] of failCache) if (until < now) failCache.delete(key);
+    for (const [key, failure] of failCache) if (failure.until < now) failCache.delete(key);
     for (const [ip, hits] of openHitsByIp) if (!hits.some(t => now - t < OPEN_RATE_WINDOW_MS)) openHitsByIp.delete(ip);
     for (const [id, session] of sessions) {
       if (now - session.lastAccess > SESSION_TTL_MS) {
@@ -741,51 +747,88 @@ async function tryClickPlay(page) {
   }
 }
 
-async function resolvePlaylist(page, embedUrl) {
-  /** @type {{ url: string, body: Buffer | null, requestHeaders: Record<string, string> } | null} */
-  let playlist = null;
-  /** @type {Promise<{ url: string, body: Buffer | null, requestHeaders: Record<string, string> }> | null} */
-  let pending = null;
-
-  const beginCapture = res => {
-    if (playlist || pending) return;
-    if (!isCandidatePlaylistUrl(res.url(), res.status())) return;
-    pending = capturePlaylistFromResponse(res).then(cap => {
-      playlist = cap;
-      return cap;
-    });
+/** Capture a valid playlist, including providers which return HTTP 200 error pages. */
+export async function resolvePlaylist(page, embedUrl, { timeoutMs = RESOLVE_TIMEOUT_MS } = {}) {
+  let finished = false;
+  let timer;
+  let clickTimer;
+  let lastFailure;
+  const failures = new Map();
+  let succeed;
+  let fail;
+  const result = new Promise((resolve, reject) => { succeed = resolve; fail = reject; });
+  const recordFailure = (url, error) => {
+    if (finished) return;
+    lastFailure = error;
+    const count = (failures.get(url) || 0) + 1;
+    failures.set(url, count);
+    // Allow the provider's own retries, but don't occupy a Chromium slot for
+    // 45 seconds after the same playlist has repeatedly failed.
+    if (count >= 3) { finished = true; fail(error); }
   };
-
+  const beginCapture = async res => {
+    if (finished || !isCandidatePlaylistUrl(res.url())) return;
+    const status = res.status();
+    if (status >= 400) {
+      recordFailure(res.url(), Object.assign(httpError(`Stream provider returned HTTP ${status}`, 502), {
+        code: 'HLS_UPSTREAM_ERROR', upstreamStatus: status,
+      }));
+      return;
+    }
+    if (status !== 200) return;
+    try {
+      const captured = await capturePlaylistFromResponse(res);
+      if (finished) return;
+      if (!captured.body || !/^#EXTM3U(?:\r?\n|$)/.test(captured.body.toString('utf8').trimStart())) {
+        recordFailure(res.url(), Object.assign(httpError('Stream provider returned an invalid HLS playlist', 502), {
+          code: 'HLS_INVALID_PLAYLIST',
+        }));
+        return;
+      }
+      finished = true;
+      succeed(captured);
+    } catch {
+      recordFailure(res.url(), Object.assign(httpError('Could not read the provider playlist', 502), {
+        code: 'HLS_INVALID_PLAYLIST',
+      }));
+    }
+  };
   page.on('response', beginCapture);
-
-  try {
-    await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-
-    const deadline = Date.now() + RESOLVE_TIMEOUT_MS;
-    let clicks = 0;
-    while (!playlist && !pending && Date.now() < deadline) {
-      if (clicks < 4) {
-        await tryClickPlay(page);
-        clicks++;
+  // One deadline covers navigation, retries, and response body capture.
+  timer = setTimeout(() => {
+    finished = true;
+    fail(lastFailure || Object.assign(httpError('Timed out waiting for the stream provider', 504), {
+      code: 'HLS_RESOLVE_TIMEOUT',
+    }));
+  }, timeoutMs);
+  const navigate = async () => {
+    try {
+      const response = await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+      if (finished) return;
+      if (response && response.status() >= 400) {
+        finished = true;
+        fail(Object.assign(httpError(`Stream provider page returned HTTP ${response.status()}`, 502), {
+          code: 'HLS_UPSTREAM_ERROR', upstreamStatus: response.status(),
+        }));
+        return;
       }
-      try {
-        const res = await page.waitForResponse(
-          r => isCandidatePlaylistUrl(r.url(), r.status()),
-          { timeout: 2_000 },
-        );
-        beginCapture(res);
-      } catch {
-        /* click / wait again until deadline */
-      }
+      let clicks = 0;
+      const click = async () => {
+        if (finished || clicks++ >= 4) return;
+        await tryClickPlay(page).catch(() => {});
+        if (!finished) clickTimer = setTimeout(() => { void click(); }, 2_000);
+      };
+      void click();
+    } catch (error) {
+      if (!finished) { finished = true; fail(error); }
     }
-    if (pending && !playlist) {
-      await pending.catch(() => null);
-    }
-    if (!playlist?.url) {
-      throw httpError('Timed out waiting for playlist.m3u8', 503);
-    }
-    return playlist;
-  } finally {
+  };
+  void navigate();
+  try { return await result; }
+  finally {
+    finished = true;
+    clearTimeout(timer);
+    clearTimeout(clickTimer);
     page.off('response', beginCapture);
   }
 }
@@ -887,14 +930,15 @@ export async function openHlsSession(embedUrlRaw, options = {}) {
   }
 
   ensureJanitor();
-  const b = await getBrowser();
   const embedKey = embedUrl.toString();
   assertNotRecentlyFailed(embedKey);
+  const b = await getBrowser();
 
   // Wait for a peer mint of the same embed, then try the cache.
   const peer = mintInFlight.get(embedKey);
   if (peer) {
     await peer.catch(() => null);
+    assertNotRecentlyFailed(embedKey);
   }
 
   const cached = !options.refresh && getValidMint(embedKey);
@@ -923,19 +967,6 @@ export async function openHlsSession(embedUrlRaw, options = {}) {
 
   try {
     const captured = await resolvePlaylist(page, embedKey);
-    const hasVariant = () =>
-      [...cacheOwner.bodyCache.keys()].some(k => String(k).includes('mono.m3u8'));
-    if (!hasVariant()) {
-      await page
-        .waitForResponse(r => {
-          try {
-            return r.status() === 200 && new URL(r.url()).pathname.toLowerCase().includes('mono.m3u8');
-          } catch {
-            return false;
-          }
-        }, { timeout: 8_000 })
-        .catch(() => {});
-    }
     const playlistUrl = captured.url;
     const playerHeaders = captured.requestHeaders || {};
     const playlistBuf = captured.body;
@@ -969,7 +1000,7 @@ export async function openHlsSession(embedUrlRaw, options = {}) {
     }
   } catch (err) {
     settle?.resolve(null);
-    markResolveFailed(embedKey);
+    markResolveFailed(embedKey, err);
     await context.close().catch(() => {});
     if (err && typeof err === 'object' && !err.statusCode) {
       err.statusCode = 503;
@@ -1156,6 +1187,8 @@ export async function tryHandleHlsRequest(req, res) {
         logSafe(`open ${status}: ${err instanceof Error ? err.message : String(err)} sessions=${sessions.size} opens=${opensInFlight}`);
         send(status, 'application/json; charset=utf-8', JSON.stringify({
           error: err instanceof Error ? err.message : String(err),
+          code: err?.code,
+          upstreamStatus: err?.upstreamStatus,
         }));
       }
       return true;

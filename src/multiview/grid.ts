@@ -263,11 +263,13 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
     slotEl.appendChild(overlayEl);
 
     const current = () => document.body.classList.contains('multiview-active') && state.multiviewSlots[i] === slot && video.isConnected;
-    const failed = () => { if (current()) failMultiviewSlot(i, slot); };
+    let unavailableReason: string | undefined;
+    const failed = () => { if (current()) failMultiviewSlot(i, slot, unavailableReason); };
     void playNativeHls(desiredUrl, {
       key: mvPlayerKey(i), video,
       onReady: () => { if (current()) overlayEl.remove(); },
       onError: failed,
+      onUnavailable: message => { if (current()) unavailableReason = message; },
     }).then(ok => { if (!ok) failed(); }).catch(failed);
   }
 

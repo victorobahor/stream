@@ -40,6 +40,8 @@ describe('shouldRetryHlsOpen', () => {
     expect(shouldRetryHlsOpen(429)).toBe(true);
     expect(shouldRetryHlsOpen(503)).toBe(true);
     expect(shouldRetryHlsOpen(400)).toBe(false);
+    expect(shouldRetryHlsOpen(502)).toBe(false);
+    expect(shouldRetryHlsOpen(504)).toBe(false);
     expect(shouldRetryHlsOpen(200)).toBe(false);
   });
 });

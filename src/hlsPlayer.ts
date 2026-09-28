@@ -52,6 +52,8 @@ export type PlayNativeOptions = {
   onReady?: () => void;
   /** Called after playback started and bounded recovery has been exhausted. */
   onError?: () => void;
+  /** Safe, user-facing reason for a failed open; callers still own failover. */
+  onUnavailable?: (message: string) => void;
 };
 
 /** Native playback with owned sessions, bounded recovery, and no iframe fallback. */
@@ -121,7 +123,14 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
         });
         if (!response.ok) {
           if (!current()) return null;
-          if (!shouldRetryHlsOpen(response.status) || attempt === 2) throw new Error(`HLS open ${response.status}`);
+          if (!shouldRetryHlsOpen(response.status) || attempt === 2) {
+            opts.onUnavailable?.(response.status === 502 || response.status === 504
+              ? 'The stream provider is temporarily unavailable. Try another stream or retry later.'
+              : response.status === 429 || response.status === 503
+                ? 'The player is busy or temporarily unavailable. Please retry shortly.'
+                : 'This source has no supported ad-free stream. Try another source.');
+            throw new Error(`HLS open ${response.status}`);
+          }
           await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
           continue;
         }

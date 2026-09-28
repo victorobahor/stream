@@ -243,7 +243,7 @@ export async function loadMultiviewSlotStream(
 }
 
 /** Try every stream and then provider once; never mount a third-party iframe. */
-export function failMultiviewSlot(i: number, slot: MultiviewSlot): void {
+export function failMultiviewSlot(i: number, slot: MultiviewSlot, reason?: string): void {
   if (state.multiviewSlots[i] !== slot) return;
   const activeSource = slot.match.sources.find(source => source.source === slot.sourceName);
   if (activeSource) invalidateStreamsCache(activeSource.source, activeSource.id, activeSource.category);
@@ -264,7 +264,7 @@ export function failMultiviewSlot(i: number, slot: MultiviewSlot): void {
     void loadMultiviewSlotStream(i, slot.match, source.source, 0, { failedEmbeds: [...failed] });
     return;
   }
-  slot.playbackError = 'No ad-free stream is available. Try again shortly.';
+  slot.playbackError = reason || 'No ad-free stream is available. Try again shortly.';
   renderMultiviewSlot(i);
 }
 

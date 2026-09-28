@@ -173,13 +173,13 @@ async function loadAndDisplayStreams(src: { source: string; id: string; category
 
 // ── Select stream ──
 
-function showPlaybackError(): void {
+function showPlaybackError(reason?: string): void {
   el('player-loading')?.classList.add('hidden');
   const error = el('player-placeholder');
   if (!error) return;
   error.classList.remove('hidden');
   const message = error.querySelector('p');
-  if (message) message.textContent = 'No ad-free stream is available right now. Try another source or stream.';
+  if (message) message.textContent = reason || 'No ad-free stream is available right now. Try another source or stream.';
 }
 
 export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
@@ -197,6 +197,7 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
   if (loadingText) loadingText.textContent = 'Connecting to stream…';
   const video = el('stream-video') as HTMLVideoElement | null;
   const match = state.currentMatch;
+  let unavailableReason: string | undefined;
   const current = () => state.selectedStream === stream && state.currentMatch === match && !!match;
   const failed = () => {
     if (!current()) return;
@@ -210,13 +211,14 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
       return;
     }
     if (allowHlsSourceFailover && tryNextSource()) return;
-    showPlaybackError();
+    showPlaybackError(unavailableReason);
   };
   if (!video) { failed(); return; }
   void playNativeHls(stream.embedUrl, {
     key: MAIN_PLAYER_KEY, video,
     onReady: () => { if (current()) el('player-loading')?.classList.add('hidden'); },
     onError: failed,
+    onUnavailable: message => { if (current()) unavailableReason = message; },
   }).then(ok => { if (!ok) failed(); }).catch(failed);
 }
 
