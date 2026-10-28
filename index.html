@@ -6,16 +6,15 @@
   <title>StreamZone — Live Sports Streaming</title>
   <meta name="description" content="Watch live sports streams for football, basketball, tennis, and more — free, no signup required.">
   <meta property="og:title" content="StreamZone — Live Sports Streaming">
-  <meta property="og:description" content="Free live sports streaming powered by Streamed API">
+  <meta property="og:description" content="Free live sports streaming powered by SportSRC">
   <meta name="keywords" content="live sports streaming, football live, basketball live, free sports stream">
   <!--
-    PopUnder ads cannot be blocked with Permissions-Policy (Chrome rejects
-    `popup`) or iframe sandbox (players detect it). See src/adShield.ts for
-    the click-gate + blur shield. frame-src keeps 'self' for the optional
-    /__embed rewrite proxy. script-src stays locked to 'self' on the parent.
+    No ads: provider embeds are never framed (frame-src 'none'). The server
+    resolves each stream to HLS and the app plays it in its own <video>, so
+    provider ad scripts and popunders never load. script-src stays 'self'.
   -->
   <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), interest-cohort=()">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'none'; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'none'; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none';">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -297,7 +296,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <footer class="site-footer area-footer">
-    <p>StreamZone — Powered by <a href="https://streamed.pk" target="_blank" rel="noopener">Streamed</a> + <a href="https://www.sportsrc.org/" target="_blank" rel="noopener">SportSRC</a>. For entertainment purposes only.</p>
+    <p>StreamZone — Powered by <a href="https://www.sportsrc.org/" target="_blank" rel="noopener">SportSRC</a>. For entertainment purposes only.</p>
   </footer>
 
   <script type="module" src="/src/app.ts"></script>

@@ -1,50 +1,34 @@
 import type { APIMatch, Stream, StreamSource, Sport } from './types';
 import type { Category } from './types';
-import { state, API_HOSTS, getActiveHostIndex, rotateActiveHost } from './state';
+import { state } from './state';
 import { log } from './helpers';
-import { isMatchLive } from './format';
+import { isInLiveWindow } from './format';
 
 // ── Request tracking for race condition prevention ──
 
 let loadMatchesRequestId = 0;
 
-// ── Host failover coalesce ──
-
-const HOST_ROTATE_COOLDOWN_MS = 1000;
-let lastHostRotateAt = 0;
-
-/** Rotate the active API host at most once per cooldown window across parallel probes. */
-function rotateActiveHostCoalesced(): void {
-  const now = Date.now();
-  if (now - lastHostRotateAt < HOST_ROTATE_COOLDOWN_MS) return;
-  lastHostRotateAt = now;
-  rotateActiveHost();
-}
+/** SportSRC BFF mount (see embed-proxy/sportsrc.mjs). */
+export const SPORTSRC_API = '/api/sportsrc';
+/** StreamFree BFF mount (see embed-proxy/strmfree.mjs) — Streamed's replacement. */
+export const STRMFREE_API = '/api/strmfree';
 
 // ── Generic fetcher ──
 
+/**
+ * Same-origin JSON fetch. Streamed (streamed.pk / strmd.link) shut down in
+ * October 2026; catalogs now come from the StreamFree and SportSRC BFFs.
+ */
 export async function fetchJSON<T>(urlPath: string): Promise<T> {
-  let attempts = 0;
-  while (attempts < API_HOSTS.length) {
-    const host = API_HOSTS[getActiveHostIndex()];
-    const fullUrl = `${host}${urlPath}`;
-    try {
-      const res = await fetch(fullUrl, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json() as T;
-    } catch (e) {
-      log('warn', `Host ${host} failed for ${urlPath}:`, e);
-      attempts++;
-      rotateActiveHostCoalesced();
-    }
-  }
-  throw new Error('All API mirror domains failed to respond.');
+  const res = await fetch(urlPath, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json() as T;
 }
 
 // ── Sports ──
 
 export async function loadSports(): Promise<Sport[]> {
-  const data = await fetchJSON<Sport[]>('/api/sports');
+  const data = await fetchJSON<Sport[]>(`${SPORTSRC_API}/sports`);
   const sports = Array.isArray(data) ? data : [];
   state.sports = sports;
   return sports;
@@ -60,8 +44,8 @@ export type MatchesEndpointPlan = {
 };
 
 /**
- * Map UI category/sport to Streamed Matches API paths
- * (see https://streamed.pk/docs/matches).
+ * Map UI category/sport to match list paths. The SportSRC BFF serves the same
+ * path shapes under `/api/sportsrc` (Streamed's original matches API layout).
  */
 export function resolveMatchesEndpoint(cat: Category, sport: string): MatchesEndpointPlan {
   let endpoint: string;
@@ -99,8 +83,9 @@ export function resolveMatchesEndpoint(cat: Category, sport: string): MatchesEnd
   return { endpoint, fallbacks, clientSportFilter };
 }
 
-/** Prefer stable/admin-style sources; sportsrc after admin for dual-provider cards. */
+/** StreamFree (1080p, browserless) before SportSRC on dual-provider cards. */
 const SOURCE_PREF: Record<string, number> = {
+  strmfree: 0,
   admin: 0,
   alpha: 1,
   bravo: 2,
@@ -160,6 +145,19 @@ export async function mapPool<T, R>(
 const STREAM_PROBE_CONCURRENCY = 8;
 const SPORTSRC_ID_PREFIX = 'sportsrc:';
 const DEDUPE_WINDOW_MS = 30 * 60 * 1000;
+
+export function isStrmfreeSource(source: StreamSource | string): boolean {
+  const name = typeof source === 'string' ? source : source.source;
+  return String(name || '').toLowerCase() === 'strmfree';
+}
+
+/** Display name for a provider/source id. */
+export function sourceLabel(source: string): string {
+  const name = String(source || '').toLowerCase();
+  if (name === 'sportsrc') return 'SportSRC';
+  if (name === 'strmfree') return 'StreamFree';
+  return name ? name.charAt(0).toUpperCase() + name.slice(1) : 'Source';
+}
 
 export function isSportsrcSource(source: StreamSource | string): boolean {
   const name = typeof source === 'string' ? source : source.source;
@@ -305,18 +303,18 @@ function attachSportsrcSource(existing: APIMatch, stub: StreamSource): void {
 }
 
 /**
- * Merge Streamed + SportSRC lists. Prefer Streamed cards on fuzzy match;
- * append a sportsrc source. Prefix SportSRC-only ids with `sportsrc:`.
+ * Merge the primary catalog (StreamFree) with SportSRC. Prefer primary cards on
+ * fuzzy match; append a sportsrc source. Prefix SportSRC-only ids with `sportsrc:`.
  */
 export function mergeMatchLists(
-  streamed: APIMatch[],
+  primary: APIMatch[],
   sportsrc: APIMatch[],
 ): APIMatch[] {
   const byKey = new Map<string, APIMatch>();
   const byId = new Map<string, APIMatch>();
   const out: APIMatch[] = [];
 
-  for (const m of streamed) {
+  for (const m of primary) {
     if (!m?.id) continue;
     const copy: APIMatch = {
       ...m,
@@ -362,8 +360,8 @@ export function mergeMatchLists(
 }
 
 /**
- * Ask `/api/stream/{source}/{id}` (and SportSRC detail) which listed sources
- * actually have embeds. Drop empty stubs so cards never show a fake "1 src".
+ * Ask the SportSRC detail endpoint which listed sources actually have embeds.
+ * Drop empty stubs so cards never show a fake "1 src". StreamFree is trusted.
  */
 export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIMatch[]> {
   const uniqueSources = new Map<string, StreamSource>();
@@ -377,6 +375,9 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
 
   const uniqueEntries = [...uniqueSources.entries()];
   const probeHits = await mapPool(uniqueEntries, STREAM_PROBE_CONCURRENCY, async ([key, source]) => {
+    // StreamFree rows only exist while the stream is scheduled and list their
+    // embeds; probing each would hammer an API that asks to be polled gently.
+    if (isStrmfreeSource(source)) return key;
     try {
       const streams = await loadStreams(source.source, source.id, source.category);
       return streams.length > 0 ? key : null;
@@ -393,18 +394,8 @@ export async function filterToPlayableMatches(matches: APIMatch[]): Promise<APIM
 
   const playable: APIMatch[] = [];
   for (const match of matches) {
-    const hasWorkingStreamed = (match.sources || []).some(
-      s => !isSportsrcSource(s) && workingKeys.has(sourceProbeKey(s)),
-    );
     const sources = rankSources(
-      (match.sources || []).filter(s => {
-        const key = sourceProbeKey(s);
-        if (workingKeys.has(key)) return true;
-        // Keep SportSRC on dual-provider cards so playback can fail over when
-        // Streamed embeds are down even if the SportSRC probe missed (timeout).
-        if (isSportsrcSource(s) && hasWorkingStreamed) return true;
-        return false;
-      }),
+      (match.sources || []).filter(s => workingKeys.has(sourceProbeKey(s))),
     );
     if (sources.length === 0) continue;
     playable.push({ ...match, sources });
@@ -431,56 +422,41 @@ export async function loadMatches(): Promise<APIMatch[]> {
     state.currentSport,
   );
 
-  const sportsrcPath = endpoint.replace(/^\/api\//, '/api/sportsrc/');
-  const sportsrcFallbacks = fallbacks.map(fb => fb.replace(/^\/api\//, '/api/sportsrc/'));
+  const toSportsrc = (path: string) => path.replace(/^\/api\//, `${SPORTSRC_API}/`);
+  const tryPath = async (path: string) => {
+    const data = await fetchJSON<APIMatch[]>(toSportsrc(path));
+    return Array.isArray(data) ? data : [];
+  };
 
-  const streamedPromise = (async () => {
-    let data = await fetchJSON<APIMatch[]>(endpoint);
-    let matches: APIMatch[] = Array.isArray(data) ? data : [];
-    if (matches.length === 0 && fallbacks.length > 0) {
-      for (const fb of fallbacks) {
-        data = await fetchJSON<APIMatch[]>(fb);
-        matches = Array.isArray(data) ? data : [];
-        if (matches.length > 0) {
-          log('debug', `Matches fallback ${fb} returned ${matches.length}`);
-          break;
-        }
-      }
-    }
-    return matches;
-  })().catch(err => {
-    log('warn', 'Streamed matches failed:', err);
-    return [] as APIMatch[];
-  });
-
+  // Each provider is optional on its own; only both failing is an outage.
   const sportsrcPromise = (async () => {
-    const tryPath = async (path: string) => {
-      const res = await fetch(path, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
-      if (!res.ok) throw new Error(`SportSRC HTTP ${res.status}`);
-      const data = await res.json();
-      return (Array.isArray(data) ? data : []) as APIMatch[];
-    };
-    let matches = await tryPath(sportsrcPath).catch(() => [] as APIMatch[]);
-    if (matches.length === 0 && sportsrcFallbacks.length > 0) {
-      for (const fb of sportsrcFallbacks) {
-        matches = await tryPath(fb).catch(() => [] as APIMatch[]);
-        if (matches.length > 0) break;
-      }
+    let rows = await tryPath(endpoint);
+    for (const fb of fallbacks) {
+      if (rows.length > 0) break;
+      rows = await tryPath(fb).catch(() => [] as APIMatch[]);
     }
-    return matches;
-  })().catch(err => {
-    log('warn', 'SportSRC matches failed:', err);
-    return [] as APIMatch[];
-  });
-
-  const [streamedRaw, sportsrcRaw] = await Promise.all([streamedPromise, sportsrcPromise]);
+    return rows;
+  })();
+  // StreamFree returns its whole (small) slate; category/sport narrowing below.
+  const strmfreePromise = fetchJSON<APIMatch[]>(`${STRMFREE_API}/matches`)
+    .then(data => (Array.isArray(data) ? data : []));
+  const [sportsrcResult, strmfreeResult] = await Promise.allSettled([sportsrcPromise, strmfreePromise]);
   if (requestId !== loadMatchesRequestId) return state.allMatches;
+  if (sportsrcResult.status === 'rejected' && strmfreeResult.status === 'rejected') {
+    throw sportsrcResult.reason;
+  }
+  const settled = <T,>(r: PromiseSettledResult<T[]>, name: string): T[] => {
+    if (r.status === 'fulfilled') return r.value;
+    log('warn', `${name} matches failed:`, r.reason);
+    return [];
+  };
 
-  let matches = mergeMatchLists(streamedRaw, sportsrcRaw).map(reconcileMatchTeams);
+  let matches = mergeMatchLists(
+    settled(strmfreeResult, 'StreamFree'),
+    settled(sportsrcResult, 'SportSRC'),
+  ).map(reconcileMatchTeams);
 
-  // Narrow merged catalog. For Live: trust Streamed's live slate (API may keep
-  // long events like motorsport past our 3h window). Only date-gate SportSRC-only
-  // rows so popular stubs cannot pollute Live.
+  // Narrow the catalog. Live is StreamFree's live flag or SportSRC's kick-off window.
   matches = matches.filter(m => m.sources && m.sources.length > 0);
   if (state.currentCategory === 'today') {
     const now = new Date();
@@ -488,10 +464,9 @@ export async function loadMatches(): Promise<APIMatch[]> {
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
     matches = matches.filter(m => m.date && m.date >= startOfDay && m.date < endOfDay);
   } else if (state.currentCategory === 'live') {
-    matches = matches.filter(m => {
-      if (!String(m.id).startsWith('sportsrc:')) return true;
-      return isMatchLive(m) || m.status === 'inprogress';
-    });
+    // Not isMatchLive(): its sticky Live set would keep finished games on the
+    // Live tab across auto-refreshes.
+    matches = matches.filter(m => isInLiveWindow(m.date) || m.status === 'inprogress');
   } else if (state.currentCategory === 'popular') {
     matches = matches.filter(m => m.popular);
   }
@@ -557,16 +532,18 @@ export async function loadStreams(
     const cat = category || 'football';
     const matchId = id.replace(/^sportsrc:/, '');
     const res = await fetch(
-      `/api/sportsrc/stream/${encodeURIComponent(cat)}/${encodeURIComponent(matchId)}`,
+      `${SPORTSRC_API}/stream/${encodeURIComponent(cat)}/${encodeURIComponent(matchId)}`,
       { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) },
     );
     if (!res.ok) throw new Error(`SportSRC stream HTTP ${res.status}`);
     const data = await res.json();
     streams = Array.isArray(data) ? data : [];
-  } else {
-    const data = await fetchJSON<Stream[]>(`/api/stream/${encodeURIComponent(source)}/${encodeURIComponent(id)}`);
-    streams = Array.isArray(data) ? data : [];
+  } else if (isStrmfreeSource(source)) {
+    streams = await fetchJSON<Stream[]>(`${STRMFREE_API}/stream/${encodeURIComponent(id)}`);
+    if (!Array.isArray(streams)) streams = [];
   }
+  // Any other source is a Streamed stub (e.g. a saved Multi View slot); that
+  // provider is gone, so it has no streams.
 
   streamsCache.set(cacheKey, { data: streams, ts: Date.now() });
   return streams;

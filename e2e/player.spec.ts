@@ -22,7 +22,10 @@ test.describe('StreamZone player & embed', () => {
     const tabs = await waitForStreamTabs(page);
     expect(await tabs.count()).toBeGreaterThan(0);
 
-    await expect(page.locator('#source-bar .source-chip').first()).toBeVisible();
+    // The provider switcher only appears when a card has more than one provider.
+    if (await page.locator('#source-bar:not(.hidden)').count()) {
+      await expect(page.locator('#source-bar .source-chip').first()).toBeVisible();
+    }
   });
 
   test('plays native video without creating iframe players or popup windows', async ({ page, context }) => {

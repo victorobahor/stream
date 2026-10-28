@@ -1,14 +1,14 @@
 import type { APIMatch, Stream, StreamSource } from './types';
 import { state } from './state';
 import { el, cssUrl, clearEmbed, setHostImage, log } from './helpers';
-import { capitalize, formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast } from './format';
+import { formatSportLabel, getSportEmoji, isMatchLive, getPosterUrl, showToast, notStartedMessage, finishedMessage } from './format';
 import {
   loadStreams as fetchStreams,
   pickPreferredStream,
   invalidateStreamsCache,
   isSportsrcSource,
+  sourceLabel,
 } from './api';
-import { badgeImagePath } from './state';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
 
 // ── Module level state for caching active elements ──
@@ -44,7 +44,7 @@ export function renderStreamTabs(streams: Stream[], source: string): void {
 
     const sourceSpan = document.createElement('span');
     sourceSpan.className = 'tab-source';
-    const tabSource = isSportsrcSource(source) ? 'SportSRC' : capitalize(stream.source || source);
+    const tabSource = sourceLabel(stream.source || source);
     sourceSpan.textContent = `${tabSource} #${stream.streamNo || i + 1}`;
     tab.appendChild(sourceSpan);
 
@@ -92,10 +92,10 @@ export function renderSourceButtons(sources: StreamSource[]): void {
     btn.className = 'source-chip' + (i === state.activeSourceIndex ? ' active' : '');
     btn.setAttribute('aria-pressed', String(i === state.activeSourceIndex));
     const dot = document.createElement('span');
-    dot.className = 'source-chip-dot' + (isSportsrcSource(src) ? ' sportsrc' : ' streamed');
+    dot.className = 'source-chip-dot' + (isSportsrcSource(src) ? ' sportsrc' : ' strmfree');
     dot.setAttribute('aria-hidden', 'true');
     btn.appendChild(dot);
-    btn.appendChild(document.createTextNode(isSportsrcSource(src) ? 'SportSRC' : capitalize(src.source)));
+    btn.appendChild(document.createTextNode(sourceLabel(src.source)));
     btn.onclick = () => {
       if (i === state.activeSourceIndex) return;
       state.activeSourceIndex = i;
@@ -207,6 +207,10 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
     failedEmbeds.add(stream.embedUrl);
     const source = match?.sources[state.activeSourceIndex];
     if (source) invalidateStreamsCache(source.source, source.id, source.category);
+    // Before kick-off every stream misses the same way; cycling them only
+    // burns server-side browser mints and ends on a misleading error.
+    const notStarted = notStartedMessage(match);
+    if (notStarted) { showPlaybackError(notStarted); return; }
     const next = pickPreferredStream(availableStreams.filter(s => !failedEmbeds.has(s.embedUrl)));
     if (allowHlsSourceFailover && next) {
       const idx = availableStreams.indexOf(next);
@@ -214,7 +218,7 @@ export function selectStream(stream: Stream, tabEl?: HTMLButtonElement): void {
       return;
     }
     if (allowHlsSourceFailover && tryNextSource()) return;
-    showPlaybackError(unavailableReason);
+    showPlaybackError(finishedMessage(match) ?? unavailableReason);
   };
   if (!video) { failed(); return; }
   void playNativeHls(stream.embedUrl, {
@@ -236,9 +240,7 @@ function tryNextSource(): boolean {
   if (prev) invalidateStreamsCache(prev.source, prev.id, prev.category);
   state.activeSourceIndex = next;
   updateSourceBarActive(next);
-  const label = isSportsrcSource(match.sources[next].source)
-    ? 'SportSRC'
-    : capitalize(match.sources[next].source);
+  const label = sourceLabel(match.sources[next].source);
   showToast(`Stream unavailable — trying ${label}\u2026`, 'error');
   void loadAndDisplayStreams(match.sources[next]);
   return true;
@@ -323,7 +325,7 @@ export function renderPlayerInfo(match: APIMatch): void {
         img.alt = team.name || '';
         img.loading = 'lazy';
         img.decoding = 'async';
-        setHostImage(img, badgeImagePath(team.badge), () => img.remove());
+        setHostImage(img, team.badge, () => img.remove());
         badge.appendChild(img);
       }
       const name = document.createElement('span');

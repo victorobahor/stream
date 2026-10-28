@@ -32,7 +32,7 @@ describe('Content Security Policy', () => {
   });
 
   it('should have restrictive connect-src', () => {
-    expect(csp).toContain("connect-src 'self' https://streamed.pk https://strmd.link");
+    expect(csp).toContain("connect-src 'self';");
   });
 
   it('should allow blob media/workers for native HLS', () => {

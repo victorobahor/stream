@@ -1,6 +1,6 @@
 /**
- * Production server: static `dist/` + embed ad-sink proxy.
- * Used by Docker instead of nginx-only (which cannot rewrite embed HTML).
+ * Production server: static `dist/` + StreamFree/SportSRC BFFs + native HLS
+ * proxy. Used by Docker instead of nginx-only (which cannot run the BFFs).
  *
  *   node embed-proxy/server.mjs
  *   PORT=8080 DIST_DIR=./dist node embed-proxy/server.mjs
@@ -10,18 +10,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import {
-  AD_SINK_HTML,
-  isAllowedEmbedUrl,
-  readUpstream,
-  rewriteEmbedHtml,
-  extractNestedPlayerUrl,
-} from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
 import { tryHandleSportsrcRequest } from './sportsrc.mjs';
+import { tryHandleStrmfreeRequest } from './strmfree.mjs';
 import {
   appSecurityHeaders,
-  embedSecurityHeaders,
   isStaticAssetPath,
 } from './securityHeaders.mjs';
 
@@ -99,10 +92,6 @@ function wantsGzip(req, type) {
   return accept.includes('gzip') && GZIP_TYPES.has(type);
 }
 
-async function sendEmbed(req, res, status, type, body, extraHeaders = {}) {
-  await send(req, res, status, type, body, extraHeaders, embedSecurityHeaders(req));
-}
-
 async function sendApp(req, res, status, type, body, extraHeaders = {}) {
   await send(req, res, status, type, body, extraHeaders, appSecurityHeaders(req));
 }
@@ -114,60 +103,6 @@ function safeJoin(root, reqPath) {
   const prefix = rootResolved.endsWith(path.sep) ? rootResolved : rootResolved + path.sep;
   if (joined !== rootResolved && !joined.startsWith(prefix)) return null;
   return joined;
-}
-
-async function handleProxy(req, res, url) {
-  if (url.pathname === '/__ad_sink') {
-    await sendEmbed(req, res, 200, 'text/html; charset=utf-8', AD_SINK_HTML);
-    return;
-  }
-
-  const target = url.searchParams.get('u') || '';
-  const embedUrl = isAllowedEmbedUrl(target);
-  if (!embedUrl) {
-    await sendEmbed(req, res, 400, 'text/plain; charset=utf-8', 'Invalid or disallowed embed URL');
-    return;
-  }
-
-  try {
-    const upstream = await readUpstream(embedUrl.toString());
-    if (upstream.status >= 400) {
-      await sendEmbed(req, res, 502, 'text/plain; charset=utf-8', `Upstream HTTP ${upstream.status}`);
-      return;
-    }
-    const wantMeta =
-      url.searchParams.get('meta') === '1' ||
-      String(req.headers.accept || '').includes('application/json');
-    if (wantMeta) {
-      await sendApp(
-        req,
-        res,
-        200,
-        'application/json; charset=utf-8',
-        JSON.stringify({
-          nestedEmbedUrl: extractNestedPlayerUrl(upstream.body),
-          source: embedUrl.toString(),
-        }),
-      );
-      return;
-    }
-    const origin = `${embedUrl.protocol}//${embedUrl.host}`;
-    await sendEmbed(
-      req,
-      res,
-      200,
-      'text/html; charset=utf-8',
-      rewriteEmbedHtml(upstream.body, origin),
-    );
-  } catch (err) {
-    await sendEmbed(
-      req,
-      res,
-      502,
-      'text/plain; charset=utf-8',
-      `Embed proxy failed: ${err?.message || err}`,
-    );
-  }
 }
 
 async function serveStatic(req, res, url) {
@@ -220,10 +155,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (url.pathname === '/__embed' || url.pathname === '/__ad_sink') {
-      await handleProxy(req, res, url);
+    if (await tryHandleStrmfreeRequest(req, res)) {
       return;
     }
+
 
     await serveStatic(req, res, url);
   } catch (err) {

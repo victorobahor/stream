@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   sanitizeUrl,
   cssUrl,
@@ -9,13 +9,8 @@ import {
   filterMatchesWithSources,
   filterMatchesBySearch,
   sortMatchesForDisplay,
-  applyEmbed,
   clearEmbed,
-  EMBED_ALLOW,
-  toProxiedEmbedUrl,
-  shouldProxyEmbed,
-  resolveEmbedForPlayback,
-  embedUrlForIframe,
+  isAllowedEmbedHost,
 } from './helpers';
 import { state } from './state';
 import type { APIMatch } from './types';
@@ -95,170 +90,25 @@ function fakeIframe() {
   };
 }
 
-const ALLOWED_EMBED = 'https://embed.st/embed/admin/ppv-test/1';
-
-describe('applyEmbed', () => {
-  it('should navigate to the embed URL', () => {
-    const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
-    expect(iframe.getAttribute('src')).toBe(ALLOWED_EMBED);
+describe('isAllowedEmbedHost', () => {
+  it('should accept provider embeds the native proxy can resolve', () => {
+    expect(isAllowedEmbedHost('https://strmfree.st/embed/racing/skyf11080p')).toBe(true);
+    expect(isAllowedEmbedHost('https://embed.st/embed/admin/ppv-test/1')).toBe(true);
+    expect(isAllowedEmbedHost('https://embed.streamapi.cc/sport/x')).toBe(true);
   });
 
-  it('should not sandbox the embed', () => {
-    // The players detect a sandbox that withholds allow-popups and refuse to
-    // start, so embeds are run unrestricted. See applyEmbed's comment.
-    const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
-    expect(iframe.getAttribute('sandbox')).toBeNull();
-  });
-
-  it('should clear a sandbox left over from markup or a prior navigation', () => {
-    const iframe = fakeIframe();
-    iframe.setAttribute('sandbox', 'allow-scripts');
-    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
-    expect(iframe.getAttribute('sandbox')).toBeNull();
-  });
-
-  it('should grant the playback permissions the players need', () => {
-    const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
-    expect(iframe.getAttribute('allow')).toBe(EMBED_ALLOW);
-  });
-
-  it('should set a referrer policy', () => {
-    const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
-    expect(iframe.getAttribute('referrerpolicy')).toBe('strict-origin-when-cross-origin');
-  });
-
-  it('should refuse to navigate to a blocked URL', () => {
-    const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'javascript:alert(1)');
-    expect(iframe.getAttribute('src')).toBeNull();
-    expect(iframe.getAttribute('allow')).toBeNull();
-  });
-
-  it('should refuse non-allowlisted embed hosts', () => {
-    const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, 'https://evil.example/embed/x/1');
-    expect(iframe.getAttribute('src')).toBeNull();
-  });
-
-  it('should load embed.st directly by default (proxy breaks origin checks)', () => {
-    const iframe = fakeIframe();
-    applyEmbed(
-      iframe as unknown as HTMLIFrameElement,
-      'https://embed.st/embed/admin/ppv-test/1',
-    );
-    expect(iframe.getAttribute('src')).toBe('https://embed.st/embed/admin/ppv-test/1');
-    expect(iframe.getAttribute('sandbox')).toBeNull();
-  });
-
-  it('should route embed.st through /__embed when VITE_EMBED_PROXY=1', () => {
-    vi.stubEnv('VITE_EMBED_PROXY', '1');
-    const iframe = fakeIframe();
-    applyEmbed(
-      iframe as unknown as HTMLIFrameElement,
-      'https://embed.st/embed/admin/ppv-test/1',
-    );
-    const src = iframe.getAttribute('src') || '';
-    expect(src.startsWith('/__embed?u=')).toBe(true);
-    expect(decodeURIComponent(src)).toContain('https://embed.st/embed/admin/ppv-test/1');
-    vi.unstubAllEnvs();
-  });
-});
-
-describe('toProxiedEmbedUrl', () => {
-  it('should build a proxy URL for embed.st', () => {
-    expect(toProxiedEmbedUrl('https://embed.st/embed/x/1')).toBe(
-      '/__embed?u=' + encodeURIComponent('https://embed.st/embed/x/1'),
-    );
-  });
-
-  it('should return null for non-allowlisted hosts', () => {
-    expect(toProxiedEmbedUrl('https://embed.example/stream/1')).toBeNull();
-  });
-});
-
-describe('shouldProxyEmbed', () => {
-  it('should always proxy streamapi wrappers', () => {
-    expect(shouldProxyEmbed('https://embed.streamapi.cc/sport/x/')).toBe(true);
-  });
-
-  it('should not proxy embed.st by default', () => {
-    expect(shouldProxyEmbed('https://embed.st/embed/admin/x/1')).toBe(false);
-  });
-
-  it('should always proxy streamapi via applyEmbed', () => {
-    const iframe = fakeIframe();
-    applyEmbed(
-      iframe as unknown as HTMLIFrameElement,
-      'https://embed.streamapi.cc/sport/test/',
-    );
-    expect(iframe.getAttribute('src') || '').toMatch(/^\/__embed\?u=/);
-  });
-});
-
-describe('resolveEmbedForPlayback', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
-  it('should return embed.st URLs unchanged', async () => {
-    const url = 'https://embed.st/embed/admin/x/1';
-    await expect(resolveEmbedForPlayback(url)).resolves.toBe(url);
-  });
-
-  it('should unwrap streamapi wrappers to nested embed.st', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          nestedEmbedUrl: 'https://embed.st/embed/admin/ppv-middlesbrough-vs-wrexham/1',
-          source: 'https://embed.streamapi.cc/sport/abc/',
-        }),
-      })),
-    );
-    const out = await resolveEmbedForPlayback('https://embed.streamapi.cc/sport/abc/');
-    expect(out).toBe('https://embed.st/embed/admin/ppv-middlesbrough-vs-wrexham/1');
-    expect(fetch).toHaveBeenCalled();
-    const called = String(vi.mocked(fetch).mock.calls[0][0]);
-    expect(called).toMatch(/\/__embed\?u=/);
-    expect(called).toMatch(/meta=1/);
-  });
-
-  it('should fall back to the streamapi URL when unwrap fails', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: false,
-        json: async () => ({}),
-      })),
-    );
-    const url = 'https://embed.streamapi.cc/sport/abc/';
-    await expect(resolveEmbedForPlayback(url)).resolves.toBe(url);
-  });
-});
-
-describe('embedUrlForIframe', () => {
-  it('should keep streamapi wrappers proxied for iframe fallback', () => {
-    const original = 'https://embed.streamapi.cc/sport/abc/';
-    const nested = 'https://embed.st/embed/admin/ppv-middlesbrough-vs-wrexham/1';
-    expect(embedUrlForIframe(original, nested)).toBe(original);
-  });
-
-  it('should use the resolved URL for direct embed.st streams', () => {
-    const url = 'https://embed.st/embed/admin/x/1';
-    expect(embedUrlForIframe(url, url)).toBe(url);
+  it('should reject other hosts, paths, and schemes', () => {
+    expect(isAllowedEmbedHost('https://strmfree.st/api/v1/streams')).toBe(false);
+    expect(isAllowedEmbedHost('http://strmfree.st/embed/racing/x')).toBe(false);
+    expect(isAllowedEmbedHost('https://evil.example/embed/x/1')).toBe(false);
+    expect(isAllowedEmbedHost('javascript:alert(1)')).toBe(false);
   });
 });
 
 describe('clearEmbed', () => {
   it('should navigate to about:blank and drop the load handler', () => {
     const iframe = fakeIframe();
-    applyEmbed(iframe as unknown as HTMLIFrameElement, ALLOWED_EMBED);
+    iframe.setAttribute('src', 'https://embed.st/embed/admin/ppv-test/1');
     clearEmbed(iframe as unknown as HTMLIFrameElement);
 
     // Removing the src attribute would leave the document — and its audio — running.
@@ -531,6 +381,12 @@ describe('sortMatchesForDisplay', () => {
     const upcoming = build('upcoming');
     const live = build('live', { date: Date.now() - HOUR });
     expect(sortMatchesForDisplay([upcoming, live]).map(m => m.id)).toEqual(['live', 'upcoming']);
+  });
+
+  it('should sink games that finished earlier today below upcoming ones, even popular ones', () => {
+    const finished = build('finished', { date: Date.now() - 11 * HOUR, popular: true });
+    const upcoming = build('upcoming', { date: Date.now() + 2 * HOUR });
+    expect(sortMatchesForDisplay([finished, upcoming]).map(m => m.id)).toEqual(['upcoming', 'finished']);
   });
 
   it('should rank popular above non-popular at the same liveness', () => {

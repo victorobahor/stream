@@ -18,8 +18,14 @@ export async function resolveNativeEmbed(raw, read = readUpstream) {
       target = isAllowedEmbedUrl(new URL(response.location, target).href);
       continue;
     }
-    if (response.status !== 200) throw new Error(`Provider player HTTP ${response.status}`);
+    if (response.status !== 200) {
+      throw Object.assign(new Error(`Provider player HTTP ${response.status}`), { statusCode: 502 });
+    }
     const frames = [...String(response.body).matchAll(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)];
+    // SportSRC wrappers render `about:blank` until the event's player exists.
+    if (frames.length && frames.every(match => /^about:blank$/i.test(match[1].trim()))) {
+      throw Object.assign(new Error("This stream hasn't started yet"), { statusCode: 425, code: 'STREAM_NOT_STARTED' });
+    }
     const urls = frames.map(match => {
       try { return isAllowedEmbedUrl(new URL(match[1].replace(/&amp;/g, '&'), target).href); }
       catch { return null; }

@@ -16,11 +16,12 @@ async function readSlots(page: Page) {
   }));
 }
 
-test('four native streams keep advancing with both providers and no ad frames', async ({ page, context }, info) => {
+test('four native streams keep advancing with no ad frames', async ({ page, context }, info) => {
   test.setTimeout(300_000);
   test.skip(!e2eReachable, 'Site unreachable from this runner');
   await gotoHome(page);
-  const category = process.env.PLAYBACK_CATEGORY || 'today';
+  // Live by default: only streams that are on air can prove playback.
+  const category = process.env.PLAYBACK_CATEGORY || 'live';
   if (!['live', 'today', 'all', 'popular'].includes(category)) throw new Error('Invalid PLAYBACK_CATEGORY');
   await page.locator(`#nav-${category}`).click();
   await waitForHomeReady(page);
@@ -42,9 +43,8 @@ test('four native streams keep advancing with both providers and no ad frames', 
   for (const i of [1, 3]) {
     const source = page.locator('.mv-slot').nth(i).locator('select').first();
     await expect(source).toBeVisible();
-    // Force SportSRC on two panes so the live test cannot silently cover only Streamed.
-    await expect(source.locator('option[value="sportsrc"]')).toHaveCount(1);
-    await source.selectOption('sportsrc');
+    // Exercise SportSRC alongside StreamFree whenever a card carries both.
+    if (await source.locator('option[value="sportsrc"]').count()) await source.selectOption('sportsrc');
   }
   await expect.poll(async () => (await readSlots(page)).filter(s => !s.paused && s.currentTime > 1).length,
     { timeout: 150_000, message: 'All four native panes must actually play' }).toBe(4);

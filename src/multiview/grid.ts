@@ -2,7 +2,8 @@ import type { MultiviewLayout, MultiviewSlot } from '../types';
 import { state } from '../state';
 import { el, sanitizeUrl, clearEmbed, log } from '../helpers';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls, hasNativeHls } from '../hlsPlayer';
-import { getMatchById, loadMatches } from '../api';
+import { getMatchById, loadMatches, sourceLabel } from '../api';
+import { notStartedMessage, finishedMessage } from '../format';
 import { setActiveNav } from '../ui';
 import { ALL_SPORTS, syncSportChips } from '../chips';
 import { renderMultiviewSidebar } from './sidebar';
@@ -166,7 +167,7 @@ function buildSlotHeader(slot: MultiviewSlot): DocumentFragment {
   match.sources.forEach(src => {
     const opt = document.createElement('option');
     opt.value = src.source;
-    opt.textContent = src.source;
+    opt.textContent = sourceLabel(src.source);
     opt.selected = src.source === slot.sourceName;
     sourceSelect.appendChild(opt);
   });
@@ -264,7 +265,7 @@ function updateSlotElement(slotEl: HTMLDivElement, i: number): void {
 
     const current = () => document.body.classList.contains('multiview-active') && state.multiviewSlots[i] === slot && video.isConnected;
     let unavailableReason: string | undefined;
-    const failed = () => { if (current()) failMultiviewSlot(i, slot, unavailableReason); };
+    const failed = () => { if (current()) failMultiviewSlot(i, slot, notStartedMessage(slot.match) ?? finishedMessage(slot.match) ?? unavailableReason); };
     void playNativeHls(desiredUrl, {
       key: mvPlayerKey(i), video,
       onReady: () => { if (current()) overlayEl.remove(); },

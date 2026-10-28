@@ -7,8 +7,8 @@
  *   ?data=matches&category=football
  *   ?data=detail&category=football&id=…
  *
- * Mounted at `/api/sportsrc/*` so Streamed browser calls to streamed.pk are
- * never shadowed. V1 is keyless; optional API key kept for future use.
+ * Sole match/stream provider since Streamed shut down (October 2026).
+ * V1 is keyless; optional API key kept for future use.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -68,7 +68,10 @@ function cacheSet(key, value) {
   cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
 }
 
-async function upstream(params) {
+/** SportSRC intermittently answers 5xx / `success:false`; one retry clears most. */
+const UPSTREAM_RETRY_DELAY_MS = 400;
+
+async function upstream(params, { retries = 1 } = {}) {
   const url = new URL(SPORTSRC_BASE);
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
@@ -77,11 +80,25 @@ async function upstream(params) {
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const body = await fetchUpstreamOnce(url);
+      cacheSet(cacheKey, body);
+      return body;
+    } catch (err) {
+      if (attempt >= retries || err?.statusCode === 429) throw err;
+      await new Promise(resolve => setTimeout(resolve, UPSTREAM_RETRY_DELAY_MS));
+    }
+  }
+}
+
+async function fetchUpstreamOnce(url) {
   /** @type {Record<string, string>} */
   const headers = { Accept: 'application/json' };
   if (API_KEY) headers['X-API-KEY'] = API_KEY;
 
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(12_000) });
+  // Two attempts must fit inside the browser's 12s request timeout.
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(5_500) });
   const text = await res.text();
   let body;
   try {
@@ -101,7 +118,6 @@ async function upstream(params) {
     err.statusCode = 502;
     throw err;
   }
-  cacheSet(cacheKey, body);
   return body;
 }
 
@@ -291,8 +307,8 @@ async function loadMatchesForPath(rest) {
     sport === 'all' ? await matchesForAllSports() : await matchesForCategory(sport);
 
   if (mode === 'live') {
-    // Strict live window only — no popular fallback. In dual-provider mode a
-    // popular fallback would pollute Streamed's Live tab with non-live cards.
+    // Strict live window only — a popular fallback would fill Live with
+    // games that have not kicked off.
     matches = matches.filter(m => isLiveTimestamp(m.date) || m.status === 'inprogress');
   } else if (mode === 'today') {
     const todayStr = new Date().toDateString();

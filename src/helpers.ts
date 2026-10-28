@@ -1,6 +1,6 @@
 import type { APIMatch } from './types';
-import { LOG_LEVEL, API_HOSTS, getActiveHostIndex, imageUrlForHost } from './state';
-import { isEPLMatch, isMatchLive } from './format';
+import { LOG_LEVEL } from './state';
+import { isEPLMatch, isMatchFinished, isMatchLive } from './format';
 import { stopNativePlayback } from './mediaStop';
 
 export function el(id: string): HTMLElement | null {
@@ -55,31 +55,17 @@ export function log(level: string, ...args: unknown[]): void {
 
 // ── Images ──
 
-/**
- * Point an <img> at an API-hosted image path, retrying the remaining mirror
- * hosts on error. Without this an image rendered before `rotateActiveHost()`
- * keeps pointing at the dead host forever.
- */
-export function setHostImage(img: HTMLImageElement, path: string, onExhausted?: () => void): void {
-  if (/^https?:\/\//i.test(path)) {
-    img.onerror = () => {
-      img.onerror = null;
-      onExhausted?.();
-    };
-    img.src = path;
+/** Point an <img> at a provider image; on failure hand off to `onExhausted` once. */
+export function setHostImage(img: HTMLImageElement, url: string, onExhausted?: () => void): void {
+  if (!/^https:\/\//i.test(url)) {
+    onExhausted?.();
     return;
   }
-  let attempt = 0;
   img.onerror = () => {
-    attempt++;
-    if (attempt >= API_HOSTS.length) {
-      img.onerror = null;
-      onExhausted?.();
-      return;
-    }
-    img.src = imageUrlForHost(path, getActiveHostIndex() + attempt);
+    img.onerror = null;
+    onExhausted?.();
   };
-  img.src = imageUrlForHost(path, getActiveHostIndex());
+  img.src = url;
 }
 
 // ── Match filtering / sorting ──
@@ -155,13 +141,17 @@ export function sortMatchesForDisplay(matches: APIMatch[]): APIMatch[] {
     .map(match => ({
       match,
       live: Number(isMatchLive(match)),
+      // SportSRC keeps earlier games on today's slate; sink them below upcoming ones.
+      finished: Number(isMatchFinished(match)),
       popular: Number(!!match.popular),
       epl: Number(isEPLMatch(match))
     }))
     .sort((a, b) => {
       const liveDelta = b.live - a.live;
       if (liveDelta !== 0) return liveDelta;
-      // Prefer API-flagged popular matches (Streamed `popular` field).
+      const finishedDelta = a.finished - b.finished;
+      if (finishedDelta !== 0) return finishedDelta;
+      // Prefer API-flagged popular matches.
       const popularDelta = b.popular - a.popular;
       if (popularDelta !== 0) return popularDelta;
       const eplDelta = b.epl - a.epl;
@@ -215,125 +205,36 @@ export function bindListDelegation(
 
 // ── Embeds ──
 
-export const EMBED_ALLOW = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
-
 /**
- * When true, all allowlisted embeds go through `/__embed?u=…`.
- * Opt in with `VITE_EMBED_PROXY=1`. SportSRC streamapi wrappers are always
- * proxied via `shouldProxyEmbed` (outer page is an ad shell + nested player).
- * Never always-proxy embed.st — that trips the WASM lock.
+ * Provider embed pages the server can turn into a native HLS session. Embeds
+ * are never framed (CSP `frame-src 'none'`): the server reads them as data and
+ * the app plays the stream in its own <video>, so provider ads never load.
  */
-export function isEmbedProxyEnabled(): boolean {
-  const flag = import.meta.env.VITE_EMBED_PROXY;
-  return flag === '1' || flag === 'true';
-}
+const NATIVE_EMBED_HOSTS: Record<string, (u: URL) => boolean> = {
+  // StreamFree (primary catalog since Streamed closed).
+  'strmfree.st': u => u.pathname.startsWith('/embed/'),
+  'streamfree.top': u => u.pathname.startsWith('/embed/'),
+  // embed.st — the player SportSRC wrappers resolve to.
+  'embed.st': u => u.pathname.startsWith('/embed/'),
+  'www.embed.st': u => u.pathname.startsWith('/embed/'),
+  // SportSRC wrappers (unwrapped server-side).
+  'embed.streamapi.cc': () => true,
+  'streamapi.cc': () => true,
+  'football77.org': () => true,
+  'www.football77.org': () => true,
+  'embed.sportsrc.org': () => true,
+  'www.embed.sportsrc.org': () => true,
+};
 
-const STREAMED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
-
-const SPORTSRC_EMBED_HOSTS = new Set([
-  'embed.streamapi.cc',
-  'streamapi.cc',
-  'football77.org',
-  'www.football77.org',
-  'embed.sportsrc.org',
-  'www.embed.sportsrc.org',
-]);
-
-const ALWAYS_PROXY_HOSTS = new Set(['embed.streamapi.cc', 'streamapi.cc']);
-
-export function shouldProxyEmbed(embedUrl: string): boolean {
-  if (isEmbedProxyEnabled()) return true;
-  try {
-    return ALWAYS_PROXY_HOSTS.has(new URL(embedUrl).hostname);
-  } catch {
-    return false;
-  }
-}
-
-/** Same-origin proxy URL for an upstream embed, or null if not proxyable. */
-export function toProxiedEmbedUrl(embedUrl: string): string | null {
-  const safe = sanitizeUrl(embedUrl);
-  if (!safe || safe === 'about:blank') return null;
-  try {
-    const host = new URL(safe).hostname;
-    if (!STREAMED_EMBED_HOSTS.has(host) && !SPORTSRC_EMBED_HOSTS.has(host)) return null;
-  } catch {
-    return null;
-  }
-  return `/__embed?u=${encodeURIComponent(safe)}`;
-}
-
-/** True when the URL is an allowlisted Streamed or SportSRC embed host. */
+/** True when the URL is a provider embed the native HLS proxy accepts. */
 export function isAllowedEmbedHost(embedUrl: string): boolean {
   try {
     const u = new URL(embedUrl);
     if (u.protocol !== 'https:') return false;
-    if (STREAMED_EMBED_HOSTS.has(u.hostname)) {
-      return u.pathname.startsWith('/embed/');
-    }
-    return SPORTSRC_EMBED_HOSTS.has(u.hostname);
+    return NATIVE_EMBED_HOSTS[u.hostname]?.(u) ?? false;
   } catch {
     return false;
   }
-}
-
-/**
- * Navigate an iframe to a stream embed. No `sandbox` — players detect it.
- * Streamed embed.st: direct (HLS preferred). SportSRC streamapi: always proxy
- * + ad strip. PopUnder gate lives in `adShield.ts`.
- */
-export function applyEmbed(iframe: HTMLIFrameElement, embedUrl: string): void {
-  const safe = sanitizeUrl(embedUrl);
-  if (!safe || safe === 'about:blank') return;
-  if (!isAllowedEmbedHost(safe) && !safe.startsWith('/__embed?')) return;
-  const src = shouldProxyEmbed(safe) ? (toProxiedEmbedUrl(safe) ?? safe) : safe;
-  if (!src.startsWith('/') && !isAllowedEmbedHost(src)) return;
-  const proxied = src.startsWith('/');
-  iframe.removeAttribute('srcdoc');
-  iframe.removeAttribute('sandbox');
-  iframe.setAttribute('allow', EMBED_ALLOW);
-  iframe.setAttribute(
-    'referrerpolicy',
-    proxied ? 'no-referrer' : 'strict-origin-when-cross-origin',
-  );
-  iframe.setAttribute('src', src);
-}
-
-/**
- * SportSRC streamapi pages wrap embed.st. Ask the embed proxy for the nested
- * player URL so we can mint native HLS instead of framing the ad shell.
- */
-/**
- * Iframe fallback URL after native HLS fails. SportSRC streamapi wrappers keep
- * the original proxied shell instead of jumping to a nested embed.st iframe.
- */
-export function embedUrlForIframe(originalUrl: string, resolvedForHls: string): string {
-  if (shouldProxyEmbed(originalUrl)) return originalUrl;
-  return resolvedForHls;
-}
-
-export async function resolveEmbedForPlayback(embedUrl: string): Promise<string> {
-  const safe = sanitizeUrl(embedUrl);
-  if (!safe || safe === 'about:blank') return embedUrl;
-  if (!shouldProxyEmbed(safe)) return safe;
-
-  const proxied = toProxiedEmbedUrl(safe);
-  if (!proxied) return safe;
-
-  try {
-    const metaUrl = `${proxied}${proxied.includes('?') ? '&' : '?'}meta=1`;
-    const res = await fetch(metaUrl, { headers: { Accept: 'application/json' } });
-    if (!res.ok) return safe;
-    const data = (await res.json()) as { nestedEmbedUrl?: string | null };
-    const nested = typeof data.nestedEmbedUrl === 'string' ? sanitizeUrl(data.nestedEmbedUrl) : '';
-    if (nested && nested !== 'about:blank' && isAllowedEmbedHost(nested)) {
-      log('debug', 'Unwrapped SportSRC embed →', nested);
-      return nested;
-    }
-  } catch (e) {
-    log('warn', 'Embed unwrap failed, using proxied iframe path:', e);
-  }
-  return safe;
 }
 
 export function clearEmbed(iframe: HTMLIFrameElement): void {

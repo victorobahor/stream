@@ -2,14 +2,15 @@ import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData, Mul
 import { state } from '../state';
 import { el, log } from '../helpers';
 import { showToast } from '../format';
-import { loadStreams, getMatchById, fetchJSON, pickPreferredStream, invalidateStreamsCache } from '../api';
+import { loadStreams, getMatchById, fetchJSON, pickPreferredStream, invalidateStreamsCache, mergeMatchLists, SPORTSRC_API } from '../api';
 import { renderMultiviewGrid, renderMultiviewSlot, getNumSlotsForLayout } from './grid';
 import { MULTIVIEW_STORAGE_KEY } from './storageKey';
 
 /**
  * Home/live loads only the active category, so a saved multiview match may be
  * absent from `state.allMatches` after refresh even though it still exists.
- * Probe a few broad endpoints once for any missing ids.
+ * Look missing ids up once in the full SportSRC catalog (a superset of every
+ * category list).
  */
 async function lookupMatchesByIds(ids: string[]): Promise<Map<string, APIMatch>> {
   const found = new Map<string, APIMatch>();
@@ -23,30 +24,18 @@ async function lookupMatchesByIds(ids: string[]): Promise<Map<string, APIMatch>>
   }
   if (want.size === 0) return found;
 
-  const endpoints = [
-    '/api/matches/live',
-    '/api/matches/live/popular',
-    '/api/matches/all-today',
-    '/api/matches/all-today/popular',
-    '/api/matches/all',
-    '/api/matches/all/popular',
-  ];
-  await Promise.all(
-    endpoints.map(async endpoint => {
-      if (want.size === 0) return;
-      try {
-        const data = await fetchJSON<APIMatch[]>(endpoint);
-        for (const match of Array.isArray(data) ? data : []) {
-          if (match?.id && want.has(match.id)) {
-            found.set(match.id, match);
-            want.delete(match.id);
-          }
-        }
-      } catch (e) {
-        log('warn', `Multiview restore lookup failed for ${endpoint}:`, e);
+  try {
+    const data = await fetchJSON<APIMatch[]>(`${SPORTSRC_API}/matches/all`);
+    // The BFF returns bare ids; the app keys SportSRC cards as `sportsrc:<id>`.
+    for (const match of mergeMatchLists([], Array.isArray(data) ? data : [])) {
+      if (want.has(match.id)) {
+        found.set(match.id, match);
+        want.delete(match.id);
       }
-    }),
-  );
+    }
+  } catch (e) {
+    log('warn', 'Multiview restore lookup failed:', e);
+  }
   return found;
 }
 

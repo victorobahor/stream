@@ -3,6 +3,7 @@ import {
   nativeHlsConfig,
   preferHighestLevel,
   shouldRetryHlsOpen,
+  hlsOpenFailureMessage,
   withHlsOpenSlot,
   shouldStartMuted,
 } from './hlsPlayer';
@@ -43,6 +44,14 @@ describe('shouldRetryHlsOpen', () => {
     expect(shouldRetryHlsOpen(502)).toBe(false);
     expect(shouldRetryHlsOpen(504)).toBe(false);
     expect(shouldRetryHlsOpen(200)).toBe(false);
+  });
+});
+
+describe('hlsOpenFailureMessage', () => {
+  it('should tell viewers when a stream has not started instead of blaming the provider', () => {
+    expect(hlsOpenFailureMessage(425)).toMatch(/hasn't started/);
+    expect(hlsOpenFailureMessage(502)).toMatch(/temporarily unavailable/);
+    expect(hlsOpenFailureMessage(422)).toMatch(/no supported ad-free stream/);
   });
 });
 

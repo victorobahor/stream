@@ -34,6 +34,9 @@ test.describe('responsive layout', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoHome(page);
     await waitForHomeReady(page);
+    // Live is often only 24/7 channels (no team pair); the full slate has fixtures.
+    await page.locator('#nav-all').click();
+    await waitForHomeReady(page);
 
     const result = await page.evaluate(() => {
       const vw = window.innerWidth;
