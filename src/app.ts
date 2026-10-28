@@ -1,6 +1,6 @@
 import { state } from './state';
 import { loadSports } from './api';
-import { loadMatchesWithUI } from './filters';
+import { loadMatchesWithUI, fallbackFromEmptyLive } from './filters';
 import { renderSportsBar } from './ui';
 import { attachGlobalDelegates } from './delegates';
 import { MULTIVIEW_STORAGE_KEY } from './multiview/storageKey';
@@ -79,6 +79,7 @@ async function init(): Promise<void> {
 
   // Independent requests — no reason to serialise them on cold start.
   await Promise.all([loadSportsWithUI(), loadMatchesWithUI()]);
+  await fallbackFromEmptyLive();
 
   restoreMultiviewIfSaved();
   startAutoRefresh();

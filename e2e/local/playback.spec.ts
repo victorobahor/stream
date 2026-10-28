@@ -14,7 +14,7 @@ async function fixtures(page: Page, options: { failPrimary?: boolean; failAll?: 
   const catalog = Array.from({ length: 4 }, (_, i) => ({
     id: `match-${i}`, title: `Test Home ${i} vs Test Away ${i}`, category: 'football',
     date: Date.now() - 10_000, popular: true,
-    sources: [{ source: 'admin', id: `match-${i}` }],
+    sources: [{ source: 'strmfree', id: `match-${i}`, category: 'football' }],
   }));
   page.on('request', request => requests.push(request.url()));
   await page.route('**/api/**', async route => {
@@ -22,13 +22,14 @@ async function fixtures(page: Page, options: { failPrimary?: boolean; failAll?: 
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ json: body });
     if (path.endsWith('/sports')) return json([{ id: 'football', name: 'Football' }]);
-    if (path.includes('/matches/')) return json(catalog);
+    // StreamFree serves its whole slate at /matches; SportSRC rows merge onto it by id.
+    if (path.includes('/matches')) return json(catalog);
     if (path.includes('/stream/')) {
       const id = path.split('/').pop();
       const sportsrc = path.startsWith('/api/sportsrc/');
       if (sportsrc && options.emptyFallback) return json([]);
-      return json([{ id, streamNo: 1, language: 'English', hd: true, source: sportsrc ? 'sportsrc' : 'admin',
-        embedUrl: sportsrc ? `https://embed.streamapi.cc/sport/${id}/` : `https://embed.st/embed/admin/${id}/1` }]);
+      return json([{ id, streamNo: 1, language: 'English', hd: true, source: sportsrc ? 'sportsrc' : 'strmfree',
+        embedUrl: sportsrc ? `https://embed.streamapi.cc/sport/${id}/` : `https://strmfree.st/embed/soccer/${id}1080p` }]);
     }
     if (path === '/api/hls/open') {
       const embed = url.searchParams.get('u') || '';
@@ -36,7 +37,7 @@ async function fixtures(page: Page, options: { failPrimary?: boolean; failAll?: 
       peakOpens = Math.max(peakOpens, opening);
       await new Promise(r => setTimeout(r, 150));
       opening--;
-      if (options.failAll || (options.failPrimary && embed.includes('embed.st/'))) {
+      if (options.failAll || (options.failPrimary && embed.includes('strmfree.st/'))) {
         return route.fulfill({ status: options.failureStatus ?? 422, json: { error: 'No playable source' } });
       }
       const sessionId = (++nextId).toString(16).padStart(24, '0');

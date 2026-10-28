@@ -81,18 +81,19 @@ test.describe('StreamZone live smoke', () => {
     expect(await sidebarItems.count()).toBeGreaterThan(0);
   });
 
-  test('upstream APIs respond from the browser', async ({ page }) => {
+  test('provider BFFs respond from the browser', async ({ page }) => {
     await gotoHome(page);
 
-    const apiStatus = await page.evaluate(async () => {
-      const [sportsrc, streamed] = await Promise.all([
-        fetch('/api/sportsrc/matches?category=live').then(r => r.status).catch(() => 0),
-        fetch('https://streamed.pk/api/matches/live').then(r => r.status).catch(() => 0),
+    const status = await page.evaluate(async () => {
+      const [sports, matches, strmfree] = await Promise.all([
+        fetch('/api/sportsrc/sports').then(r => r.status).catch(() => 0),
+        fetch('/api/sportsrc/matches/all-today').then(r => r.status).catch(() => 0),
+        fetch('/api/strmfree/matches').then(r => r.status).catch(() => 0),
       ]);
-      return { sportsrc, streamed };
+      return { sports, matches, strmfree };
     });
 
-    expect(apiStatus.sportsrc).toBe(200);
-    expect(apiStatus.streamed).toBe(200);
+    // Streamed shut down in October 2026; StreamFree replaced it.
+    expect(status).toEqual({ sports: 200, matches: 200, strmfree: 200 });
   });
 });

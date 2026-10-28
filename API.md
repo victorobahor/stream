@@ -1,485 +1,53 @@
 # StreamZone API Documentation
 
-This app uses two upstream catalogs. **Streamed** is fetched from the browser; **SportSRC V1** is fetched only through the local BFF under `/api/sportsrc/*`.
+StreamZone reads two keyless upstream catalogs, both only through local BFFs —
+the browser never talks to a provider directly (CSP `connect-src 'self'`).
+
+| Provider | App path | Role |
+|---|---|---|
+| **StreamFree** | `/api/strmfree/*` | Primary catalog (replaced Streamed, which shut down in October 2026) |
+| **SportSRC V1** | `/api/sportsrc/*` | Second catalog, merged by fixture |
+
+Playback for both goes through `/api/hls/open?u=<embed>` → same-origin HLS.
+Provider pages are read as data on the server and never shown to viewers, so
+provider ads, popunders and trackers never load.
 
 ---
 
-# Streamed API
+# StreamFree (via local BFF)
 
-> Base URL: `https://streamed.pk`  
-> Mirror: `https://strmd.link`  
-> All endpoints return JSON. No authentication required.
+> Upstream: `https://strmfree.st/api/v1/*` (docs: https://strmfree.st/api)  
+> App path: `/api/strmfree/*` (Vite middleware in dev, `embed-proxy/server.mjs` in production)
 
----
+## How StreamZone maps paths
 
-## Quick Start
+| Client request | Upstream | Cache |
+|---|---|---|
+| `GET /api/strmfree/matches` | `GET /api/v1/streams` | 60s |
+| `GET /api/strmfree/stream/{stream_key}` | `GET /api/v1/sources/{stream_key}` | 30s |
 
-```javascript
-// Fetch all football matches
-fetch('https://streamed.pk/api/matches/football')
-  .then(response => response.json())
-  .then(matches => {
-    console.log(matches);
+`/matches` returns `APIMatch[]`: `id` = `stream_key`, `date` = `match_timestamp × 1000`,
+`status: "inprogress"` when `live_sources` is non-empty (24/7 channels included),
+teams from `team1`/`team2`, poster from `thumbnail_url`. Categories are mapped to the
+app's sport ids: `soccer → football`, `football → american-football`,
+`combat → fight`, `racing → motor-sports`. External (`is_external`) streams are dropped.
 
-    // Get streams for the first match
-    if (matches.length > 0) {
-      const match = matches[0];
-      const source = match.sources[0];
+`/stream/{key}` returns `Stream[]` from `live_sources` once any are live, otherwise
+from `sources`, labelled by variant (`1080p`, `1080p · Source 2`). An unknown key is `[]`.
 
-      fetch(`https://streamed.pk/api/stream/${source.source}/${source.id}`)
-        .then(response => response.json())
-        .then(streams => console.log(streams))
-        .catch(error => console.error('Error fetching streams:', error));
-    }
-  })
-  .catch(error => console.error('Error fetching matches:', error));
-```
+## Playback
 
-## Guidelines
+Each embed page (`https://strmfree.st/embed/{category}/{variant}`) carries its playlist
+recipe: `VARIANT`, `IS_LIVE`, a signed token `_0x[QUALITY]`, and `/get-stream-key/{key}`
+(origin vs CDN vs TikTok server). `resolveStrmfreePlaylist` reads these without executing
+the page and builds `…/live[-cdn|-tiktok]/{variant}/index.m3u8?_t=…&_e=…&_n=…`.
+Playlists and segments require a StreamFree `Referer`. No headless browser is used.
+`IS_LIVE = false` → `/api/hls/open` answers **425** `STREAM_NOT_STARTED`.
 
-- All endpoints return JSON
-- No authentication required
-- No rate limits (may change in the future)
-- HTTP status codes follow standard conventions (200, 404, etc.)
+## Env overrides
 
----
-
-## 1. Sports API
-
-> `GET /api/sports`
-
-Provides all available sport categories. Use sport IDs to filter matches.
-
-### Object Structure
-
-```typescript
-interface Sport {
-  id: string;    // Sport identifier (used in Matches API endpoints)
-  name: string;  // Display name of the sport
-}
-```
-
-### Example Response
-
-```json
-[
-  { "id": "football",   "name": "Football"   },
-  { "id": "basketball", "name": "Basketball" },
-  { "id": "tennis",     "name": "Tennis"     },
-  { "id": "hockey",     "name": "Hockey"     },
-  { "id": "baseball",   "name": "Baseball"   },
-  { "id": "mma",        "name": "MMA"        },
-  { "id": "boxing",     "name": "Boxing"     }
-]
-```
-
-### Usage Example
-
-```javascript
-fetch('https://streamed.pk/api/sports')
-  .then(response => response.json())
-  .then(sports => {
-    // Build a sport selector dropdown
-    const select = document.createElement('select');
-    sports.forEach(sport => {
-      const option = document.createElement('option');
-      option.value = sport.id;
-      option.textContent = sport.name;
-      select.appendChild(option);
-    });
-
-    select.addEventListener('change', (event) => {
-      const sportId = event.target.value;
-      if (sportId) {
-        fetch(`https://streamed.pk/api/matches/${sportId}`)
-          .then(response => response.json())
-          .then(matches => {
-            console.log(`Found ${matches.length} matches for ${sportId}`);
-          });
-      }
-    });
-  });
-```
-
----
-
-## 2. Matches API
-
-> Provides sports events data including match details, team info, and stream sources.
-
-### Object Structure
-
-```typescript
-interface APIMatch {
-  id: string;        // Unique identifier for the match
-  title: string;     // Match title (e.g. "Team A vs Team B")
-  category: string;  // Sport category (e.g. "football", "basketball")
-  date: number;      // Unix timestamp in milliseconds
-  poster?: string;   // URL path to match poster image
-  popular: boolean;  // Whether the match is marked as popular
-  teams?: {
-    home?: {
-      name: string;   // Home team name
-      badge: string;  // URL path to home team badge
-    };
-    away?: {
-      name: string;   // Away team name
-      badge: string;  // URL path to away team badge
-    };
-  };
-  sources: {
-    source: string;  // Stream source identifier (e.g. "alpha", "bravo")
-    id: string;      // Source-specific match ID
-  }[];
-}
-```
-
-### Available Endpoints
-
-#### Sport-Specific Matches
-
-| Endpoint | Description |
-|---|---|
-| `GET /api/matches/[SPORT]` | Matches for a specific sport |
-| `GET /api/matches/[SPORT]/popular` | Popular matches for a sport |
-
-> Replace `[SPORT]` with a sport ID from the Sports API (e.g. `football`, `basketball`).
-
-#### All Matches
-
-| Endpoint | Description |
-|---|---|
-| `GET /api/matches/all` | All matches across all sports |
-| `GET /api/matches/all/popular` | All popular matches |
-
-#### Today's Matches
-
-| Endpoint | Description |
-|---|---|
-| `GET /api/matches/all-today` | Matches scheduled for today |
-| `GET /api/matches/all-today/popular` | Popular matches scheduled for today |
-
-#### Live Matches
-
-| Endpoint | Description |
-|---|---|
-| `GET /api/matches/live` | Currently live matches |
-| `GET /api/matches/live/popular` | Popular live matches |
-
-### Example Response
-
-```json
-[
-  {
-    "id": "match_123",
-    "title": "Manchester United vs Liverpool",
-    "category": "football",
-    "date": 1720598400000,
-    "poster": "man-utd-liverpool-poster",
-    "popular": true,
-    "teams": {
-      "home": {
-        "name": "Manchester United",
-        "badge": "man-utd-badge"
-      },
-      "away": {
-        "name": "Liverpool",
-        "badge": "liverpool-badge"
-      }
-    },
-    "sources": [
-      { "source": "alpha", "id": "mu-liv-123" },
-      { "source": "bravo", "id": "456-mu-liv" }
-    ]
-  }
-]
-```
-
-### Usage Example
-
-```javascript
-fetch('https://streamed.pk/api/matches/live')
-  .then(response => {
-    if (!response.ok) throw new Error('Network response was not ok');
-    return response.json();
-  })
-  .then(matches => {
-    matches.forEach(match => {
-      console.log(`Match: ${match.title}, Time: ${new Date(match.date).toLocaleString()}`);
-
-      // Access team information
-      if (match.teams) {
-        if (match.teams.home) console.log(`Home: ${match.teams.home.name}`);
-        if (match.teams.away) console.log(`Away: ${match.teams.away.name}`);
-      }
-
-      // Get stream sources
-      console.log('Available sources:', match.sources.map(s => s.source).join(', '));
-    });
-  })
-  .catch(error => console.error('Error fetching matches:', error));
-```
-
-To get stream details for a specific match, use the `sources` values with the **Streams API**.
-
----
-
-## 3. Streams API
-
-> Provides live streaming sources for sports events. Returns stream details for embedding.
-
-### Object Structure
-
-```typescript
-interface Stream {
-  id: string;        // Unique identifier for the stream
-  streamNo: number;  // Stream number/index
-  language: string;  // Stream language (e.g. "English", "Spanish")
-  hd: boolean;       // Whether the stream is in HD quality
-  embedUrl: string;  // URL that can be used to embed the stream
-  source: string;    // Source identifier (e.g. "alpha", "bravo")
-}
-```
-
-### Available Endpoints
-
-| Source | Endpoint |
-|---|---|
-| Alpha | `GET /api/stream/alpha/[id]` |
-| Bravo | `GET /api/stream/bravo/[id]` |
-| Charlie | `GET /api/stream/charlie/[id]` |
-| Delta | `GET /api/stream/delta/[id]` |
-| Echo | `GET /api/stream/echo/[id]` |
-| Foxtrot | `GET /api/stream/foxtrot/[id]` |
-| Golf | `GET /api/stream/golf/[id]` |
-| Hotel | `GET /api/stream/hotel/[id]` |
-| Intel | `GET /api/stream/intel/[id]` |
-
-> Replace `[id]` with the `source.id` from the match's `sources` array.
-
-### Example Response
-
-```json
-[
-  {
-    "id": "stream_456",
-    "streamNo": 1,
-    "language": "English",
-    "hd": true,
-    "embedUrl": "https://embed.example.com/watch?v=abcd1234",
-    "source": "alpha"
-  },
-  {
-    "id": "stream_457",
-    "streamNo": 2,
-    "language": "Spanish",
-    "hd": false,
-    "embedUrl": "https://embed.example.com/watch?v=efgh5678",
-    "source": "alpha"
-  }
-]
-```
-
-### Usage Example
-
-```javascript
-// First, get match data to find available sources
-fetch('https://streamed.pk/api/matches/live')
-  .then(response => response.json())
-  .then(matches => {
-    if (matches.length > 0) {
-      const match = matches[0];
-      console.log(`Found match: ${match.title}`);
-
-      if (match.sources && match.sources.length > 0) {
-        const source = match.sources[0];
-        console.log(`Using source: ${source.source}, ID: ${source.id}`);
-
-        return fetch(`https://streamed.pk/api/stream/${source.source}/${source.id}`);
-      } else {
-        throw new Error('No sources available for this match');
-      }
-    } else {
-      throw new Error('No matches found');
-    }
-  })
-  .then(response => response.json())
-  .then(streams => {
-    console.log(`Found ${streams.length} streams`);
-
-    streams.forEach(stream => {
-      console.log(`Stream #${stream.streamNo}: ${stream.language} (${stream.hd ? 'HD' : 'SD'})`);
-      console.log(`Embed URL: ${stream.embedUrl}`);
-
-      // Embed the stream in an iframe:
-      // document.getElementById('player').src = stream.embedUrl;
-    });
-  })
-  .catch(error => console.error('Error:', error));
-```
-
-### Embedding a Stream
-
-```html
-<iframe
-  id="stream-player"
-  width="640"
-  height="360"
-  frameborder="0"
-  allowfullscreen>
-</iframe>
-```
-
-```javascript
-function loadStream(embedUrl) {
-  document.getElementById('stream-player').src = embedUrl;
-}
-```
-
----
-
-## 4. Images API
-
-> Provides team badges, match posters, and proxied images. All images are served in WebP format.
-
-### Available Endpoints
-
-#### Team Badges
-
-```
-GET /api/images/badge/[id].webp
-```
-
-The `[id]` value comes from the `team.badge` field of a match object.
-
-#### Match Posters
-
-```
-GET /api/images/poster/[badge]/[badge].webp
-```
-
-The `[badge]` values are typically derived from team badge IDs.
-
-#### Proxied Images
-
-```
-GET /api/images/proxy/[poster].webp
-```
-
-The `[poster]` value comes from the `poster` field of a match object.
-
-### Usage Example
-
-```javascript
-fetch('https://streamed.pk/api/matches/football')
-  .then(response => response.json())
-  .then(matches => {
-    if (matches.length > 0) {
-      const match = matches[0];
-
-      // Team badges
-      if (match.teams) {
-        if (match.teams.home && match.teams.home.badge) {
-          const badge = document.createElement('img');
-          badge.src = `https://streamed.pk/api/images/badge/${match.teams.home.badge}.webp`;
-          badge.alt = match.teams.home.name;
-          badge.width = 50;
-          badge.height = 50;
-        }
-      }
-
-      // Match poster
-      if (match.poster) {
-        const poster = document.createElement('img');
-        poster.src = `https://streamed.pk/${match.poster}.webp`;
-        poster.alt = match.title;
-        poster.style.maxWidth = '100%';
-      }
-    }
-  });
-```
-
-### HTML Implementation
-
-```html
-<!-- Team Badge -->
-<img
-  src="https://streamed.pk/api/images/badge/man-utd-badge.webp"
-  alt="Manchester United"
-  width="50"
-  height="50"
-/>
-
-<!-- Match Poster -->
-<img
-  src="https://streamed.pk/api/images/poster/man-utd-badge/liverpool-badge.webp"
-  alt="Manchester United vs Liverpool"
-  class="match-poster"
-/>
-
-<!-- Proxied Image -->
-<img
-  src="https://streamed.pk/api/images/proxy/custom-event-poster.webp"
-  alt="Special Event"
-  class="event-poster"
-/>
-```
-
-### Tips
-
-- All images use WebP format for optimal compression
-- Use width/height attributes to prevent layout shifts
-- Add `loading="lazy"` for images below the fold
-- Style with CSS as needed for responsive design
-
----
-
-## Full Workflow Example
-
-```javascript
-async function loadStreamForSport(sportId) {
-  try {
-    // 1. Get matches for the sport
-    const matches = await fetch(`https://streamed.pk/api/matches/${sportId}`)
-      .then(res => res.json());
-
-    if (matches.length === 0) return console.log('No matches found');
-
-    const match = matches[0];
-    console.log(`Match: ${match.title}`);
-
-    // 2. Display team badges
-    if (match.teams?.home?.badge) {
-      const badgeUrl = `https://streamed.pk/api/images/badge/${match.teams.home.badge}.webp`;
-      console.log(`Home badge: ${badgeUrl}`);
-    }
-
-    // 3. Display poster
-    if (match.poster) {
-      const posterUrl = `https://streamed.pk/${match.poster}.webp`;
-      console.log(`Poster: ${posterUrl}`);
-    }
-
-    // 4. Get streams from the first available source
-    if (match.sources.length > 0) {
-      const source = match.sources[0];
-      const streams = await fetch(
-        `https://streamed.pk/api/stream/${source.source}/${source.id}`
-      ).then(res => res.json());
-
-      streams.forEach(stream => {
-        console.log(`Stream #${stream.streamNo}: ${stream.language} (${stream.hd ? 'HD' : 'SD'})`);
-        console.log(`Embed: ${stream.embedUrl}`);
-      });
-    }
-  } catch (error) {
-    console.error('Error:', error);
-  }
-}
-
-// Load football matches
-loadStreamForSport('football');
-```
+- `STRMFREE_BASE_URL` (default `https://strmfree.st/`)
+- `STRMFREE_CACHE_TTL_MS` (default `60000`, minimum `15000`)
 
 ---
 
@@ -499,14 +67,14 @@ loadStreamForSport('football');
 | `GET /api/sportsrc/matches/{sport}` | matches for sport |
 | `GET /api/sportsrc/stream/{id}` or `/api/sportsrc/stream/sportsrc/{id}` | streams for match |
 
-Responses are normalized to the Streamed-shaped `APIMatch` / `Stream` objects the SPA already uses. Match-only rows from SportSRC get a stub source `{ source: "sportsrc", id, category }` until streams are loaded.
+Responses are normalized to the `APIMatch` / `Stream` objects the SPA already uses. Match-only rows from SportSRC get a stub source `{ source: "sportsrc", id, category }` until streams are loaded.
 
 ## Client merge behavior
 
-1. Fetch Streamed and SportSRC in parallel for the same category/sport.
-2. Deduplicate by title (+ teams when present); append a `sportsrc` source onto Streamed cards when both list the same fixture.
+1. Fetch StreamFree (whole slate) and SportSRC (category/sport path) in parallel; either may fail alone.
+2. Deduplicate by teams (+ title, sport, kick-off bucket); append a `sportsrc` source onto StreamFree cards when both list the same fixture.
 3. SportSRC-only matches get ids prefixed with `sportsrc:`.
-4. `loadStreams` probes Streamed sources and fetches SportSRC streams for stubs; Admin-style Streamed sources are preferred in the picker.
+4. SportSRC stubs are probed for streams before cards render; StreamFree rows are trusted (its API asks not to be polled per page load). StreamFree is preferred in the picker.
 
 ## Env overrides
 
@@ -518,4 +86,4 @@ See `.env.example`:
 
 ## Playback note
 
-SportSRC embeds typically land on `embed.streamapi.cc` (often nesting `embed.st`). StreamZone sends both providers to `/api/hls/open?u=...`. The server unwraps SportSRC pages as data and resolves the nested player. The viewer receives only same-origin media; no iframe fallback is permitted.
+SportSRC embeds typically land on `embed.streamapi.cc` (often nesting `embed.st`). StreamZone sends every provider to `/api/hls/open?u=...`. The server unwraps SportSRC pages as data and resolves the nested player. The viewer receives only same-origin media; no iframe fallback is permitted.

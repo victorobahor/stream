@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { capitalize, formatSportLabel, isEPLMatch, getSportEmoji, isMatchLive, formatDate, getPosterUrl, LIVE_WINDOW_MS } from './format';
+import { capitalize, formatSportLabel, isEPLMatch, getSportEmoji, isMatchLive, formatDate, getPosterUrl, LIVE_WINDOW_MS, notStartedMessage, finishedMessage, isInLiveWindow } from './format';
 import { state } from './state';
 import type { APIMatch } from './types';
 
@@ -173,22 +173,14 @@ describe('getPosterUrl', () => {
     expect(getPosterUrl(withPoster('https://cdn.example/p.webp'))).toBe('https://cdn.example/p.webp');
   });
 
-  it('should not double the .webp extension on a proxied poster', () => {
-    const url = getPosterUrl(withPoster('/api/images/proxy/abc123.webp'));
-    expect(url).not.toContain('.webp.webp');
-    expect(url).toMatch(/\/api\/images\/proxy\/abc123\.webp$/);
-  });
-
-  it('should add the extension when the poster id has none', () => {
-    expect(getPosterUrl(withPoster('abc123'))).toMatch(/\/api\/images\/proxy\/abc123\.webp$/);
-  });
-
-  it('should fall back to the team badge pair', () => {
+  it('should drop relative Streamed image paths and badge-pair composites (host is gone)', () => {
+    expect(getPosterUrl(withPoster('/api/images/proxy/abc123.webp'))).toBeNull();
+    expect(getPosterUrl(withPoster('http://cdn.example/p.webp'))).toBeNull();
     const match: APIMatch = {
       id: '1', title: 'T', category: 'football', date: 0, popular: false, sources: [],
       teams: { home: { name: 'H', badge: 'h1' }, away: { name: 'A', badge: 'a1' } },
     };
-    expect(getPosterUrl(match)).toMatch(/\/api\/images\/poster\/h1\/a1\.webp$/);
+    expect(getPosterUrl(match)).toBeNull();
   });
 
   it('should return null when there is nothing to show', () => {
@@ -234,5 +226,44 @@ describe('formatDate', () => {
     future.setHours(14, 30, 0, 0);
     const result = formatDate(future.getTime());
     expect(result).toMatch(/\w+ \d+.*\d+:\d+ [AP]M/);
+  });
+});
+
+describe('notStartedMessage', () => {
+  const now = Date.UTC(2026, 9, 28, 12, 0);
+  const at = (offsetMin: number) => ({ id: 'm', title: 'T', category: 'c', date: now + offsetMin * 60_000, popular: false, sources: [] });
+
+  it('explains failures well before kick-off', () => {
+    expect(notStartedMessage(at(120), now)).toMatch(/hasn't started yet/);
+  });
+
+  it('stays silent near or after kick-off so real outages are reported', () => {
+    expect(notStartedMessage(at(10), now)).toBeNull();
+    expect(notStartedMessage(at(-30), now)).toBeNull();
+    expect(notStartedMessage(null, now)).toBeNull();
+  });
+});
+
+describe('isInLiveWindow', () => {
+  it('ignores the sticky live set and missing dates', () => {
+    expect(isInLiveWindow(Date.now() - 60_000)).toBe(true);
+    expect(isInLiveWindow(Date.now() - LIVE_WINDOW_MS - 60_000)).toBe(false);
+    expect(isInLiveWindow(Date.now() + 60_000)).toBe(false);
+    expect(isInLiveWindow(undefined)).toBe(false);
+  });
+});
+
+describe('finishedMessage', () => {
+  const now = Date.UTC(2026, 9, 28, 12, 0);
+  const at = (offsetMin: number) => ({ id: 'm', title: 'T', category: 'c', date: now + offsetMin * 60_000, popular: false, sources: [] });
+
+  it('flags games that kicked off before the live window', () => {
+    expect(finishedMessage(at(-11 * 60), now)).toMatch(/probably finished/);
+    expect(finishedMessage(at(-60), now)).toBeNull();
+    expect(finishedMessage(at(60), now)).toBeNull();
+  });
+
+  it('never flags a provider-confirmed live stream with a stale timestamp', () => {
+    expect(finishedMessage({ ...at(-90 * 24 * 60), status: 'inprogress' }, now)).toBeNull();
   });
 });

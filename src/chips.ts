@@ -31,10 +31,14 @@ const selectHandlers = new WeakMap<HTMLElement, (id: string) => void>();
 export function syncSportChips(container: HTMLElement | null, activeId: string): void {
   if (!container) return;
   const current = container.querySelector('.active');
-  if (current) current.classList.remove('active');
+  if (current) {
+    current.classList.remove('active');
+    current.setAttribute('aria-pressed', 'false');
+  }
   for (const chip of container.querySelectorAll<HTMLElement>('[data-sport-id]')) {
     if (chip.dataset.sportId === activeId) {
       chip.classList.add('active');
+      chip.setAttribute('aria-pressed', 'true');
       return;
     }
   }
@@ -56,6 +60,7 @@ export function renderSportChips(container: HTMLElement | null, opts: SportChipO
   allChip.className = opts.chipClass;
   allChip.dataset.sportId = ALL_SPORTS;
   allChip.textContent = opts.allLabel;
+  allChip.setAttribute('aria-pressed', 'false');
   fragment.appendChild(allChip);
 
   const seen = new Set<string>([ALL_SPORTS]);
@@ -68,6 +73,7 @@ export function renderSportChips(container: HTMLElement | null, opts: SportChipO
     chip.className = opts.chipClass;
     chip.dataset.sportId = id;
     chip.textContent = opts.withEmoji ? `${getSportEmoji(name)} ${capitalize(name)}` : capitalize(name);
+    chip.setAttribute('aria-pressed', 'false');
     fragment.appendChild(chip);
   }
 

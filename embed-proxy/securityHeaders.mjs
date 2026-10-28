@@ -1,11 +1,7 @@
-/** CSP + security headers for the SPA shell vs proxied embed documents. */
+/** CSP + security headers for the SPA shell. */
 
 export const APP_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'none'; connect-src 'self' https://streamed.pk https://strmd.link; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'";
-
-/** Relaxed CSP for `/__embed` + `/__ad_sink` — upstream wrappers use inline scripts. */
-export const EMBED_CSP =
-  "default-src 'self' https: http: data: blob:; script-src 'self' 'unsafe-inline' https: http:; style-src 'self' 'unsafe-inline' https: http:; img-src 'self' https: http: data: blob:; media-src 'self' blob: https: http:; frame-src 'self' https: http:; connect-src 'self' https: http:; font-src 'self' https: data:; base-uri 'self'; form-action 'self'; object-src 'none'";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'none'; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'self'";
 
 const STATIC_EXTENSIONS = new Set([
   '.svg',
@@ -48,7 +44,8 @@ function baseHeaders(req) {
   };
   if (isHttpsRequest(req)) {
     headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
-    headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups';
+    // Nothing here opens windows; isolate from any opener/popup tricks.
+    headers['Cross-Origin-Opener-Policy'] = 'same-origin';
   }
   return headers;
 }
@@ -60,9 +57,3 @@ export function appSecurityHeaders(req) {
   };
 }
 
-export function embedSecurityHeaders(req) {
-  return {
-    ...baseHeaders(req),
-    'Content-Security-Policy': EMBED_CSP,
-  };
-}

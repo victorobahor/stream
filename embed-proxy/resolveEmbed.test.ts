@@ -31,4 +31,14 @@ describe('provider resolution', () => {
     await expect(resolveNativeEmbed('https://embed.streamapi.cc/sport/game/', unsafe)).rejects.toThrow('no supported');
     expect(unsafe).toHaveBeenCalledTimes(1);
   });
+  it('reports a SportSRC wrapper with a blank player as not started yet', async () => {
+    const read = vi.fn(async () => ({ status: 200, body: '<iframe id="video-iframe" src="about:blank"></iframe>' }));
+    await expect(resolveNativeEmbed('https://embed.streamapi.cc/sport/game/', read))
+      .rejects.toMatchObject({ statusCode: 425, code: 'STREAM_NOT_STARTED' });
+  });
+  it('surfaces provider page errors as upstream failures', async () => {
+    const read = vi.fn(async () => ({ status: 503 }));
+    await expect(resolveNativeEmbed('https://embed.streamapi.cc/sport/game/', read))
+      .rejects.toMatchObject({ statusCode: 502 });
+  });
 });

@@ -1,5 +1,5 @@
 import type { APIMatch, SportEmojiMap } from './types';
-import { state, getImgUrl, API_HOSTS, getActiveHostIndex } from './state';
+import { state } from './state';
 
 const ONE_HOUR_MS = 3_600_000;
 
@@ -30,23 +30,60 @@ export function formatDate(ts: number): string {
   );
 }
 
+/** Upcoming games have no provider player yet; give them a grace window before kick-off. */
+const PRE_KICKOFF_GRACE_MS = 15 * 60_000;
+
+/** Why a stream failed when the game has not kicked off yet, or null once it is near/under way. */
+export function notStartedMessage(match: APIMatch | null | undefined, now: number = Date.now()): string | null {
+  if (!match?.date || match.status === 'inprogress' || match.date - now <= PRE_KICKOFF_GRACE_MS) return null;
+  return `This match hasn't started yet (kick-off ${formatDate(match.date)}). Streams usually go live shortly before kick-off.`;
+}
+
+/** Kicked off longer ago than any live window — SportSRC keeps these listed for the day. */
+export function isMatchFinished(match: APIMatch | null | undefined, now: number = Date.now()): boolean {
+  // StreamFree's 24/7 channels carry stale timestamps but are flagged live.
+  return !!match?.date && match.status !== 'inprogress' && now - match.date >= LIVE_WINDOW_MS;
+}
+
+/** Why every stream failed for a game that is probably over, or null. */
+export function finishedMessage(match: APIMatch | null | undefined, now: number = Date.now()): string | null {
+  if (!isMatchFinished(match, now)) return null;
+  return 'This match has probably finished — providers take streams down after the final whistle.';
+}
+
 export function capitalize(str: string): string {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+let lastSportsRef: typeof state.sports | null = null;
+const sportLabelCache = new Map<string, string>();
+
 /**
  * Human label for a sport id or raw category (`american-football` → `American Football`).
  * Prefers the API sports list name when available.
+ * ⚡ Bolt: Uses O(1) Map caching to eliminate O(N) array scans during list rendering.
  */
 export function formatSportLabel(sport: string): string {
   const raw = (sport || '').trim();
   if (!raw) return 'Sport';
   const key = raw.toLowerCase();
-  const fromApi = state.sports.find(
-    s => (s.id || '').toLowerCase() === key || (s.name || '').toLowerCase() === key,
-  );
-  if (fromApi?.name) return fromApi.name;
+
+  // Rebuild the O(1) cache if the API sports list reference changes
+  if (state.sports !== lastSportsRef) {
+    sportLabelCache.clear();
+    lastSportsRef = state.sports;
+    for (const s of state.sports) {
+      if (s.name) {
+        if (s.id) sportLabelCache.set(s.id.toLowerCase(), s.name);
+        sportLabelCache.set(s.name.toLowerCase(), s.name);
+      }
+    }
+  }
+
+  const cached = sportLabelCache.get(key);
+  if (cached) return cached;
+
   return raw
     .split(/[-_\s]+/)
     .filter(Boolean)
@@ -56,13 +93,15 @@ export function formatSportLabel(sport: string): string {
 
 // ── Match utilities ──
 
+/** True when the kick-off time is within the live window, ignoring the sticky Live set. */
+export function isInLiveWindow(date: number | undefined): boolean {
+  if (!date) return false;
+  const diff = Date.now() - date;
+  return diff >= 0 && diff < LIVE_WINDOW_MS;
+}
+
 export function isMatchLive(match: APIMatch): boolean {
-  if (state.liveMatchIds.has(match.id)) return true;
-  if (match.date) {
-    const diff = Date.now() - match.date;
-    if (diff >= 0 && diff < LIVE_WINDOW_MS) return true;
-  }
-  return false;
+  return state.liveMatchIds.has(match.id) || isInLiveWindow(match.date);
 }
 
 const EPL_TEAMS_REGEX =
@@ -123,30 +162,12 @@ export function getSportEmoji(sport: string): string {
 
 // ── Poster URL ──
 
+/**
+ * Provider poster (absolute URL only). Relative paths were Streamed image-API
+ * paths; that host is gone, so they would only ever 404.
+ */
 export function getPosterUrl(match: APIMatch): string | null {
-  if (match.poster) {
-    let p = match.poster;
-    if (p.startsWith('http://') || p.startsWith('https://')) return p;
-    if (p.includes('/api/images/proxy/')) {
-      p = p.replace(/^\/?api\/images\/proxy\//, '');
-      p = p.replace(/^\/?api\/images\//, '');
-    }
-    if (p.startsWith('/api/images/') || p.startsWith('api/images/')) {
-      const path = p.startsWith('/') ? p : '/' + p;
-      return `${API_HOSTS[getActiveHostIndex()]}${path}`;
-    }
-    // A poster of `/api/images/proxy/<id>.webp` is stripped to `<id>.webp`
-    // above, so appending unconditionally produced a `.webp.webp` suffix.
-    return getImgUrl(`/proxy/${p}${p.endsWith('.webp') ? '' : '.webp'}`);
-  }
-  if (match.teams?.home?.badge && match.teams?.away?.badge) {
-    const h = match.teams.home.badge;
-    const a = match.teams.away.badge;
-    // Absolute SportSRC badges cannot use Streamed composite poster paths.
-    if (/^https?:\/\//i.test(h) || /^https?:\/\//i.test(a)) return null;
-    return getImgUrl(`/poster/${h}/${a}.webp`);
-  }
-  return null;
+  return match.poster && /^https:\/\//i.test(match.poster) ? match.poster : null;
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;

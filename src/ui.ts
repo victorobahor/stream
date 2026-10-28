@@ -54,24 +54,36 @@ export function retryLoad(): void {
 // ── Navigation ──
 
 export function setActiveNav(linkEl: HTMLElement | null): void {
-  document.querySelectorAll('.nav-link.active, .category-chip.active').forEach(l =>
-    l.classList.remove('active'),
-  );
-  if (linkEl) linkEl.classList.add('active');
+  document.querySelectorAll('.nav-link.active, .category-chip.active').forEach(l => {
+    l.classList.remove('active');
+    l.removeAttribute('aria-current');
+  });
+  if (linkEl) {
+    linkEl.classList.add('active');
+    linkEl.setAttribute('aria-current', 'page');
+  }
 }
 
 export function setActiveCategory(cat: string): void {
   document.querySelectorAll('.category-chip').forEach(chip => {
-    chip.classList.toggle('active', (chip as HTMLElement).dataset.value === cat);
+    const isActive = (chip as HTMLElement).dataset.value === cat;
+    chip.classList.toggle('active', isActive);
+    chip.setAttribute('aria-pressed', String(isActive));
   });
 }
 
 export function toggleMobileMenu(): void {
-  el('mobile-nav')?.classList.toggle('open');
+  const nav = el('mobile-nav');
+  const btn = el('mobile-menu-btn');
+  if (nav) {
+    const isOpen = nav.classList.toggle('open');
+    if (btn) btn.setAttribute('aria-expanded', String(isOpen));
+  }
 }
 
 export function closeMobileMenu(): void {
   el('mobile-nav')?.classList.remove('open');
+  el('mobile-menu-btn')?.setAttribute('aria-expanded', 'false');
 }
 
 // ── Sports bar rendering ──

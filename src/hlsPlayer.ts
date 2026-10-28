@@ -22,7 +22,7 @@ export function isHlsUnsupportedEmbed(embedUrl: string): boolean {
 
 function closeRemoteSession(sessionId: string | null): void {
   if (!sessionId) return;
-  const url = `/api/hls/${sessionId}/close`;
+  const url = `/api/hls/${encodeURIComponent(sessionId)}/close`;
   try {
     if (navigator.sendBeacon?.(url)) return;
   } catch { /* use keepalive */ }
@@ -124,11 +124,7 @@ export async function playNativeHls(embedUrl: string, opts: PlayNativeOptions): 
         if (!response.ok) {
           if (!current()) return null;
           if (!shouldRetryHlsOpen(response.status) || attempt === 2) {
-            opts.onUnavailable?.(response.status === 502 || response.status === 504
-              ? 'The stream provider is temporarily unavailable. Try another stream or retry later.'
-              : response.status === 429 || response.status === 503
-                ? 'The player is busy or temporarily unavailable. Please retry shortly.'
-                : 'This source has no supported ad-free stream. Try another source.');
+            opts.onUnavailable?.(hlsOpenFailureMessage(response.status));
             throw new Error(`HLS open ${response.status}`);
           }
           await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
@@ -247,6 +243,14 @@ export type NativeHlsConfigOptions = {
   /** Multiview: shorter live buffer and a low-rung ABR start so 4 panes stay playable. */
   compact?: boolean;
 };
+
+/** User-facing reason for a failed `/api/hls/open`, keyed by the server's status. */
+export function hlsOpenFailureMessage(status: number): string {
+  if (status === 425) return "This stream hasn't started yet. Providers usually go live shortly before kick-off.";
+  if (status === 502 || status === 504) return 'The stream provider is temporarily unavailable. Try another stream or retry later.';
+  if (status === 429 || status === 503) return 'The player is busy or temporarily unavailable. Please retry shortly.';
+  return 'This source has no supported ad-free stream. Try another source.';
+}
 
 export function shouldRetryHlsOpen(status: number): boolean {
   return status === 429 || status === 503;

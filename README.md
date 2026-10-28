@@ -1,14 +1,14 @@
 # StreamZone
 
-Live sports streaming web application — browse, search, and watch live sports streams from **Streamed** and **SportSRC**, merged into one catalog.
+Live sports streaming web application — browse, search, and watch live sports streams from **StreamFree** and **SportSRC**, merged into one ad-free catalog.
 
 ## Features
 
-- **Dual providers** — Streamed ([streamed.pk](https://streamed.pk)) as primary catalog, SportSRC V1 merged in parallel
+- **Dual providers** — StreamFree ([strmfree.st](https://strmfree.st/api)) as primary catalog, SportSRC V1 merged in parallel. Streamed shut down in October 2026 and has been removed.
 - **Browse matches** by category: Live, All Matches, Today, Popular
 - **Filter by sport** — dynamically loaded sports list with emoji icons
 - **Search** matches by title, team name, or category
-- **Ad-free player** — both providers use native video; SportSRC wrappers are resolved on the server, and iframe playback is blocked by CSP. Ads already embedded in the broadcast itself are not removed.
+- **No ads** — every stream plays in the app's own `<video>`. Provider pages are read on the server as data and never framed (CSP `frame-src 'none'`), so provider ad scripts, popunders and trackers never load. Ads burned into the broadcast picture itself cannot be removed.
 - **Multi-View mode** — watch up to 4 streams with adaptive quality, a 24-second forward buffer target, bounded back buffers, and independent recovery.
 - **Drag-and-drop** matches into stream slots, with session persistence via localStorage
 - **EPL detection** — Premier League matches get a special badge and priority sorting
@@ -21,10 +21,10 @@ Live sports streaming web application — browse, search, and watch live sports 
 
 - **TypeScript** — strict mode, fully typed state and API layer
 - **Vite** — dev server with HMR, esbuild-based production builds
-- **Node embed proxy** — production server: static SPA + `/__embed` rewrite + `/api/hls/*` + `/api/sportsrc/*` BFF
+- **Node server** — production: static SPA + `/api/hls/*` native HLS proxy + `/api/strmfree/*` and `/api/sportsrc/*` BFFs
 - **Vitest** — unit tests for API merge, CSP, rewrite, and SportSRC dispatch
 - **Docker** — multi-stage build (Vite + Playwright Chromium for HLS resolve)
-- **Streamed API** — match/stream data from [streamed.pk](https://streamed.pk) / [strmd.link](https://strmd.link)
+- **StreamFree API** — keyless catalog via [strmfree.st/api](https://strmfree.st/api) (proxied under `/api/strmfree/*`)
 - **SportSRC V1** — keyless catalog via [api.sportsrc.org](https://api.sportsrc.org/) (proxied under `/api/sportsrc/*`)
 
 ## Getting Started
@@ -83,9 +83,10 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
 ├── tsconfig.json
 ├── package.json
 ├── embed-proxy/
-│   ├── server.mjs           # Production: static dist + HLS + SportSRC + /__embed
+│   ├── server.mjs           # Production: static dist + HLS + StreamFree/SportSRC BFFs
 │   ├── vitePlugin.ts        # Dev middleware (same handlers)
-│   ├── rewrite.mjs          # Embed HTML rewrite / ad strip / allowlist
+│   ├── rewrite.mjs          # Provider page reader + allowlist (server-side only)
+│   ├── strmfree.mjs         # StreamFree BFF + browserless playlist resolver
 │   ├── hlsNative.mjs        # Native HLS mint via Playwright
 │   └── sportsrc.mjs         # SportSRC V1 BFF → api.sportsrc.org
 └── src/
@@ -94,7 +95,7 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
     ├── state.ts             # Typed state, API hosts, CSP connect-src union
     ├── helpers.ts           # Sanitization, category filters, shouldProxyEmbed()
     ├── format.ts            # Dates, sport emoji, posters
-    ├── api.ts               # Streamed + SportSRC fetch, mergeMatchLists(), loadStreams()
+    ├── api.ts               # StreamFree + SportSRC fetch, mergeMatchLists(), loadStreams()
     ├── cards.ts             # Match cards / render
     ├── filters.ts           # Category + sport filters on merged list
     ├── player.ts            # openPlayer(), stream selection
@@ -109,13 +110,15 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
 
 | Provider | Catalog | Streams | Playback |
 |---|---|---|---|
-| **Streamed** | Direct browser → `streamed.pk` / `strmd.link` | `/api/stream/...` | Native video via `/api/hls/*`; try another stream on failure |
+| **StreamFree** | Browser → `/api/strmfree/matches` (server BFF) | `/api/strmfree/stream/{key}` | Server reads the signed playlist from the embed page (no browser) → native HLS |
 | **SportSRC** | Browser → `/api/sportsrc/*` (server BFF) | Same BFF for stream list | Server unwraps the provider page → same native HLS path |
 
-Matches present in both catalogs are merged into one card with both sources (Admin-style Streamed sources ranked above SportSRC). SportSRC-only rows use ids prefixed with `sportsrc:`.
+Matches present in both catalogs are merged into one card with both sources (StreamFree ranked above SportSRC). SportSRC-only rows use ids prefixed with `sportsrc:`. When nothing is live on first load, the home page falls back to Today. Upcoming games say they haven't started instead of reporting an outage; earlier games that already finished sink below upcoming ones.
 
 Optional env (see `.env.example`):
 
+- `STRMFREE_BASE_URL` — default `https://strmfree.st/`
+- `STRMFREE_CACHE_TTL_MS` — StreamFree list cache (default 60s; their API asks to be cached)
 - `SPORTSRC_BASE_URL` — default `https://api.sportsrc.org/`
 - `SPORTSRC_API_KEY` — unused for public V1; reserved for keyed variants
 - `SPORTSRC_CACHE_TTL_MS` — BFF response cache (default 30s)
@@ -127,7 +130,7 @@ The server resolves provider pages with Playwright when required, then prefers N
 
 The resolver validates the playlist body and allows provider retries. Three failures for the same playlist end the attempt early; navigation and capture share a 45-second deadline. `/api/hls/open` reports provider errors as HTTP 502 with `code: HLS_UPSTREAM_ERROR` and `upstreamStatus`, malformed playlists as 502 with `HLS_INVALID_PLAYLIST`, and no playlist as 504 with `HLS_RESOLVE_TIMEOUT`. Recent failures retain their status for 60 seconds, so clients can move to another source without repeating expensive resolves. Successful captures no longer wait for a provider-specific `mono.m3u8` filename before opening playback.
 
-Delta troubleshooting: browser checks on 28–29 September 2026 found the Georgia–Ukraine, Belgium–France, and Latvia–Cyprus Delta playlists returning HTTP 500 in the provider's own player. Native HLS cannot repair an upstream outage; keep ad blocking enabled and use another available source or retry later. The local resolver tests reproduce this failure without relying on live broadcasts. The investigation used [Playwright network inspection](https://playwright.dev/docs/network), the [Streamed source API](https://streamed.st/docs/streams), and [HLS.js error handling](https://github.com/video-dev/hls.js/blob/master/docs/API.md#errors).
+Delta troubleshooting: browser checks on 28–29 September 2026 found the Georgia–Ukraine, Belgium–France, and Latvia–Cyprus Delta playlists returning HTTP 500 in the provider's own player. Native HLS cannot repair an upstream outage; keep ad blocking enabled and use another available source or retry later. The local resolver tests reproduce this failure without relying on live broadcasts. The investigation used [Playwright network inspection](https://playwright.dev/docs/network) and [HLS.js error handling](https://github.com/video-dev/hls.js/blob/master/docs/API.md#errors).
 
 Each player closes its server session when stopped, including late responses from abandoned opens. Multi View waits for eight seconds of video before starting; the main player waits for four. This adds startup time in exchange for protection against immediate stalls. Network failures after startup trigger at most two session renewals per two minutes, then try the remaining streams/providers. A 20-second no-progress watchdog catches stalled live playlists. Multi View retains unaffected video elements during source and layout changes.
 
@@ -141,7 +144,7 @@ Run a real-provider check against a local production server after `npm run build
 BASE_URL=http://localhost:8080 PLAYBACK_MATCHES='Club Brugge|AEK Athens|NEC Nijmegen|Porto' npx playwright test e2e/multiview-playback.spec.ts
 ```
 
-Use four unique titles from the current Today catalog; schedules and source availability change. The test selects SportSRC on two panes, requires all four to advance throughout a full minute, rejects iframe fallback, and attaches playback metrics. Local deterministic tests use generated HLS and need no live sports availability.
+Use four unique titles that are live now; schedules and source availability change. The test uses the Live tab by default, selects SportSRC on panes whose cards carry it, requires all four to advance throughout a full minute, rejects iframe fallback, and attaches playback metrics. Local deterministic tests use generated HLS and need no live sports availability.
 
 ## Security
 
@@ -152,8 +155,8 @@ All user-controlled data (match titles, team names, stream URLs, poster paths) i
 - `matchTextIncludes(match, query)` — typed, reusable search filter
 - Event handlers use `data-action` + delegated listeners (no inline handlers)
 - No `eval`, no `innerHTML` with unsanitized external data
-- Embed proxy allowlists Streamed + SportSRC player hosts; CSP `connect-src` is the union of both
+- The HLS proxy only opens allowlisted StreamFree / SportSRC / embed.st player pages and only fetches media from allowlisted hosts; CSP `connect-src 'self'` and `frame-src 'none'`
 
 ## API
 
-Streamed endpoints are documented in [API.md](API.md). SportSRC is consumed only through the local BFF (`/api/sportsrc/...`); see the SportSRC section at the end of that file.
+Both providers are consumed only through local BFFs (`/api/strmfree/...`, `/api/sportsrc/...`); see [API.md](API.md).

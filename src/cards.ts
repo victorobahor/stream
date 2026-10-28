@@ -1,6 +1,5 @@
 import type { APIMatch } from './types';
 import { el, bindListDelegation, setHostImage } from './helpers';
-import { badgeImagePath } from './state';
 import { formatSportLabel, getSportEmoji, isMatchLive, isEPLMatch, getPosterUrl, formatDate } from './format';
 import { getMatchById } from './api';
 
@@ -60,13 +59,9 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
     poster.decoding = 'async';
     poster.setAttribute('aria-hidden', 'true');
     poster.onerror = () => {
-      // The URL was resolved against whichever host was active at render time.
-      // If that host has since rotated, re-resolve before giving up.
-      const retry = getPosterUrl(match);
-      if (retry && retry !== poster.getAttribute('src')) {
-        poster.src = retry;
-        return;
-      }
+      // SportSRC's poster proxy was backed by Streamed and now redirects to its
+      // closure page; drop the poster styling along with the broken image.
+      card.classList.remove('has-poster');
       poster.remove();
     };
     card.appendChild(poster);
@@ -129,7 +124,7 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
         img.loading = 'lazy';
         img.decoding = 'async';
         placeholder.style.display = 'none';
-        setHostImage(img, badgeImagePath(teamData.badge), () => {
+        setHostImage(img, teamData.badge, () => {
           img.style.display = 'none';
           placeholder.style.display = 'flex';
         });

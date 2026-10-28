@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { __test } from './sportsrc.mjs';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { __test, tryHandleSportsrcRequest } from './sportsrc.mjs';
 
 const { normalizeMatch, normalizeMatchList, normalizeStreams, isLiveTimestamp } = __test;
 
@@ -75,5 +75,33 @@ describe('sportsrc v1 normalize', () => {
     });
     expect(m.status).toBeUndefined();
     expect(m.sources[0]).toEqual({ source: 'sportsrc', id: 'x', category: 'basketball' });
+  });
+});
+
+describe('sportsrc upstream retry', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function call(url: string) {
+    const res = { statusCode: 0, body: '', setHeader() {}, end(b: string) { this.body = b; } };
+    return tryHandleSportsrcRequest({ url } as never, res as never).then(() => res);
+  }
+
+  it('retries a transient upstream failure once', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: 'Could not retrieve match list data.' }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: { sources: [{ embedUrl: 'https://embed.streamapi.cc/sport/x' }] } })));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await call('/api/sportsrc/stream/football/retry-once-1');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toHaveLength(1);
+  });
+
+  it('does not retry rate limits', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'slow down' }), { status: 429 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await call('/api/sportsrc/stream/football/rate-limited-1');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(429);
   });
 });

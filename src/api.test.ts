@@ -158,59 +158,46 @@ describe('filterToPlayableMatches', () => {
     expect(await filterToPlayableMatches(matches)).toEqual([]);
   });
 
+  const liveStream = {
+    id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.streamapi.cc/sport/x', source: 'sportsrc',
+  };
+
   it('should keep matches with at least one working source and prune dead ones', async () => {
     mockStreamResponses({
-      '/api/stream/echo/dead': [],
-      '/api/stream/admin/live': [{ id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' }],
+      '/api/sportsrc/stream/football/dead': [],
+      '/api/sportsrc/stream/football/live': [liveStream],
     });
     const matches: APIMatch[] = [
       {
         ...base,
         id: '1',
         sources: [
-          { source: 'echo', id: 'dead' },
-          { source: 'admin', id: 'live' },
+          { source: 'sportsrc', id: 'dead', category: 'football' },
+          { source: 'sportsrc', id: 'live', category: 'football' },
         ],
       },
-      { ...base, id: '2', sources: [{ source: 'echo', id: 'dead' }] },
+      { ...base, id: '2', sources: [{ source: 'sportsrc', id: 'dead', category: 'football' }] },
     ];
     const result = await filterToPlayableMatches(matches);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('1');
-    expect(result[0].sources).toEqual([{ source: 'admin', id: 'live' }]);
+    expect(result[0].sources).toEqual([{ source: 'sportsrc', id: 'live', category: 'football' }]);
   });
 
-  it('should rank known sources (admin before delta) among working sources', async () => {
-    mockStreamResponses({
-      '/api/stream/delta/1': [{ id: '1', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/1', source: 'delta' }],
-      '/api/stream/admin/2': [{ id: '2', streamNo: 1, language: 'en', hd: false, embedUrl: 'https://e/2', source: 'admin' }],
-    });
+  it('should drop legacy Streamed sources without a network request', async () => {
+    mockStreamResponses({ '/api/stream/admin/live': [liveStream] });
     const matches: APIMatch[] = [
-      {
-        ...base,
-        id: '1',
-        sources: [
-          { source: 'delta', id: '1' },
-          { source: 'admin', id: '2' },
-        ],
-      },
+      { ...base, id: '1', sources: [{ source: 'admin', id: 'live' }] },
     ];
-    const result = await filterToPlayableMatches(matches);
-    expect(result[0].sources).toEqual([
-      { source: 'admin', id: '2' },
-      { source: 'delta', id: '1' },
-    ]);
+    expect(await filterToPlayableMatches(matches)).toEqual([]);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
   it('should probe a shared source:id only once across matches', async () => {
-    mockStreamResponses({
-      '/api/stream/admin/shared': [
-        { id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' },
-      ],
-    });
+    mockStreamResponses({ '/api/sportsrc/stream/football/shared': [liveStream] });
     const matches: APIMatch[] = [
-      { ...base, id: '1', sources: [{ source: 'admin', id: 'shared' }] },
-      { ...base, id: '2', title: 'Other', sources: [{ source: 'admin', id: 'shared' }] },
+      { ...base, id: '1', sources: [{ source: 'sportsrc', id: 'shared', category: 'football' }] },
+      { ...base, id: '2', title: 'Other', sources: [{ source: 'sportsrc', id: 'shared', category: 'football' }] },
     ];
     const result = await filterToPlayableMatches(matches);
     expect(result).toHaveLength(2);
@@ -258,43 +245,6 @@ describe('filterToPlayableMatches', () => {
     expect(result[0].sources).toEqual([
       { source: 'sportsrc', id: 'x', category: 'football' },
     ]);
-  });
-
-  it('should retain sportsrc on dual-provider cards when its probe fails but Streamed works', async () => {
-    mockStreamResponses({
-      '/api/stream/admin/live': [
-        { id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' },
-      ],
-      '/api/sportsrc/stream/football/x': [],
-    });
-    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/api/sportsrc/stream/')) {
-        throw new Error('SportSRC probe timeout');
-      }
-      if (url.includes('/api/stream/admin/live')) {
-        return new Response(
-          JSON.stringify([
-            { id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.st/x', source: 'admin' },
-          ]),
-          { status: 200 },
-        );
-      }
-      return new Response(JSON.stringify([]), { status: 200 });
-    });
-    const matches: APIMatch[] = [
-      {
-        ...base,
-        id: '1',
-        sources: [
-          { source: 'admin', id: 'live' },
-          { source: 'sportsrc', id: 'x', category: 'football' },
-        ],
-      },
-    ];
-    const result = await filterToPlayableMatches(matches);
-    expect(result).toHaveLength(1);
-    expect(result[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
   });
 });
 

@@ -16,6 +16,7 @@
 import { randomBytes } from 'node:crypto';
 import { cacheMedia, loadMedia } from './playbackCache.mjs';
 import { resolveNativeEmbed } from './resolveEmbed.mjs';
+import { isStrmfreeEmbedUrl, resolveStrmfreePlaylist, STRMFREE_HOSTS } from './strmfree.mjs';
 
 const UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36';
@@ -76,6 +77,8 @@ export function isAllowedMediaHost(hostname) {
   const host = String(hostname || '').toLowerCase();
   if (!host) return false;
   if (host === 'strmd.st' || host.endsWith('.strmd.st')) return true;
+  // StreamFree playlists and its CDN shards (cdn1.strmfree.st, …).
+  for (const root of STRMFREE_HOSTS) if (host === root || host.endsWith(`.${root}`)) return true;
   if (ALLOWED_MEDIA_EXACT_HOSTS.has(host)) return true;
   return ALLOWED_CDN_SUFFIXES.some(suffix => host.endsWith(suffix) || host === suffix.slice(1));
 }
@@ -923,7 +926,41 @@ async function openFromMintCache(browserInstance, embedKey, mint) {
   }
 }
 
+/**
+ * StreamFree signs its playlist in the embed HTML, so a session needs no
+ * browser: resolve over HTTP, confirm the playlist answers, then serve media
+ * through the same Node path as minted sessions.
+ */
+async function openStrmfreeSession(embedUrlRaw) {
+  ensureJanitor();
+  const embedKey = String(embedUrlRaw);
+  assertNotRecentlyFailed(embedKey);
+  try {
+    const { playlistUrl, referer } = await resolveStrmfreePlaylist(embedKey);
+    let playlist;
+    try {
+      playlist = await fetchUpstream(playlistUrl, '', referer, { Referer: referer });
+    } catch (err) {
+      const upstreamStatus = Number(String(err?.message).match(/upstream (\d+)/)?.[1]) || undefined;
+      throw Object.assign(httpError('Stream provider returned an unavailable playlist', 502), {
+        code: 'HLS_UPSTREAM_ERROR', upstreamStatus,
+      });
+    }
+    if (!/^#EXTM3U(?:\r?\n|$)/.test(playlist.buf.toString('utf8').trimStart())) {
+      throw Object.assign(httpError('Stream provider returned an invalid HLS playlist', 502), { code: 'HLS_INVALID_PLAYLIST' });
+    }
+    return registerSession(embedKey, playlistUrl, null, null, '', [], {
+      playerHeaders: { referer, origin: new URL(referer).origin },
+      playlistBuf: playlist.buf,
+    });
+  } catch (err) {
+    markResolveFailed(embedKey, err);
+    throw err;
+  }
+}
+
 export async function openHlsSession(embedUrlRaw, options = {}) {
+  if (isStrmfreeEmbedUrl(embedUrlRaw)) return openStrmfreeSession(embedUrlRaw);
   const embedUrl = isAllowedEmbedUrl(await resolveNativeEmbed(embedUrlRaw));
   if (!embedUrl) {
     throw httpError('Invalid or disallowed embed URL', 400);

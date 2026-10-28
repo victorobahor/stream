@@ -9,7 +9,7 @@ import {
   sortMatchesForDisplay,
   log,
 } from './helpers';
-import { getSportEmoji, formatSportLabel } from './format';
+import { getSportEmoji, formatSportLabel, showToast } from './format';
 import { syncSportChips, ALL_SPORTS } from './chips';
 import { renderMatches } from './cards';
 import { showHome, showSkeleton, hideError, showError, setActiveCategory } from './ui';
@@ -63,6 +63,18 @@ export async function loadMatchesWithUI(options: { skeleton?: boolean } = {}): P
   }
 }
 
+/**
+ * SportSRC has no 24/7 channels, so Live is often empty between kick-offs.
+ * On first load, land on today's slate instead of an empty grid.
+ */
+export async function fallbackFromEmptyLive(): Promise<void> {
+  if (state.currentCategory !== 'live' || state.currentSport !== ALL_SPORTS || state.allMatches.length > 0) return;
+  state.currentCategory = 'today';
+  setActiveCategory('today');
+  await loadMatchesWithUI();
+  if (state.allMatches.length > 0) showToast("Nothing live right now — showing today's matches", 'info', 4000);
+}
+
 export function filterCategory(cat: string): void {
   if (!isCategory(cat)) {
     log('warn', `Ignoring unknown category "${cat}"`);
@@ -92,7 +104,7 @@ export function handleSearch(query: string): void {
 }
 
 /**
- * Client-side view filters on the merged Streamed + SportSRC catalog:
+ * Client-side view filters on the SportSRC catalog:
  * sources → category (live/today/popular) → sport → search → sort.
  */
 export function applyFilters(): void {
