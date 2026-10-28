@@ -136,7 +136,7 @@ Each player closes its server session when stopped, including late responses fro
 
 Media caches are limited to 16 MiB / 64 entries per session. Concurrent identical requests share a fetch; live playlists expire after one second. Expired live playlists and a different quality's playlist are never substituted to conceal upstream failures. AES key, initialization map, and audio playlist URLs remain behind the proxy.
 
-For Cloud Run, the deployment enables [session affinity](https://docs.cloud.google.com/run/docs/configuring/session-affinity) because resolver sessions live in process memory. Affinity is best effort; the client reconnects if an instance loses a session. A long-lived container on a single host is also supported by Docker Compose. Provision enough memory for the two concurrent Chromium resolvers plus active sessions. Upstream outages, broadcast content, and viewer bandwidth still affect playback.
+Production runs as one long-lived container via Docker Compose (resolver sessions live in process memory, so a single instance keeps them stable). CI pushes `streamzone:latest` to Docker Hub and GHCR on every push to `main`; update the host with `docker compose pull && docker compose up -d`. Provision enough memory for the two concurrent Chromium resolvers plus active sessions. Upstream outages, broadcast content, and viewer bandwidth still affect playback.
 
 Run a real-provider check against a local production server after `npm run build` and `PORT=8080 npm start`:
 
