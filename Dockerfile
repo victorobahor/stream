@@ -16,8 +16,8 @@ COPY style.css index.html ./
 RUN npm run build
 
 # Stage 2: Node + Playwright Chromium for native HLS resolve (/api/hls/*).
-# Alpine cannot run Chromium reliably; without this the client always falls
-# back to the ad-heavy iframe embed (503: playwright not installed).
+# Chromium mints embed.st (SportSRC) sessions; StreamFree needs no browser.
+# Alpine cannot run Chromium reliably.
 FROM mcr.microsoft.com/playwright:v1.62.0-jammy
 
 WORKDIR /app
@@ -36,7 +36,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist/ /app/dist/
-COPY embed-proxy/rewrite.mjs embed-proxy/server.mjs embed-proxy/hlsNative.mjs embed-proxy/sportsrc.mjs embed-proxy/securityHeaders.mjs embed-proxy/playbackCache.mjs embed-proxy/resolveEmbed.mjs /app/embed-proxy/
+# Every runtime module (tests are .ts and stay out). Listing files by name
+# shipped an image whose server.mjs crashed on a missing import.
+COPY embed-proxy/*.mjs /app/embed-proxy/
 
 EXPOSE 80
 
