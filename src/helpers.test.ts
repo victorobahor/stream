@@ -93,11 +93,11 @@ function fakeIframe() {
 describe('isAllowedEmbedHost', () => {
   it('should accept provider embeds the native proxy can resolve', () => {
     expect(isAllowedEmbedHost('https://strmfree.st/embed/racing/skyf11080p')).toBe(true);
-    expect(isAllowedEmbedHost('https://embed.st/embed/admin/ppv-test/1')).toBe(true);
-    expect(isAllowedEmbedHost('https://embed.streamapi.cc/sport/x')).toBe(true);
+    expect(isAllowedEmbedHost('https://ppv.st/embed/cfb/2026-10-31/nd-navy')).toBe(true);
   });
 
   it('should reject other hosts, paths, and schemes', () => {
+    expect(isAllowedEmbedHost('https://ppv.st/api/streams')).toBe(false);
     expect(isAllowedEmbedHost('https://strmfree.st/api/v1/streams')).toBe(false);
     expect(isAllowedEmbedHost('http://strmfree.st/embed/racing/x')).toBe(false);
     expect(isAllowedEmbedHost('https://evil.example/embed/x/1')).toBe(false);
@@ -287,22 +287,22 @@ describe('filterMatchesByCategory', () => {
       sources: [{ source: 'admin', id: '2' }],
     },
     {
-      id: 'sportsrc:upcoming',
+      id: 'ppv:upcoming',
       title: 'SRC only',
       category: 'tennis',
       date: now + 3_600_000,
       popular: false,
       status: undefined,
-      sources: [{ source: 'sportsrc', id: 'upcoming', category: 'tennis' }],
+      sources: [{ source: 'ppv', id: 'upcoming', category: 'tennis' }],
     },
     {
-      id: 'sportsrc:live-src',
+      id: 'ppv:live-src',
       title: 'SRC live',
       category: 'basketball',
       date: now - 60_000,
       popular: true,
       status: 'inprogress',
-      sources: [{ source: 'sportsrc', id: 'live-src', category: 'basketball' }],
+      sources: [{ source: 'ppv', id: 'live-src', category: 'basketball' }],
     },
   ];
 
@@ -312,15 +312,15 @@ describe('filterMatchesByCategory', () => {
     expect(result.map(m => m.id)).toContain('live1');
   });
 
-  it('should date-gate SportSRC-only live cards', () => {
+  it('should date-gate PPV-only live cards', () => {
     const result = filterMatchesByCategory(matches, 'live');
-    expect(result.map(m => m.id)).not.toContain('sportsrc:upcoming');
-    expect(result.map(m => m.id)).toContain('sportsrc:live-src');
+    expect(result.map(m => m.id)).not.toContain('ppv:upcoming');
+    expect(result.map(m => m.id)).toContain('ppv:live-src');
   });
 
   it('should keep popular-only for popular', () => {
     const result = filterMatchesByCategory(matches, 'popular');
-    expect(result.map(m => m.id).sort()).toEqual(['live1', 'ppv-motocross', 'sportsrc:live-src'].sort());
+    expect(result.map(m => m.id).sort()).toEqual(['live1', 'ppv-motocross', 'ppv:live-src'].sort());
   });
 
   it('should pass through for all', () => {

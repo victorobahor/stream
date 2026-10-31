@@ -22,7 +22,7 @@ export interface MatchTeams {
 export interface StreamSource {
   source: string;
   id: string;
-  /** SportSRC category (football, basketball, …) when source === 'sportsrc'. */
+  /** App sport id (football, basketball, …). */
   category?: string;
 }
 
@@ -35,7 +35,7 @@ export interface APIMatch {
   popular: boolean;
   teams?: MatchTeams;
   sources: StreamSource[];
-  /** Present on some SportSRC rows. */
+  /** `inprogress` while the provider reports the stream live. */
   status?: string;
 }
 

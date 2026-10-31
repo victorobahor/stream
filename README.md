@@ -1,10 +1,10 @@
 # StreamZone
 
-Live sports streaming web application — browse, search, and watch live sports streams from **StreamFree** and **SportSRC**, merged into one ad-free catalog.
+Live sports streaming web application — browse, search, and watch live sports streams from **StreamFree** and **PPV**, merged into one ad-free catalog.
 
 ## Features
 
-- **Dual providers** — StreamFree ([strmfree.st](https://strmfree.st/api)) as primary catalog, SportSRC V1 merged in parallel. Streamed shut down in October 2026 and has been removed.
+- **Dual providers** — StreamFree ([strmfree.st](https://strmfree.st/api)) as primary catalog, PPV merged in parallel. Streamed shut down in October 2026 and has been removed.
 - **Browse matches** by category: Live, All Matches, Today, Popular
 - **Filter by sport** — dynamically loaded sports list with emoji icons
 - **Search** matches by title, team name, or category
@@ -21,11 +21,11 @@ Live sports streaming web application — browse, search, and watch live sports 
 
 - **TypeScript** — strict mode, fully typed state and API layer
 - **Vite** — dev server with HMR, esbuild-based production builds
-- **Node server** — production: static SPA + `/api/hls/*` native HLS proxy + `/api/strmfree/*` and `/api/sportsrc/*` BFFs
-- **Vitest** — unit tests for API merge, CSP, rewrite, and SportSRC dispatch
+- **Node server** — production: static SPA + `/api/hls/*` native HLS proxy + `/api/strmfree/*` and `/api/ppv/*` BFFs
+- **Vitest** — unit tests for API merge, CSP, and provider BFFs
 - **Docker** — multi-stage build (Vite + Playwright Chromium for HLS resolve)
 - **StreamFree API** — keyless catalog via [strmfree.st/api](https://strmfree.st/api) (proxied under `/api/strmfree/*`)
-- **SportSRC V1** — keyless catalog via [api.sportsrc.org](https://api.sportsrc.org/) (proxied under `/api/sportsrc/*`)
+- **PPV** — catalog via [ppv.st](https://ppv.st/api) (proxied under `/api/ppv/*`)
 
 ## Getting Started
 
@@ -33,11 +33,11 @@ Live sports streaming web application — browse, search, and watch live sports 
 
 ```bash
 npm install
-cp .env.example .env   # optional SportSRC / HLS overrides
-npm run dev            # Vite + SportSRC BFF + embed proxy on http://localhost:3000
+cp .env.example .env   # optional PPV / HLS overrides
+npm run dev            # Vite + provider BFFs + embed proxy on http://localhost:3000
 ```
 
-Changes to any `.ts` file in `src/` refresh instantly via HMR. The Vite plugin mounts the same embed/SportSRC handlers used in production.
+Changes to any `.ts` file in `src/` refresh instantly via HMR. The Vite plugin mounts the same provider and HLS handlers used in production.
 
 ### Production build
 
@@ -63,7 +63,7 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Vite dev server with HMR + embed/SportSRC proxy |
+| `npm run dev` | Vite dev server with HMR + provider BFFs |
 | `npm run build` | TypeScript check + Vite production build → `dist/` |
 | `PORT=8080 npm start` | Full production server with HLS and provider endpoints |
 | `npm run preview` | Static assets only; does not run the playback backend |
@@ -78,24 +78,23 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
 ├── style.css                # All styles
 ├── Dockerfile               # Multi-stage: Vite build + Playwright Node server
 ├── docker-compose.yml
-├── .env.example             # Optional SportSRC / HLS env overrides
+├── .env.example             # Optional PPV / HLS env overrides
 ├── vite.config.ts
 ├── tsconfig.json
 ├── package.json
 ├── embed-proxy/
-│   ├── server.mjs           # Production: static dist + HLS + StreamFree/SportSRC BFFs
+│   ├── server.mjs           # Production: static dist + HLS + StreamFree/PPV BFFs
 │   ├── vitePlugin.ts        # Dev middleware (same handlers)
-│   ├── rewrite.mjs          # Provider page reader + allowlist (server-side only)
 │   ├── strmfree.mjs         # StreamFree BFF + browserless playlist resolver
 │   ├── hlsNative.mjs        # Native HLS mint via Playwright
-│   └── sportsrc.mjs         # SportSRC V1 BFF → api.sportsrc.org
+│   └── ppv.mjs              # PPV BFF → api.ppv.st
 └── src/
     ├── app.ts               # Entry point: init(), auto-refresh, UI orchestration
     ├── types.ts             # Sport, APIMatch, Stream, AppState... interfaces
     ├── state.ts             # Typed state, API hosts, CSP connect-src union
     ├── helpers.ts           # Sanitization, category filters, shouldProxyEmbed()
     ├── format.ts            # Dates, sport emoji, posters
-    ├── api.ts               # StreamFree + SportSRC fetch, mergeMatchLists(), loadStreams()
+    ├── api.ts               # StreamFree + PPV fetch, mergeMatchLists(), loadStreams()
     ├── cards.ts             # Match cards / render
     ├── filters.ts           # Category + sport filters on merged list
     ├── player.ts            # openPlayer(), stream selection
@@ -111,17 +110,16 @@ Chromium (Playwright) needs adequate `/dev/shm` for HLS resolve — `docker-comp
 | Provider | Catalog | Streams | Playback |
 |---|---|---|---|
 | **StreamFree** | Browser → `/api/strmfree/matches` (server BFF) | `/api/strmfree/stream/{key}` | Server reads the signed playlist from the embed page (no browser) → native HLS |
-| **SportSRC** | Browser → `/api/sportsrc/*` (server BFF) | Same BFF for stream list | Server unwraps the provider page → same native HLS path |
+| **PPV** | Browser → `/api/ppv/*` (server BFF) | Same BFF for stream list | Chromium mints the playlist on the server → same native HLS path |
 
-Matches present in both catalogs are merged into one card with both sources (StreamFree ranked above SportSRC). SportSRC-only rows use ids prefixed with `sportsrc:`. When nothing is live on first load, the home page falls back to Today. Upcoming games say they haven't started instead of reporting an outage; earlier games that already finished sink below upcoming ones.
+Matches present in both catalogs are merged into one card with both sources (StreamFree ranked above PPV). PPV-only rows use ids prefixed with `ppv:`. When nothing is live on first load, the home page falls back to Today. Upcoming games say they haven't started instead of reporting an outage; earlier games that already finished sink below upcoming ones.
 
 Optional env (see `.env.example`):
 
 - `STRMFREE_BASE_URL` — default `https://strmfree.st/`
 - `STRMFREE_CACHE_TTL_MS` — StreamFree list cache (default 60s; their API asks to be cached)
-- `SPORTSRC_BASE_URL` — default `https://api.sportsrc.org/`
-- `SPORTSRC_API_KEY` — unused for public V1; reserved for keyed variants
-- `SPORTSRC_CACHE_TTL_MS` — BFF response cache (default 30s)
+- `PPV_BASE_URL` — default `https://api.ppv.st/`
+- `PPV_CACHE_TTL_MS` — BFF response cache (default 60s)
 - Native playback is mandatory. The old `VITE_HLS_NATIVE=0` iframe fallback is no longer supported.
 
 ## Playback reliability
@@ -144,7 +142,7 @@ Run a real-provider check against a local production server after `npm run build
 BASE_URL=http://localhost:8080 PLAYBACK_MATCHES='Club Brugge|AEK Athens|NEC Nijmegen|Porto' npx playwright test e2e/multiview-playback.spec.ts
 ```
 
-Use four unique titles that are live now; schedules and source availability change. The test uses the Live tab by default, selects SportSRC on panes whose cards carry it, requires all four to advance throughout a full minute, rejects iframe fallback, and attaches playback metrics. Local deterministic tests use generated HLS and need no live sports availability.
+Use four unique titles that are live now; schedules and source availability change. The test uses the Live tab by default, selects PPV on panes whose cards carry it, requires all four to advance throughout a full minute, rejects iframe fallback, and attaches playback metrics. Local deterministic tests use generated HLS and need no live sports availability.
 
 ## Security
 
@@ -155,8 +153,8 @@ All user-controlled data (match titles, team names, stream URLs, poster paths) i
 - `matchTextIncludes(match, query)` — typed, reusable search filter
 - Event handlers use `data-action` + delegated listeners (no inline handlers)
 - No `eval`, no `innerHTML` with unsanitized external data
-- The HLS proxy only opens allowlisted StreamFree / SportSRC / embed.st player pages and only fetches media from allowlisted hosts; CSP `connect-src 'self'` and `frame-src 'none'`
+- The HLS proxy only opens StreamFree player pages and iframes listed in the PPV catalog and only fetches media from allowlisted hosts; CSP `connect-src 'self'` and `frame-src 'none'`
 
 ## API
 
-Both providers are consumed only through local BFFs (`/api/strmfree/...`, `/api/sportsrc/...`); see [API.md](API.md).
+Both providers are consumed only through local BFFs (`/api/strmfree/...`, `/api/ppv/...`); see [API.md](API.md).

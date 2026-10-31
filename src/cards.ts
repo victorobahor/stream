@@ -59,8 +59,7 @@ export function buildMatchCard(match: APIMatch): HTMLElement {
     poster.decoding = 'async';
     poster.setAttribute('aria-hidden', 'true');
     poster.onerror = () => {
-      // SportSRC's poster proxy was backed by Streamed and now redirects to its
-      // closure page; drop the poster styling along with the broken image.
+      // Drop the poster styling along with the broken image.
       card.classList.remove('has-poster');
       poster.remove();
     };

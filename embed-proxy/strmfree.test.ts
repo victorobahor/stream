@@ -61,6 +61,32 @@ describe('StreamFree catalog', () => {
   });
 });
 
+describe('StreamFree object sources and accented keys', () => {
+  const url = 'https://strmfree.st/embed/soccer/alavés-vs-barcelona1080p';
+
+  it('reads { quality, url } sources', () => {
+    const streams = normalizeSources({
+      stream_key: 'alavés-vs-barcelona',
+      sources: [{ quality: 'FHD', url }, { quality: 'SD', url: 'https://strmfree.st/embed/soccer/alavés-vs-barcelona540p' }],
+      live_sources: [{ quality: 'FHD', url }, { quality: 'FHD', url: 'https://evil.example/embed/x/1' }, null],
+    });
+    expect(streams).toMatchObject([{ language: '1080p', hd: true, embedUrl: url, source: 'strmfree' }]);
+    expect(streams).toHaveLength(1);
+  });
+
+  it('accepts accented embed URLs, raw or percent-encoded, and nothing looser', () => {
+    expect(isStrmfreeEmbedUrl(url)).toBe(true);
+    expect(isStrmfreeEmbedUrl(new URL(url).href)).toBe(true);
+    expect(isStrmfreeEmbedUrl('https://strmfree.st/embed/soccer/a%2Fb')).toBe(false);
+    expect(isStrmfreeEmbedUrl('https://strmfree.st/embed/soccer/%ff')).toBe(false);
+  });
+
+  it('parses an accented playlist recipe', () => {
+    const html = embedHtml(true).replaceAll('skyf1', 'alavés');
+    expect(parseEmbedPage(html)).toMatchObject({ variant: 'alavés1080p2', streamKey: 'alavés' });
+  });
+});
+
 describe('StreamFree playlist resolution', () => {
   it('parses the playlist recipe from the embed page without running it', () => {
     expect(parseEmbedPage(embedHtml(true))).toEqual({

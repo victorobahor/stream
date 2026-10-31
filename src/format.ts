@@ -39,7 +39,7 @@ export function notStartedMessage(match: APIMatch | null | undefined, now: numbe
   return `This match hasn't started yet (kick-off ${formatDate(match.date)}). Streams usually go live shortly before kick-off.`;
 }
 
-/** Kicked off longer ago than any live window — SportSRC keeps these listed for the day. */
+/** Kicked off longer ago than any live window — providers keep these listed for the day. */
 export function isMatchFinished(match: APIMatch | null | undefined, now: number = Date.now()): boolean {
   // StreamFree's 24/7 channels carry stale timestamps but are flagged live.
   return !!match?.date && match.status !== 'inprogress' && now - match.date >= LIVE_WINDOW_MS;
@@ -152,6 +152,11 @@ const SPORT_EMOJI_MAP: SportEmojiMap = {
   swimming: '🏊',
   athletics: '🏃',
   fighting: '🥊',
+  fight: '🥊',
+  wrestling: '🤼',
+  afl: '🏉',
+  billiards: '🎱',
+  '24_7': '📺',
   motor_sports: '🏎️',
   default: '🏆',
 };

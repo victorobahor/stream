@@ -1,5 +1,5 @@
 /**
- * Native HLS path: mint a playlist token in headless Chrome (embed.st + WASM),
+ * Native HLS path: mint a playlist token in headless Chrome (PPV embed + WASM),
  * then proxy gate-kept m3u8 through that page and unwrap PNG-wrapped MPEG-TS
  * segments so the app can play with hls.js — no iframe, no PopUnder.
  *
@@ -7,7 +7,7 @@
  * HLS_OPEN_WAIT_MS (queue busy opens), HLS_MINT_CACHE_TTL_MS (share mints).
  * Prefer Node media fetch; retain a paused browser context for CDNs that require it.
  * Keep HLS_MAX_OPENS low (default 2) so four-slot multiview cannot spawn
- * four WASM embed.st pages at once.
+ * four WASM embed pages at once.
  *
  * Requires a local Chrome (`CHROME_PATH` or /usr/bin/google-chrome) and the
  * `playwright` package. Without them, /api/hls/* returns 503 and the client
@@ -15,7 +15,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { cacheMedia, loadMedia } from './playbackCache.mjs';
-import { resolveNativeEmbed } from './resolveEmbed.mjs';
+import { isPpvEmbedUrl, PPV_MEDIA_HOSTS, resolvePpvEmbed } from './ppv.mjs';
 import { isStrmfreeEmbedUrl, resolveStrmfreePlaylist, STRMFREE_HOSTS } from './strmfree.mjs';
 
 const UA =
@@ -26,7 +26,7 @@ const RESOLVE_TIMEOUT_MS = 45_000;
 // Defaults sized for a single beefy host (not a tiny VPS). Override via env.
 const MAX_SESSIONS = Math.max(1, Number(process.env.HLS_MAX_SESSIONS || 24));
 // One WASM mint is expensive; two concurrent is enough. Four parallel
-// embed.st pages plus page.evaluate of .ts segments crash Chromium and
+// embed pages plus page.evaluate of .ts segments crash Chromium and
 // cycle-buffer multiview. Media after mint does not use Playwright.
 const MAX_OPENS_IN_FLIGHT = Math.max(1, Number(process.env.HLS_MAX_OPENS || 2));
 const OPEN_RATE_WINDOW_MS = 60_000;
@@ -37,7 +37,6 @@ const OPEN_WAIT_MS = Math.max(0, Number(process.env.HLS_OPEN_WAIT_MS || 45_000))
 const MINT_CACHE_TTL_MS = Math.max(0, Number(process.env.HLS_MINT_CACHE_TTL_MS || 120_000));
 /** Skip reminting embeds that just timed out so the client can try another source. */
 const FAIL_CACHE_TTL_MS = Math.max(0, Number(process.env.HLS_FAIL_CACHE_TTL_MS || 60_000));
-const ALLOWED_EMBED_HOSTS = new Set(['embed.st', 'www.embed.st']);
 /** Exact suffix allowlist — never use host.includes('tiktok') (open-proxy). */
 const ALLOWED_CDN_SUFFIXES = [
   '.tiktokcdn-eu.com',
@@ -79,6 +78,8 @@ export function isAllowedMediaHost(hostname) {
   if (host === 'strmd.st' || host.endsWith('.strmd.st')) return true;
   // StreamFree playlists and its CDN shards (cdn1.strmfree.st, …).
   for (const root of STRMFREE_HOSTS) if (host === root || host.endsWith(`.${root}`)) return true;
+  // PPV playlists and segments (bharat.indianservers.st, …).
+  for (const root of PPV_MEDIA_HOSTS) if (host === root || host.endsWith(`.${root}`)) return true;
   if (ALLOWED_MEDIA_EXACT_HOSTS.has(host)) return true;
   return ALLOWED_CDN_SUFFIXES.some(suffix => host.endsWith(suffix) || host === suffix.slice(1));
 }
@@ -207,6 +208,18 @@ export function unwrapPngTs(buf) {
   return buf;
 }
 
+/** PPV segments are MPEG-TS in the EXIF chunk of a tiny WebP. */
+export function unwrapWebpTs(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 20) return buf;
+  if (buf.toString('latin1', 0, 4) !== 'RIFF' || buf.toString('latin1', 8, 12) !== 'WEBP') return buf;
+  for (let at = 12; at + 8 <= buf.length;) {
+    const size = buf.readUInt32LE(at + 4);
+    if (buf.toString('latin1', at, at + 4) === 'EXIF') return buf.subarray(at + 8, at + 8 + size);
+    at += 8 + size + (size & 1); // RIFF chunks pad to even lengths
+  }
+  return buf;
+}
+
 /** Resolve playlist URI without re-serializing absolute URLs (avoids %2B → double-encode). */
 export function absolutizePlaylistUri(uri, baseUrl) {
   const trimmed = String(uri || '').trim();
@@ -227,18 +240,6 @@ export function rewriteM3uForProxy(text, baseUrl, proxyPrefix) {
     }
     return proxy(trimmed);
   }).join('\n');
-}
-
-export function isAllowedEmbedUrl(raw) {
-  try {
-    const u = new URL(String(raw || ''));
-    if (u.protocol !== 'https:') return null;
-    if (!ALLOWED_EMBED_HOSTS.has(u.hostname)) return null;
-    if (!u.pathname.startsWith('/embed/')) return null;
-    return u;
-  } catch {
-    return null;
-  }
 }
 
 export function cookieHeaderFromCookies(cookies) {
@@ -311,12 +312,7 @@ function headerToString(value) {
 
 /** Copy the WASM player's working request headers; drop anything else. */
 export function upstreamHeadersFromPlayerRequest(headers, cookieHeader) {
-  const out = {
-    'User-Agent': UA,
-    Referer: 'https://embed.st/',
-    Origin: 'https://embed.st',
-    Accept: '*/*',
-  };
+  const out = { 'User-Agent': UA, Accept: '*/*' };
   for (const [from, dest] of PLAYER_HEADER_MAP) {
     const raw = headerLookup(headers, from);
     const value = headerToString(raw);
@@ -439,33 +435,31 @@ export async function openHlsSessionForRequest(embedUrlRaw, req = null, options 
   }
 }
 
-function embedRefererFrom(page, embedUrl) {
+function originOf(url) {
   try {
-    const u = page?.url?.();
-    if (u && u.includes('embed.st')) return u;
+    return new URL(String(url)).origin;
   } catch {
-    /* ignore */
+    return undefined;
   }
-  if (embedUrl && String(embedUrl).includes('embed.st')) return String(embedUrl);
-  return 'https://embed.st/';
 }
 
 function mergeUpstreamHeaders(session, cookieHeader) {
-  const referer = embedRefererFrom(session?.page, session?.embedUrl);
+  const referer = session?.embedUrl;
   return upstreamHeadersFromPlayerRequest(
     session?.playerHeaders && Object.keys(session.playerHeaders).length
       ? session.playerHeaders
-      : { referer, origin: 'https://embed.st' },
+      : { referer, origin: originOf(referer) },
     cookieHeader,
   );
 }
 
 /** Stable browser headers. Copying the WASM request's Accept/UA 403s Cloud Run. */
-export function nodeUpstreamHeaders(cookieHeader, referer = 'https://embed.st/') {
+export function nodeUpstreamHeaders(cookieHeader, referer) {
+  const origin = originOf(referer);
   return {
     'User-Agent': UA,
-    Referer: referer || 'https://embed.st/',
-    Origin: 'https://embed.st',
+    ...(referer ? { Referer: referer } : {}),
+    ...(origin ? { Origin: origin } : {}),
     Accept: '*/*',
     ...(cookieHeader ? { Cookie: cookieHeader } : {}),
   };
@@ -476,9 +470,8 @@ export function nodeUpstreamHeaders(cookieHeader, referer = 'https://embed.st/')
  * page.evaluate of MPEG-TS (string + btoa + CDP) is what melts 4-slot
  * multiview and closes the shared Playwright browser.
  */
-async function fetchUpstream(url, cookieHeader, referer = 'https://embed.st/', extraHeaders = null) {
-  const headers = nodeUpstreamHeaders(cookieHeader, referer);
-  if (extraHeaders?.Referer) headers.Referer = extraHeaders.Referer;
+async function fetchUpstream(url, cookieHeader, referer, extraHeaders = null) {
+  const headers = nodeUpstreamHeaders(cookieHeader, extraHeaders?.Referer || referer);
   const response = await fetch(url, {
     headers,
     redirect: 'manual',
@@ -499,7 +492,7 @@ async function fetchUpstream(url, cookieHeader, referer = 'https://embed.st/', e
 
 async function fetchViaPlaywrightRequest(page, url, extraHeaders = null) {
   const resp = await page.request.get(url, {
-    headers: nodeUpstreamHeaders('', extraHeaders?.Referer || embedRefererFrom(page)),
+    headers: nodeUpstreamHeaders('', extraHeaders?.Referer || page.url()),
     timeout: 8_000,
     maxRedirects: 0,
   });
@@ -701,7 +694,7 @@ async function fetchViaPageNetwork(page, url) {
 async function fetchMedia(session, url) {
   return loadMedia(session, url, async () => {
     const cookieHeader = await cookieHeaderForUrl(session, url);
-    const referer = embedRefererFrom(session.page, session.embedUrl);
+    const referer = session.embedUrl;
     const headers = mergeUpstreamHeaders(session, cookieHeader);
     const transports = {
       node: () => fetchUpstream(url, cookieHeader, referer, headers),
@@ -840,7 +833,7 @@ async function newStealthContext(browserInstance, storageState) {
   const opts = {
     viewport: { width: 640, height: 360 },
     userAgent: UA,
-    // Default on: embed.st often serves an expired cert; set HLS_IGNORE_TLS=0 to enforce.
+    // Default on: provider embeds can serve expired certs; set HLS_IGNORE_TLS=0 to enforce.
     ignoreHTTPSErrors: process.env.HLS_IGNORE_TLS !== '0',
     ...(storageState ? { storageState } : {}),
   };
@@ -906,7 +899,7 @@ async function openFromMintCache(browserInstance, embedKey, mint) {
   const headers = upstreamHeadersFromPlayerRequest(
     extra.playerHeaders && Object.keys(extra.playerHeaders).length
       ? extra.playerHeaders
-      : { referer: embedKey, origin: 'https://embed.st' },
+      : { referer: embedKey, origin: originOf(embedKey) },
     cookieForPlaylist,
   );
   try {
@@ -961,13 +954,10 @@ async function openStrmfreeSession(embedUrlRaw) {
 
 export async function openHlsSession(embedUrlRaw, options = {}) {
   if (isStrmfreeEmbedUrl(embedUrlRaw)) return openStrmfreeSession(embedUrlRaw);
-  const embedUrl = isAllowedEmbedUrl(await resolveNativeEmbed(embedUrlRaw));
-  if (!embedUrl) {
-    throw httpError('Invalid or disallowed embed URL', 400);
-  }
+  if (!isPpvEmbedUrl(embedUrlRaw)) throw httpError('Invalid or disallowed embed URL', 400);
+  const embedKey = await resolvePpvEmbed(embedUrlRaw);
 
   ensureJanitor();
-  const embedKey = embedUrl.toString();
   assertNotRecentlyFailed(embedKey);
   const b = await getBrowser();
 
@@ -1154,7 +1144,7 @@ export async function handleHlsMedia(sessionId, pathname, searchParams) {
       if (buf.length !== 16) return { status: 502, type: 'text/plain', body: Buffer.from('Invalid AES key') };
       return { status: 200, type: 'application/octet-stream', body: buf };
     }
-    buf = unwrapPngTs(buf);
+    buf = unwrapWebpTs(unwrapPngTs(buf));
     // Upstream sometimes returns HTTP 200 with a tiny "Not found" body for
     // expired/cookie-gated high-bitrate segments. Never hand that to hls.js
     // as video/mp2t — it locks ABR onto the low/mono rung (bad audio).
@@ -1269,9 +1259,9 @@ function logSafe(msg) {
 
 export const __test = {
   unwrapPngTs,
+  unwrapWebpTs,
   rewriteM3uForProxy,
   absolutizePlaylistUri,
-  isAllowedEmbedUrl,
   isAllowedMediaHost,
   isCandidatePlaylistUrl,
   isLikelyMediaSegment,

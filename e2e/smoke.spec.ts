@@ -86,8 +86,8 @@ test.describe('StreamZone live smoke', () => {
 
     const status = await page.evaluate(async () => {
       const [sports, matches, strmfree] = await Promise.all([
-        fetch('/api/sportsrc/sports').then(r => r.status).catch(() => 0),
-        fetch('/api/sportsrc/matches/all-today').then(r => r.status).catch(() => 0),
+        fetch('/api/ppv/sports').then(r => r.status).catch(() => 0),
+        fetch('/api/ppv/matches').then(r => r.status).catch(() => 0),
         fetch('/api/strmfree/matches').then(r => r.status).catch(() => 0),
       ]);
       return { sports, matches, strmfree };

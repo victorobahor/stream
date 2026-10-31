@@ -43,8 +43,8 @@ test('four native streams keep advancing with no ad frames', async ({ page, cont
   for (const i of [1, 3]) {
     const source = page.locator('.mv-slot').nth(i).locator('select').first();
     await expect(source).toBeVisible();
-    // Exercise SportSRC alongside StreamFree whenever a card carries both.
-    if (await source.locator('option[value="sportsrc"]').count()) await source.selectOption('sportsrc');
+    // Exercise PPV alongside StreamFree whenever a card carries both.
+    if (await source.locator('option[value="ppv"]').count()) await source.selectOption('ppv');
   }
   await expect.poll(async () => (await readSlots(page)).filter(s => !s.paused && s.currentTime > 1).length,
     { timeout: 150_000, message: 'All four native panes must actually play' }).toBe(4);
