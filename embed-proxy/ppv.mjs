@@ -36,11 +36,12 @@ const CATEGORY_MAP = {
   '24/7 streams': '24-7',
 };
 
-/** PPV's categories, then the sports only StreamFree carries. */
+/** Sports bar order: PPV's categories, then the sports only StreamFree carries. */
 const SPORTS = [
+  { id: '24-7', name: '24/7 Channels' },
   { id: 'football', name: 'Football' },
-  { id: 'american-football', name: 'American Football' },
   { id: 'basketball', name: 'Basketball' },
+  { id: 'american-football', name: 'American Football' },
   { id: 'hockey', name: 'Ice Hockey' },
   { id: 'fight', name: 'Combat Sports' },
   { id: 'wrestling', name: 'Wrestling' },
@@ -49,7 +50,6 @@ const SPORTS = [
   { id: 'rugby', name: 'Rugby' },
   { id: 'afl', name: 'Australian Football' },
   { id: 'golf', name: 'Golf' },
-  { id: '24-7', name: '24/7 Channels' },
   { id: 'baseball', name: 'Baseball' },
   { id: 'tennis', name: 'Tennis' },
   { id: 'darts', name: 'Darts' },

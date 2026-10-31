@@ -352,6 +352,50 @@ img { display: block; max-width: 100%; }
   flex: 1;
   min-width: 0;
 }
+/* Chip rows hide their scrollbar; see src/chipScroll.ts. */
+.chip-scroller {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+.chip-scroller > :not(.chip-scroll-btn) {
+  flex: 1;
+  min-width: 0;
+  mask-image: linear-gradient(to right,
+    transparent, #000 var(--chip-fade-back, 0px),
+    #000 calc(100% - var(--chip-fade-forward, 0px)), transparent);
+}
+.chip-scroller.can-scroll-back { --chip-fade-back: 40px; }
+.chip-scroller.can-scroll-forward { --chip-fade-forward: 40px; }
+.chip-scroll-btn {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  translate: 0 -50%;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.chip-scroll-btn:hover { border-color: var(--border-hover); }
+.chip-scroll-back { left: 0; }
+.chip-scroll-forward { right: 0; }
+@media (hover: hover) {
+  .can-scroll-back > .chip-scroll-back,
+  .can-scroll-forward > .chip-scroll-forward { display: flex; }
+}
+.sports-bar-tools > .chip-scroller { flex: 1; }
 .sport-chip {
   padding: 6px 18px; border-radius: 100px;
   font-size: 0.82rem; font-weight: 600;
@@ -1017,6 +1061,7 @@ img { display: block; max-width: 100%; }
   .main-content { padding: 24px 16px 48px; }
   .sports-bar-inner { padding: 12px 16px; }
   .sports-bar-tools { flex-direction: column; align-items: stretch; }
+  .sports-bar-tools > .chip-scroller { flex: none; }
   .search-wrap,
   .search-input,
   .search-input:focus { width: 100%; }

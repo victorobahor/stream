@@ -108,7 +108,9 @@ describe('ppv routes', () => {
   it('leaves other paths alone and serves the sports list offline', async () => {
     expect((await call('/api/strmfree/matches')).handled).toBe(false);
     const { res } = await call('/api/ppv/sports');
-    expect(JSON.parse(res.body).map((s: { id: string }) => s.id)).toEqual(expect.arrayContaining(['american-football', 'wrestling', '24-7']));
+    const ids = JSON.parse(res.body).map((s: { id: string }) => s.id);
+    expect(ids.slice(0, 3)).toEqual(['24-7', 'football', 'basketball']);
+    expect(ids).toEqual(expect.arrayContaining(['american-football', 'wrestling']));
   });
 
   it('shares one upstream fetch between matches and stream lookups', async () => {
