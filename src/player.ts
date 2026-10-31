@@ -6,7 +6,7 @@ import {
   loadStreams as fetchStreams,
   pickPreferredStream,
   invalidateStreamsCache,
-  isSportsrcSource,
+  isPpvSource,
   sourceLabel,
 } from './api';
 import { MAIN_PLAYER_KEY, playNativeHls, stopNativeHls } from './hlsPlayer';
@@ -92,7 +92,7 @@ export function renderSourceButtons(sources: StreamSource[]): void {
     btn.className = 'source-chip' + (i === state.activeSourceIndex ? ' active' : '');
     btn.setAttribute('aria-pressed', String(i === state.activeSourceIndex));
     const dot = document.createElement('span');
-    dot.className = 'source-chip-dot' + (isSportsrcSource(src) ? ' sportsrc' : ' strmfree');
+    dot.className = 'source-chip-dot' + (isPpvSource(src) ? ' ppv' : ' strmfree');
     dot.setAttribute('aria-hidden', 'true');
     btn.appendChild(dot);
     btn.appendChild(document.createTextNode(sourceLabel(src.source)));

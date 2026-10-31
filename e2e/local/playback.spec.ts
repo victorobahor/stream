@@ -22,14 +22,14 @@ async function fixtures(page: Page, options: { failPrimary?: boolean; failAll?: 
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ json: body });
     if (path.endsWith('/sports')) return json([{ id: 'football', name: 'Football' }]);
-    // StreamFree serves its whole slate at /matches; SportSRC rows merge onto it by id.
+    // StreamFree serves its whole slate at /matches; PPV rows merge onto it by id.
     if (path.includes('/matches')) return json(catalog);
     if (path.includes('/stream/')) {
       const id = path.split('/').pop();
-      const sportsrc = path.startsWith('/api/sportsrc/');
-      if (sportsrc && options.emptyFallback) return json([]);
-      return json([{ id, streamNo: 1, language: 'English', hd: true, source: sportsrc ? 'sportsrc' : 'strmfree',
-        embedUrl: sportsrc ? `https://embed.streamapi.cc/sport/${id}/` : `https://strmfree.st/embed/soccer/${id}1080p` }]);
+      const ppv = path.startsWith('/api/ppv/');
+      if (ppv && options.emptyFallback) return json([]);
+      return json([{ id, streamNo: 1, language: 'English', hd: true, source: ppv ? 'ppv' : 'strmfree',
+        embedUrl: ppv ? `https://ppv.st/embed/${id}` : `https://strmfree.st/embed/soccer/${id}1080p` }]);
     }
     if (path === '/api/hls/open') {
       const embed = url.searchParams.get('u') || '';
@@ -91,7 +91,7 @@ async function health(page: Page) {
 test('four actual videos tolerate delayed segments and 503s without ads or restarts', async ({ page, context }, info) => {
   const fixture = await fixtures(page);
   await fillFour(page);
-  for (const i of [1, 3]) await page.locator('.mv-slot').nth(i).locator('select').first().selectOption('sportsrc');
+  for (const i of [1, 3]) await page.locator('.mv-slot').nth(i).locator('select').first().selectOption('ppv');
   await expect.poll(async () => (await health(page)).filter(v => v.time > 1 && !v.paused).length).toBe(4);
   let previous = await health(page);
   const samples = [];
@@ -126,11 +126,11 @@ test('four actual videos tolerate delayed segments and 503s without ads or resta
   await expect.poll(async () => (await health(page)).filter(v => v.time > 1 && !v.paused).length).toBe(3);
 });
 
-test('a failed provider moves to SportSRC; an unavailable match never opens ad frames', async ({ page, context }) => {
+test('a failed provider moves to PPV; an unavailable match never opens ad frames', async ({ page, context }) => {
   await fixtures(page, { failPrimary: true, failureStatus: 502 });
   await fillFour(page);
   await expect.poll(async () => (await health(page)).filter(v => v.time > 1).length).toBe(4);
-  for (let i = 0; i < 4; i++) await expect(page.locator('.mv-slot').nth(i).locator('select').first()).toHaveValue('sportsrc');
+  for (let i = 0; i < 4; i++) await expect(page.locator('.mv-slot').nth(i).locator('select').first()).toHaveValue('ppv');
   await expect(page.locator('iframe')).toHaveCount(0);
   expect(context.pages()).toHaveLength(1);
 });
@@ -158,7 +158,7 @@ test('the main player switches providers and closes playback on back navigation'
   const fixture = await fixtures(page);
   await page.locator('.match-card').first().click();
   await expect.poll(() => page.locator('#stream-video').evaluate(v => (v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
-  await page.locator('#source-bar .source-chip', { hasText: 'SportSRC' }).click();
+  await page.locator('#source-bar .source-chip', { hasText: 'PPV' }).click();
   await expect(page.locator('#player-loading')).toBeHidden();
   await expect.poll(() => page.locator('#stream-video').evaluate(v => (v as HTMLVideoElement).currentTime)).toBeGreaterThan(1);
   await expect(page.locator('iframe')).toHaveCount(0);

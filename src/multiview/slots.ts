@@ -2,14 +2,14 @@ import type { APIMatch, MultiviewLayout, SavedMultiviewState, SavedSlotData, Mul
 import { state } from '../state';
 import { el, log } from '../helpers';
 import { showToast } from '../format';
-import { loadStreams, getMatchById, fetchJSON, pickPreferredStream, invalidateStreamsCache, mergeMatchLists, SPORTSRC_API } from '../api';
+import { loadStreams, getMatchById, fetchJSON, pickPreferredStream, invalidateStreamsCache, mergeMatchLists, PPV_API } from '../api';
 import { renderMultiviewGrid, renderMultiviewSlot, getNumSlotsForLayout } from './grid';
 import { MULTIVIEW_STORAGE_KEY } from './storageKey';
 
 /**
  * Home/live loads only the active category, so a saved multiview match may be
  * absent from `state.allMatches` after refresh even though it still exists.
- * Look missing ids up once in the full SportSRC catalog (a superset of every
+ * Look missing ids up once in the full PPV catalog (a superset of every
  * category list).
  */
 async function lookupMatchesByIds(ids: string[]): Promise<Map<string, APIMatch>> {
@@ -25,8 +25,8 @@ async function lookupMatchesByIds(ids: string[]): Promise<Map<string, APIMatch>>
   if (want.size === 0) return found;
 
   try {
-    const data = await fetchJSON<APIMatch[]>(`${SPORTSRC_API}/matches/all`);
-    // The BFF returns bare ids; the app keys SportSRC cards as `sportsrc:<id>`.
+    const data = await fetchJSON<APIMatch[]>(`${PPV_API}/matches`);
+    // The BFF returns bare ids; the app keys PPV cards as `ppv:<id>`.
     for (const match of mergeMatchLists([], Array.isArray(data) ? data : [])) {
       if (want.has(match.id)) {
         found.set(match.id, match);

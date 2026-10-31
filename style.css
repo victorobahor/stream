@@ -937,7 +937,7 @@ img { display: block; max-width: 100%; }
   flex-shrink: 0;
 }
 .source-chip-dot.strmfree { background: var(--accent); }
-.source-chip-dot.sportsrc { background: var(--accent2); }
+.source-chip-dot.ppv { background: var(--accent2); }
 .source-chip:hover {
   border-color: var(--border-hover);
   color: var(--text);

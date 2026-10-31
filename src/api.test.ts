@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { APIMatch } from './types';
 import {
-  resolveMatchesEndpoint,
   mapPool,
   filterToPlayableMatches,
   clearStreamsCache,
@@ -11,62 +10,6 @@ import {
   reconcileMatchTeams,
 } from './api';
 import type { Stream } from './types';
-
-describe('resolveMatchesEndpoint', () => {
-  it('should return live endpoint for live category with all sports', () => {
-    const result = resolveMatchesEndpoint('live', 'all');
-    expect(result.endpoint).toBe('/api/matches/live');
-    expect(result.fallbacks).toEqual([]);
-    expect(result.clientSportFilter).toBe(false);
-  });
-
-  it('should return all-today endpoint for today category', () => {
-    const result = resolveMatchesEndpoint('today', 'all');
-    expect(result.endpoint).toBe('/api/matches/all-today');
-    expect(result.clientSportFilter).toBe(false);
-  });
-
-  it('should prefer live/popular with documented popular fallbacks', () => {
-    const result = resolveMatchesEndpoint('popular', 'all');
-    expect(result.endpoint).toBe('/api/matches/live/popular');
-    expect(result.fallbacks).toEqual([
-      '/api/matches/all-today/popular',
-      '/api/matches/all/popular',
-    ]);
-    expect(result.clientSportFilter).toBe(false);
-  });
-
-  it('should return all endpoint for all category', () => {
-    const result = resolveMatchesEndpoint('all', 'all');
-    expect(result.endpoint).toBe('/api/matches/all');
-    expect(result.clientSportFilter).toBe(false);
-  });
-
-  it('should return sport-specific popular endpoint', () => {
-    const result = resolveMatchesEndpoint('popular', 'football');
-    expect(result.endpoint).toBe('/api/matches/football/popular');
-    expect(result.fallbacks).toEqual([]);
-    expect(result.clientSportFilter).toBe(false);
-  });
-
-  it('should return sport-specific all endpoint', () => {
-    const result = resolveMatchesEndpoint('all', 'basketball');
-    expect(result.endpoint).toBe('/api/matches/basketball');
-    expect(result.clientSportFilter).toBe(false);
-  });
-
-  it('should return live endpoint with client sport filter for live + specific sport', () => {
-    const result = resolveMatchesEndpoint('live', 'tennis');
-    expect(result.endpoint).toBe('/api/matches/live');
-    expect(result.clientSportFilter).toBe(true);
-  });
-
-  it('should return all-today endpoint with client sport filter for today + specific sport', () => {
-    const result = resolveMatchesEndpoint('today', 'football');
-    expect(result.endpoint).toBe('/api/matches/all-today');
-    expect(result.clientSportFilter).toBe(true);
-  });
-});
 
 describe('rankSources', () => {
   it('should put admin ahead of delta', () => {
@@ -159,30 +102,8 @@ describe('filterToPlayableMatches', () => {
   });
 
   const liveStream = {
-    id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://embed.streamapi.cc/sport/x', source: 'sportsrc',
+    id: 's1', streamNo: 1, language: 'en', hd: true, embedUrl: 'https://ppv.st/embed/x', source: 'ppv',
   };
-
-  it('should keep matches with at least one working source and prune dead ones', async () => {
-    mockStreamResponses({
-      '/api/sportsrc/stream/football/dead': [],
-      '/api/sportsrc/stream/football/live': [liveStream],
-    });
-    const matches: APIMatch[] = [
-      {
-        ...base,
-        id: '1',
-        sources: [
-          { source: 'sportsrc', id: 'dead', category: 'football' },
-          { source: 'sportsrc', id: 'live', category: 'football' },
-        ],
-      },
-      { ...base, id: '2', sources: [{ source: 'sportsrc', id: 'dead', category: 'football' }] },
-    ];
-    const result = await filterToPlayableMatches(matches);
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('1');
-    expect(result[0].sources).toEqual([{ source: 'sportsrc', id: 'live', category: 'football' }]);
-  });
 
   it('should drop legacy Streamed sources without a network request', async () => {
     mockStreamResponses({ '/api/stream/admin/live': [liveStream] });
@@ -193,58 +114,14 @@ describe('filterToPlayableMatches', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
-  it('should probe a shared source:id only once across matches', async () => {
-    mockStreamResponses({ '/api/sportsrc/stream/football/shared': [liveStream] });
+  it('should trust ppv and strmfree rows without a network request', async () => {
+    mockStreamResponses({});
     const matches: APIMatch[] = [
-      { ...base, id: '1', sources: [{ source: 'sportsrc', id: 'shared', category: 'football' }] },
-      { ...base, id: '2', title: 'Other', sources: [{ source: 'sportsrc', id: 'shared', category: 'football' }] },
+      { ...base, id: 'ppv:x', sources: [{ source: 'ppv', id: 'x', category: 'football' }] },
+      { ...base, id: 'y', title: 'Other', sources: [{ source: 'strmfree', id: 'y', category: 'football' }] },
     ];
-    const result = await filterToPlayableMatches(matches);
-    expect(result).toHaveLength(2);
-    expect(vi.mocked(fetch).mock.calls.length).toBe(1);
-  });
-
-  it('should probe sportsrc stubs and drop empty ones', async () => {
-    mockStreamResponses({
-      '/api/sportsrc/stream/football/x': [],
-    });
-    const matches: APIMatch[] = [
-      {
-        ...base,
-        id: 'sportsrc:x',
-        sources: [{ source: 'sportsrc', id: 'x', category: 'football' }],
-      },
-    ];
-    const result = await filterToPlayableMatches(matches);
-    expect(result).toHaveLength(0);
-    expect(vi.mocked(fetch).mock.calls.length).toBe(1);
-  });
-
-  it('should keep sportsrc stubs that return streams', async () => {
-    mockStreamResponses({
-      '/api/sportsrc/stream/football/x': [
-        {
-          id: 's1',
-          streamNo: 1,
-          language: 'en',
-          hd: true,
-          embedUrl: 'https://embed.streamapi.cc/sport/x/',
-          source: 'sportsrc',
-        },
-      ],
-    });
-    const matches: APIMatch[] = [
-      {
-        ...base,
-        id: 'sportsrc:x',
-        sources: [{ source: 'sportsrc', id: 'x', category: 'football' }],
-      },
-    ];
-    const result = await filterToPlayableMatches(matches);
-    expect(result).toHaveLength(1);
-    expect(result[0].sources).toEqual([
-      { source: 'sportsrc', id: 'x', category: 'football' },
-    ]);
+    expect(await filterToPlayableMatches(matches)).toHaveLength(2);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });
 
@@ -253,7 +130,7 @@ describe('mergeMatchLists', () => {
   const DEDUPE_WINDOW_MS = 30 * 60 * 1000;
   const now = Math.floor(Date.now() / DEDUPE_WINDOW_MS) * DEDUPE_WINDOW_MS + 5 * 60 * 1000;
 
-  it('should prefix SportSRC-only ids and keep Streamed cards', () => {
+  it('should prefix PPV-only ids and keep Streamed cards', () => {
     const streamed: APIMatch[] = [
       {
         id: 's1',
@@ -265,21 +142,21 @@ describe('mergeMatchLists', () => {
         teams: { home: { name: 'Alpha', badge: 'a' }, away: { name: 'Beta', badge: 'b' } },
       },
     ];
-    const sportsrc: APIMatch[] = [
+    const ppv: APIMatch[] = [
       {
         id: 'other-match',
         title: 'Gamma vs Delta',
         category: 'football',
         date: now,
         popular: false,
-        sources: [{ source: 'sportsrc', id: 'other-match', category: 'football' }],
+        sources: [{ source: 'ppv', id: 'other-match', category: 'football' }],
         teams: { home: { name: 'Gamma', badge: 'g' }, away: { name: 'Delta', badge: 'd' } },
       },
     ];
-    const merged = mergeMatchLists(streamed, sportsrc);
+    const merged = mergeMatchLists(streamed, ppv);
     expect(merged).toHaveLength(2);
     expect(merged.find(m => m.id === 's1')).toBeTruthy();
-    expect(merged.find(m => m.id === 'sportsrc:other-match')).toBeTruthy();
+    expect(merged.find(m => m.id === 'ppv:other-match')).toBeTruthy();
   });
 
   it('should dedupe fuzzy matches onto the Streamed card', () => {
@@ -294,21 +171,21 @@ describe('mergeMatchLists', () => {
         teams: { home: { name: 'Alpha', badge: 'a' }, away: { name: 'Beta', badge: 'b' } },
       },
     ];
-    const sportsrc: APIMatch[] = [
+    const ppv: APIMatch[] = [
       {
         id: 'alpha-vs-beta-99',
         title: 'Alpha vs Beta',
         category: 'football',
         date: now + 60_000,
         popular: true,
-        sources: [{ source: 'sportsrc', id: 'alpha-vs-beta-99', category: 'football' }],
+        sources: [{ source: 'ppv', id: 'alpha-vs-beta-99', category: 'football' }],
         teams: { home: { name: 'Alpha', badge: 'a' }, away: { name: 'Beta', badge: 'b' } },
       },
     ];
-    const merged = mergeMatchLists(streamed, sportsrc);
+    const merged = mergeMatchLists(streamed, ppv);
     expect(merged).toHaveLength(1);
     expect(merged[0].id).toBe('s1');
-    expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
+    expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'ppv']);
   });
 
   it('should merge club nicknames (Wolves → Wolverhampton Wanderers)', () => {
@@ -326,14 +203,14 @@ describe('mergeMatchLists', () => {
         },
       },
     ];
-    const sportsrc: APIMatch[] = [
+    const ppv: APIMatch[] = [
       {
         id: 'wolves-vs-port-vale-football-1567419',
         title: 'Wolves vs Port Vale',
         category: 'football',
         date: now,
         popular: true,
-        sources: [{ source: 'sportsrc', id: 'wolves-vs-port-vale-football-1567419', category: 'football' }],
+        sources: [{ source: 'ppv', id: 'wolves-vs-port-vale-football-1567419', category: 'football' }],
         teams: {
           home: { name: 'Wolves', badge: 'a' },
           away: { name: 'Port Vale', badge: 'b' },
@@ -345,20 +222,20 @@ describe('mergeMatchLists', () => {
         category: 'football',
         date: now,
         popular: true,
-        sources: [{ source: 'sportsrc', id: 'wolverhampton-wanderers-vs-port-vale-2503731', category: 'football' }],
+        sources: [{ source: 'ppv', id: 'wolverhampton-wanderers-vs-port-vale-2503731', category: 'football' }],
         teams: {
           home: { name: 'Wolverhampton Wanderers', badge: 'a' },
           away: { name: 'Port Vale', badge: 'b' },
         },
       },
     ];
-    const merged = mergeMatchLists(streamed, sportsrc);
+    const merged = mergeMatchLists(streamed, ppv);
     expect(merged).toHaveLength(1);
     expect(merged[0].id).toBe('wolverhampton-wanderers-vs-port-vale-2503731');
-    expect(merged[0].sources.filter(s => s.source === 'sportsrc')).toHaveLength(2);
+    expect(merged[0].sources.filter(s => s.source === 'ppv')).toHaveLength(2);
   });
 
-  it('should merge SportSRC rows that reuse a Streamed match id', () => {
+  it('should merge PPV rows that reuse a Streamed match id', () => {
     const streamed: APIMatch[] = [
       {
         id: 'same-id-1',
@@ -373,24 +250,24 @@ describe('mergeMatchLists', () => {
         },
       },
     ];
-    const sportsrc: APIMatch[] = [
+    const ppv: APIMatch[] = [
       {
         id: 'same-id-1',
         title: 'Gamma vs Delta FC',
         category: 'football',
         date: now + 120_000,
         popular: false,
-        sources: [{ source: 'sportsrc', id: 'same-id-1', category: 'football' }],
+        sources: [{ source: 'ppv', id: 'same-id-1', category: 'football' }],
         teams: {
           home: { name: 'Gamma', badge: 'g' },
           away: { name: 'Delta FC', badge: 'd' },
         },
       },
     ];
-    const merged = mergeMatchLists(streamed, sportsrc);
+    const merged = mergeMatchLists(streamed, ppv);
     expect(merged).toHaveLength(1);
     expect(merged[0].id).toBe('same-id-1');
-    expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'sportsrc']);
+    expect(merged[0].sources.map(s => s.source)).toEqual(['admin', 'ppv']);
   });
 });
 

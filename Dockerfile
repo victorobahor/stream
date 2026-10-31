@@ -16,7 +16,7 @@ COPY style.css index.html ./
 RUN npm run build
 
 # Stage 2: Node + Playwright Chromium for native HLS resolve (/api/hls/*).
-# Chromium mints embed.st (SportSRC) sessions; StreamFree needs no browser.
+# Chromium mints PPV sessions; StreamFree needs no browser.
 # Alpine cannot run Chromium reliably.
 FROM mcr.microsoft.com/playwright:v1.62.0-jammy
 

@@ -3,9 +3,9 @@ import { __test } from './hlsNative.mjs';
 
 const {
   unwrapPngTs,
+  unwrapWebpTs,
   rewriteM3uForProxy,
   absolutizePlaylistUri,
-  isAllowedEmbedUrl,
   isAllowedMediaHost,
   isCandidatePlaylistUrl,
   isLikelyMediaSegment,
@@ -23,10 +23,28 @@ const {
 } = __test;
 
 describe('hlsNative helpers', () => {
-  it('accepts embed.st embed URLs only', () => {
-    expect(isAllowedEmbedUrl('https://embed.st/embed/admin/foo/1')?.hostname).toBe('embed.st');
-    expect(isAllowedEmbedUrl('https://evil.com/embed/admin/foo/1')).toBeNull();
-    expect(isAllowedEmbedUrl('http://embed.st/embed/admin/foo/1')).toBeNull();
+  it('unwraps MPEG-TS from the EXIF chunk of a WebP segment', () => {
+    const ts = Buffer.alloc(188, 0x47);
+    const chunk = (tag: string, body: Buffer) => {
+      const size = Buffer.alloc(4);
+      size.writeUInt32LE(body.length);
+      return Buffer.concat([Buffer.from(tag, 'latin1'), size, body, Buffer.alloc(body.length & 1)]);
+    };
+    const webp = Buffer.concat([
+      Buffer.from('RIFF\0\0\0\0WEBP', 'latin1'),
+      chunk('VP8L', Buffer.alloc(13, 1)),
+      chunk('EXIF', ts),
+    ]);
+    expect(unwrapWebpTs(webp).equals(ts)).toBe(true);
+    expect(unwrapWebpTs(ts)).toBe(ts);
+    const noExif = webp.subarray(0, 34);
+    expect(unwrapWebpTs(noExif)).toBe(noExif);
+  });
+
+  it('allows PPV media hosts by exact root, not substring', () => {
+    expect(isAllowedMediaHost('bharat.indianservers.st')).toBe(true);
+    expect(isAllowedMediaHost('indianservers.st.evil.com')).toBe(false);
+    expect(isAllowedMediaHost('notindianservers.st')).toBe(false);
   });
 
   it('rewrites m3u media lines through the proxy prefix', () => {

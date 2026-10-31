@@ -21,7 +21,7 @@ const SOURCES_TTL_MS = 30_000;
 const UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36';
 
-/** StreamFree category → app sport id (the SportSRC ids the sports bar uses). */
+/** StreamFree category → app sport id (the ids the sports bar uses). */
 const CATEGORY_MAP = {
   soccer: 'football',
   football: 'american-football',
@@ -93,6 +93,16 @@ export function normalizeStreamList(payload) {
   return rows.filter(s => s?.stream_key && !s.is_external).map(normalizeStream);
 }
 
+/** Stream keys carry accented team names (`alavés-vs-barcelona`). */
+const KEY_CHARS = String.raw`[\p{L}\p{N}_.-]+`;
+const STREAM_KEY = new RegExp(`^${KEY_CHARS}$`, 'u');
+const EMBED_PATH = new RegExp(`^/embed/${KEY_CHARS}/${KEY_CHARS}$`, 'u');
+
+/** Sources are `{ quality, url }` objects; older payloads were bare URLs. */
+function sourceUrls(list) {
+  return (Array.isArray(list) ? list : []).map(s => (typeof s === 'string' ? s : s?.url));
+}
+
 /** Variant label from an embed URL: `…/chelsea-vs-liverpool1080p2` → `1080p · Source 2`. */
 function variantLabel(embedUrl) {
   const m = String(embedUrl).match(/(\d{3,4}p)(\d*)$/);
@@ -105,9 +115,8 @@ function variantLabel(embedUrl) {
  * that every listed variant, so the player can explain the stream hasn't started.
  */
 export function normalizeSources(payload) {
-  const live = Array.isArray(payload?.live_sources) ? payload.live_sources : [];
-  const all = Array.isArray(payload?.sources) ? payload.sources : [];
-  const list = live.length ? live : all;
+  const live = sourceUrls(payload?.live_sources);
+  const list = live.length ? live : sourceUrls(payload?.sources);
   return list
     .filter(u => isStrmfreeEmbedUrl(u))
     .map((embedUrl, i) => ({
@@ -123,7 +132,7 @@ export function normalizeSources(payload) {
 export function isStrmfreeEmbedUrl(raw) {
   try {
     const u = new URL(String(raw || ''));
-    return u.protocol === 'https:' && STRMFREE_HOSTS.has(u.hostname) && /^\/embed\/[\w-]+\/[\w.-]+$/.test(u.pathname);
+    return u.protocol === 'https:' && STRMFREE_HOSTS.has(u.hostname) && EMBED_PATH.test(decodeURI(u.pathname));
   } catch {
     return false;
   }
@@ -139,8 +148,8 @@ export function parseEmbedPage(html) {
   const str = name => text.match(new RegExp(`const ${name} = '([^']*)'`))?.[1];
   const quality = str('QUALITY');
   const suffix = str('SOURCE_SUFFIX') ?? '';
-  const base = text.match(/const VARIANT = '([\w.-]+)' \+ QUALITY \+ SOURCE_SUFFIX/)?.[1];
-  const streamKey = text.match(/\/get-stream-key\/([\w.-]+)/)?.[1];
+  const base = text.match(new RegExp(`const VARIANT = '(${KEY_CHARS})' \\+ QUALITY \\+ SOURCE_SUFFIX`, 'u'))?.[1];
+  const streamKey = text.match(new RegExp(`/get-stream-key/(${KEY_CHARS})`, 'u'))?.[1];
   let token = null;
   try {
     const tokens = JSON.parse(text.match(/const _0x = (\{.*?\});/)?.[1] || 'null');
@@ -236,7 +245,7 @@ export async function tryHandleStrmfreeRequest(req, res) {
     const streamMatch = rest.match(/^\/stream\/([\w.%-]+)\/?$/);
     if (streamMatch) {
       const key = decodeURIComponent(streamMatch[1]);
-      if (!/^[\w.-]+$/.test(key)) {
+      if (!STREAM_KEY.test(key)) {
         sendJson(res, 400, { error: 'Bad stream key' });
         return true;
       }

@@ -27,7 +27,7 @@ vi.mock('hls.js', () => ({
   },
 }));
 
-const url = 'https://embed.st/embed/admin/test/1';
+const url = 'https://ppv.st/embed/admin/test/1';
 const response = (id: string) => new Response(JSON.stringify({ sessionId: id, masterUrl: `/api/hls/${id}/master.m3u8` }));
 const video = () => document.createElement('video');
 beforeEach(() => {
@@ -108,11 +108,11 @@ describe('native playback lifecycle', () => {
     expect(getActiveHlsSessionId('mv-0')).toBeNull();
     expect(getActiveHlsSessionId('mv-1')).toBe(sibling);
   });
-  it('passes SportSRC wrappers to the server and never opens an iframe', async () => {
+  it('passes PPV handles to the server and never opens an iframe', async () => {
     const fetch = vi.fn(async (_url: string) => response('abc1'));
     vi.stubGlobal('fetch', fetch);
-    await playNativeHls('https://embed.streamapi.cc/sport/game/', { video: video(), key: 'main' });
-    expect(String(fetch.mock.calls[0][0])).toContain(encodeURIComponent('https://embed.streamapi.cc/sport/game/'));
+    await playNativeHls('https://ppv.st/embed/game', { video: video(), key: 'main' });
+    expect(String(fetch.mock.calls[0][0])).toContain(encodeURIComponent('https://ppv.st/embed/game'));
     expect(document.querySelector('iframe')).toBeNull();
   });
 });

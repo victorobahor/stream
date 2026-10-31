@@ -98,11 +98,11 @@ export function filterMatchesWithSources(matches: APIMatch[]): APIMatch[] {
 
 /**
  * Refine the merged catalog by UI category. Load-time endpoints already narrow
- * the slate; this keeps Live/Today/Popular correct when SportSRC + Streamed
+ * the slate; this keeps Live/Today/Popular correct when PPV + StreamFree
  * rows are combined.
  *
  * Live: prefer `liveMatchIds` (Streamed live slate, including long events) and
- * only date-gate SportSRC-only cards that were never on that slate.
+ * only date-gate PPV-only cards that were never on that slate.
  */
 export function filterMatchesByCategory(
   matches: APIMatch[],
@@ -112,7 +112,7 @@ export function filterMatchesByCategory(
     return matches.filter(m => {
       // Streamed / merged cards from the live fetch — keep even if kickoff is
       // outside the 3h badge window (e.g. motorsport endurance).
-      if (!String(m.id).startsWith('sportsrc:')) return true;
+      if (!String(m.id).startsWith('ppv:')) return true;
       return isMatchLive(m) || m.status === 'inprogress';
     });
   }
@@ -141,7 +141,7 @@ export function sortMatchesForDisplay(matches: APIMatch[]): APIMatch[] {
     .map(match => ({
       match,
       live: Number(isMatchLive(match)),
-      // SportSRC keeps earlier games on today's slate; sink them below upcoming ones.
+      // Providers keep earlier games on today's slate; sink them below upcoming ones.
       finished: Number(isMatchFinished(match)),
       popular: Number(!!match.popular),
       epl: Number(isEPLMatch(match))
@@ -214,16 +214,8 @@ const NATIVE_EMBED_HOSTS: Record<string, (u: URL) => boolean> = {
   // StreamFree (primary catalog since Streamed closed).
   'strmfree.st': u => u.pathname.startsWith('/embed/'),
   'streamfree.top': u => u.pathname.startsWith('/embed/'),
-  // embed.st — the player SportSRC wrappers resolve to.
-  'embed.st': u => u.pathname.startsWith('/embed/'),
-  'www.embed.st': u => u.pathname.startsWith('/embed/'),
-  // SportSRC wrappers (unwrapped server-side).
-  'embed.streamapi.cc': () => true,
-  'streamapi.cc': () => true,
-  'football77.org': () => true,
-  'www.football77.org': () => true,
-  'embed.sportsrc.org': () => true,
-  'www.embed.sportsrc.org': () => true,
+  // PPV stream handles; the server looks up the current iframe.
+  'ppv.st': u => u.pathname.startsWith('/embed/'),
 };
 
 /** True when the URL is a provider embed the native HLS proxy accepts. */

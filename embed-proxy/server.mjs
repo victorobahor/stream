@@ -1,5 +1,5 @@
 /**
- * Production server: static `dist/` + StreamFree/SportSRC BFFs + native HLS
+ * Production server: static `dist/` + StreamFree/PPV BFFs + native HLS
  * proxy. Used by Docker instead of nginx-only (which cannot run the BFFs).
  *
  *   node embed-proxy/server.mjs
@@ -11,7 +11,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
-import { tryHandleSportsrcRequest } from './sportsrc.mjs';
+import { tryHandlePpvRequest } from './ppv.mjs';
 import { tryHandleStrmfreeRequest } from './strmfree.mjs';
 import {
   appSecurityHeaders,
@@ -151,7 +151,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (await tryHandleSportsrcRequest(req, res)) {
+    if (await tryHandlePpvRequest(req, res)) {
       return;
     }
 

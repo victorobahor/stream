@@ -1,14 +1,13 @@
 import type { Plugin } from 'vite';
-import { isAllowedEmbedUrl, ALLOWED_EMBED_HOSTS } from './rewrite.mjs';
 import { tryHandleHlsRequest } from './hlsNative.mjs';
-import { tryHandleSportsrcRequest } from './sportsrc.mjs';
+import { tryHandlePpvRequest } from './ppv.mjs';
 import { tryHandleStrmfreeRequest } from './strmfree.mjs';
 
 /**
  * Dev-server: the same API surface as embed-proxy/server.mjs.
  *   GET /api/strmfree/*                    → StreamFree (primary catalog)
- *   GET /api/sportsrc/*                    → SportSRC V1
- *   GET /api/hls/*                         → native HLS (StreamFree, SportSRC → embed.st)
+ *   GET /api/ppv/*                         → PPV
+ *   GET /api/hls/*                         → native HLS (StreamFree, PPV)
  */
 export function embedProxyPlugin(): Plugin {
   return {
@@ -20,8 +19,8 @@ export function embedProxyPlugin(): Plugin {
           const handled = await tryHandleHlsRequest(req, res);
           if (handled) return;
         }
-        if (rawUrl.startsWith('/api/sportsrc')) {
-          const handled = await tryHandleSportsrcRequest(req, res);
+        if (rawUrl.startsWith('/api/ppv')) {
+          const handled = await tryHandlePpvRequest(req, res);
           if (handled) return;
         }
         if (rawUrl.startsWith('/api/strmfree')) {
@@ -33,8 +32,3 @@ export function embedProxyPlugin(): Plugin {
     },
   };
 }
-
-export const __test = {
-  isAllowedEmbedUrl,
-  ALLOWED_EMBED_HOSTS,
-};

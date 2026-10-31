@@ -13,7 +13,7 @@ import { getSportEmoji, formatSportLabel, showToast } from './format';
 import { syncSportChips, ALL_SPORTS } from './chips';
 import { renderMatches } from './cards';
 import { showHome, showSkeleton, hideError, showError, setActiveCategory } from './ui';
-import { loadMatches } from './api';
+import { loadMatches, viewCategory } from './api';
 
 /**
  * Refresh the multiview sidebar, but only when it is actually on screen — this
@@ -64,7 +64,7 @@ export async function loadMatchesWithUI(options: { skeleton?: boolean } = {}): P
 }
 
 /**
- * SportSRC has no 24/7 channels, so Live is often empty between kick-offs.
+ * Live can be empty between kick-offs.
  * On first load, land on today's slate instead of an empty grid.
  */
 export async function fallbackFromEmptyLive(): Promise<void> {
@@ -104,12 +104,12 @@ export function handleSearch(query: string): void {
 }
 
 /**
- * Client-side view filters on the SportSRC catalog:
+ * Client-side view filters on the merged catalog:
  * sources → category (live/today/popular) → sport → search → sort.
  */
 export function applyFilters(): void {
   let matches = filterMatchesWithSources(state.allMatches);
-  matches = filterMatchesByCategory(matches, state.currentCategory);
+  matches = filterMatchesByCategory(matches, viewCategory());
   matches = filterMatchesBySport(matches, state.currentSport);
 
   if (state.searchQuery) {

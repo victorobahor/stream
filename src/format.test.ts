@@ -110,6 +110,8 @@ describe('getSportEmoji', () => {
     expect(getSportEmoji('football')).toBe('⚽');
     expect(getSportEmoji('basketball')).toBe('🏀');
     expect(getSportEmoji('tennis')).toBe('🎾');
+    expect(getSportEmoji('24-7')).toBe('📺');
+    expect(getSportEmoji('wrestling')).toBe('🤼');
   });
 
   it('should return default emoji for unknown sports', () => {

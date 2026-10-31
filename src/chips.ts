@@ -72,7 +72,7 @@ export function renderSportChips(container: HTMLElement | null, opts: SportChipO
     const chip = document.createElement('button');
     chip.className = opts.chipClass;
     chip.dataset.sportId = id;
-    chip.textContent = opts.withEmoji ? `${getSportEmoji(name)} ${capitalize(name)}` : capitalize(name);
+    chip.textContent = opts.withEmoji ? `${getSportEmoji(id)} ${capitalize(name)}` : capitalize(name);
     chip.setAttribute('aria-pressed', 'false');
     fragment.appendChild(chip);
   }
