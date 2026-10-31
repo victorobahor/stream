@@ -1,6 +1,7 @@
 import type { Sport } from './types';
 import { state } from './state';
 import { capitalize, getSportEmoji } from './format';
+import { enableChipScroll, refreshChipScroll, revealChip } from './chipScroll';
 
 export const ALL_SPORTS = 'all';
 
@@ -39,6 +40,7 @@ export function syncSportChips(container: HTMLElement | null, activeId: string):
     if (chip.dataset.sportId === activeId) {
       chip.classList.add('active');
       chip.setAttribute('aria-pressed', 'true');
+      revealChip(container, chip);
       return;
     }
   }
@@ -78,7 +80,9 @@ export function renderSportChips(container: HTMLElement | null, opts: SportChipO
   }
 
   container.replaceChildren(fragment);
+  enableChipScroll(container);
   syncSportChips(container, opts.activeId);
+  refreshChipScroll(container);
   selectHandlers.set(container, opts.onSelect);
 
   if (!container.dataset.chipsBound) {
