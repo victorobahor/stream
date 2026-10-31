@@ -397,7 +397,9 @@ async function getBrowser() {
 
     browser = await playwright.chromium.launch({
       headless: true,
-      executablePath,
+      // Playwright's default headless shell has no PDF viewer, which PPV's
+      // embed reads as a sandboxed iframe and refuses to load the stream.
+      ...(executablePath ? { executablePath } : { channel: 'chromium' }),
       // --no-sandbox / shm: required inside typical Docker/CI containers.
       args: [
         '--disable-blink-features=AutomationControlled',
